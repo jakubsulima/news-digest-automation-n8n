@@ -1,38 +1,48 @@
 # Daily News Digest
 
-Proste lokalne MVP oparte o n8n, które:
+A simple local n8n-based MVP that:
 
-- codziennie rano pobiera newsy z RSS
-- klastruje artykuły do poziomu story clusterów
-- wzbogaca topowe story o tekst pobrany z docelowych stron
-- zapisuje historię runów, story i wzbogaconych artykułów w PostgreSQL
-- generuje polski digest w Markdown z naciskiem na to, co nowe w ostatniej dobie
-- zapisuje najnowszy digest do pliku lokalnego
-- udostępnia go przez prywatny webhook n8n
-- pozwala zapisać wynik do Apple Notes przez Apple Shortcuts
+- fetches news from RSS every morning
+- clusters articles into story clusters
+- enriches top stories with text fetched from destination pages
+- stores run history, story state, and enriched article text in PostgreSQL
+- generates a Polish Markdown digest focused on what is new in the last day
+- writes the latest digest to a local file
+- exposes it through a private n8n webhook
+- lets you save it to Apple Notes through Apple Shortcuts
 
-Projekt jest celowo prosty. Nie używa scrapowania stron, nie wystawia panelu n8n publicznie i da się go uruchomić lokalnie w jeden wieczór.
+The project is intentionally simple. It does not rely on full-page scraping, it does not expose the n8n editor publicly, and it can be set up locally in one evening.
 
-## Architektura
+## Architecture
 
-1. Docker Compose uruchamia lokalnie `n8n` i `PostgreSQL`.
-2. Workflow `Daily News Digest - Build` wywołuje lokalny serwis Pythona, który pobiera RSS, klastruje story, wzbogaca topowe pozycje i tworzy digest.
-3. Serwis Pythona zapisuje run metadata, story clusters i wzbogacone artykuły do PostgreSQL.
-4. Digest jest zapisywany do pliku `storage/digests/latest.md` oraz do archiwum dziennego `storage/digests/archive/YYYY-MM-DD.md`.
-5. Workflow `Daily News Digest - Get Latest` zwraca zawartość `latest.md` przez webhook GET.
-6. Apple Shortcut wywołuje webhook przez Tailscale i zapisuje wynik jako notatkę w Apple Notes.
+1. Docker Compose runs `n8n`, `PostgreSQL`, and the local Python `digest-builder` service.
+2. The `Daily News Digest - Build` workflow calls the Python service.
+3. The Python service:
+   - fetches RSS feeds
+   - normalizes URLs
+   - clusters similar stories
+   - compares them with recent history in PostgreSQL
+   - scores them heuristically
+   - enriches top candidates with article page text
+   - optionally runs an AI editorial review pass
+   - renders the final digest
+4. The digest is written to:
+   - `storage/digests/latest.md`
+   - `storage/digests/archive/YYYY-MM-DD.md`
+5. The `Daily News Digest - Get Latest` workflow returns `latest.md` over a GET webhook.
+6. Apple Shortcuts can fetch that webhook over Tailscale and save the result to Apple Notes.
 
-## Dlaczego zapis do lokalnego pliku
+## Why Keep a Local File
 
-Digest nadal jest dostarczany jako lokalny plik, ale nie jest juz jedynym stanem systemu.
+The digest is still delivered as a local file, but it is no longer the only state in the system.
 
-- `latest.md` i archiwum Markdown są wygodne do konsumpcji i backupu.
-- PostgreSQL przechowuje pamiec story miedzy runami, co pozwala liczyc nowosc, potwierdzenie i zmiany od poprzedniej doby.
-- Wzbogacony tekst topowych artykulow zostaje w bazie, wiec mozna potem debugowac ranking albo przebudowac podsumowanie bez ponownego fetchu.
+- `latest.md` and the Markdown archive are convenient for reading and backup.
+- PostgreSQL stores cross-run story memory, which makes novelty, confirmation, and “what changed since yesterday” possible.
+- Enriched article text stays in the database, so you can debug ranking decisions or rebuild summaries without fetching pages again.
 
-To podejscie zostawia prosty delivery path, ale dodaje warstwe analityczna potrzebna do sensownego digestu coverage-first.
+This keeps delivery simple while adding the state layer needed for a useful coverage-first digest.
 
-## Struktura projektu
+## Project Structure
 
 ```text
 daily-news-digest/
@@ -45,72 +55,76 @@ daily-news-digest/
     daily-news-digest-build.json
     daily-news-digest-get-latest.json
   config/
+    rss-sources.json
     editorial-settings.json
   prompts/
     ai-editorial-review.md
     nvidia-news-editor.md
+  scripts/
+    build_digest.py
+    digest_service.py
+    digest_store.py
   storage/
     digests/
       latest.md
       archive/
 ```
 
-## Wymagania
+## Requirements
 
-- Docker Desktop albo Docker Engine + Docker Compose
-- konto i klient Tailscale na urządzeniu z n8n
-- konto Tailscale na iPhonie i/lub Macu, z których chcesz wywoływać webhook
-- klucz `NVIDIA_API_KEY` do NVIDIA Build / NIM
-- podstawowa znajomość kopiowania plików i uruchamiania poleceń w terminalu
-- świadomość, ze serwis `digest-builder` buduje wlasny obraz Dockera z klientem PostgreSQL
+- Docker Desktop or Docker Engine with Docker Compose
+- a Tailscale account and client on the machine running n8n
+- a Tailscale account on the iPhone and/or Mac that will call the webhook
+- an `NVIDIA_API_KEY` for NVIDIA Build / NIM
+- basic comfort with terminal commands
 
-## Instalacja krok po kroku
+## Step-by-Step Setup
 
-### 1. Wejdź do katalogu projektu
+### 1. Enter the project directory
 
 ```bash
 cd /Users/jakub/Desktop/n8n/daily-news-digest
 ```
 
-### 2. Skopiuj `.env.example` do `.env`
+### 2. Copy `.env.example` to `.env`
 
 ```bash
 cp .env.example .env
 ```
 
-### 3. Wygeneruj `N8N_ENCRYPTION_KEY`
+### 3. Generate `N8N_ENCRYPTION_KEY`
 
 ```bash
 openssl rand -hex 32
 ```
 
-Wklej wynik do `.env` pod:
+Paste the output into `.env`:
 
 ```env
-N8N_ENCRYPTION_KEY=tu-wklej-wynik
+N8N_ENCRYPTION_KEY=paste-the-value-here
 ```
 
-To ważne. Ten klucz musi być stały. Nie zmieniaj go po starcie systemu, jeśli nie chcesz problemów z danymi i credentialami n8n.
+This must stay stable. Do not rotate it casually after the system is already running, or you may break stored credentials and data in n8n.
 
-### 4. Wpisz dane do PostgreSQL w `.env`
+### 4. Set PostgreSQL values in `.env`
 
-Przykład:
+Example:
 
 ```env
 POSTGRES_USER=n8n
-POSTGRES_PASSWORD=zmien-mnie-na-mocne-haslo
+POSTGRES_PASSWORD=replace-me-with-a-strong-password
 POSTGRES_DB=n8n
 ```
 
-### 5. Wpisz `NVIDIA_API_KEY`
+### 5. Set `NVIDIA_API_KEY`
 
-W `.env` ustaw:
+In `.env`:
 
 ```env
-NVIDIA_API_KEY=tu-wklej-swoj-klucz
+NVIDIA_API_KEY=paste-your-key-here
 ```
 
-Domyślny model i fallback są już przygotowane:
+Defaults are already provided:
 
 ```env
 NVIDIA_NIM_MODEL=meta/llama-3.3-70b-instruct
@@ -118,35 +132,39 @@ NVIDIA_NIM_FALLBACK_MODEL=nvidia/nvidia-nemotron-nano-9b-v2
 ENRICH_TOP_N=12
 ```
 
-### 6. Uruchom Docker Compose
+### 6. Start the stack
 
 ```bash
 docker compose up -d
 ```
 
-### 7. Sprawdź, czy kontenery działają
+If you changed the builder image or dependencies, rebuild:
+
+```bash
+docker compose up --build -d
+```
+
+### 7. Verify containers
 
 ```bash
 docker compose ps
 ```
 
-Powinieneś zobaczyć uruchomione usługi `postgres` i `n8n`.
+You should see `postgres`, `n8n`, and `digest-builder` running.
 
-### 8. Otwórz panel n8n
-
-Wejdź na:
+### 8. Open n8n
 
 ```text
 http://127.0.0.1:5678
 ```
 
-Panel jest wystawiony tylko lokalnie. To celowe.
+The editor is intentionally only exposed locally.
 
-## Test NVIDIA API przez curl
+## Test the NVIDIA API with curl
 
-Przed importem workflowów warto sprawdzić, czy klucz działa.
+Before importing workflows, it is worth checking that the key works.
 
-Najpierw wczytaj zmienne z `.env` do bieżącej sesji terminala:
+Load the `.env` variables into your current shell:
 
 ```bash
 set -a
@@ -154,7 +172,7 @@ source .env
 set +a
 ```
 
-Następnie uruchom:
+Then run:
 
 ```bash
 curl https://integrate.api.nvidia.com/v1/chat/completions \
@@ -165,7 +183,7 @@ curl https://integrate.api.nvidia.com/v1/chat/completions \
     "messages": [
       {
         "role": "user",
-        "content": "Napisz jednozdaniowe streszczenie po polsku: NVIDIA NIM może być użyte jako OpenAI-compatible API."
+        "content": "Write a one-sentence summary in Polish: NVIDIA NIM can be used as an OpenAI-compatible API."
       }
     ],
     "temperature": 0.2,
@@ -173,737 +191,506 @@ curl https://integrate.api.nvidia.com/v1/chat/completions \
   }'
 ```
 
-Jeśli wszystko działa, dostaniesz odpowiedź JSON z `choices[0].message.content`.
+If it works, you should get JSON with `choices[0].message.content`.
 
-## Konfiguracja Tailscale
+## Tailscale Setup
 
-Cel: prywatny dostęp do panelu n8n i webhooków bez publicznego wystawiania usługi.
+Goal: private access to n8n and webhooks without exposing the service publicly.
 
-### 1. Zaloguj Tailscale na maszynie z n8n
+### 1. Sign in to Tailscale on the n8n machine
 
-Upewnij się, że urządzenie z Dockerem jest zalogowane do tego samego tailnetu co iPhone i Mac.
+Make sure the Docker host is in the same tailnet as your iPhone and/or Mac.
 
-### 2. Wystaw lokalny panel n8n przez Tailscale Serve
+### 2. Expose local n8n through Tailscale Serve
 
 ```bash
 tailscale serve --bg http://127.0.0.1:5678
 ```
 
-### 3. Sprawdź status
+### 3. Check status
 
 ```bash
 tailscale serve status
 ```
 
-Zobaczysz URL przypisany do urządzenia w tailnecie. To jego użyjesz w Shortcuts.
+You will get the device URL in your tailnet. Use that URL in Shortcuts.
 
-### 4. Opcjonalnie ustaw poprawne URL-e w `.env`
+### 4. Optionally set proper external URLs in `.env`
 
-Jeśli chcesz, żeby n8n generował webhooki już z adresem Tailscale, dopisz do `.env`:
+If you want n8n to generate webhook URLs with the Tailscale hostname:
 
 ```env
-N8N_HOST=twoje-urzadzenie.twoj-tailnet.ts.net
+N8N_HOST=your-device.your-tailnet.ts.net
 N8N_PROTOCOL=https
-N8N_EDITOR_BASE_URL=https://twoje-urzadzenie.twoj-tailnet.ts.net
-WEBHOOK_URL=https://twoje-urzadzenie.twoj-tailnet.ts.net/
+N8N_EDITOR_BASE_URL=https://your-device.your-tailnet.ts.net
+WEBHOOK_URL=https://your-device.your-tailnet.ts.net/
 ```
 
-Po zmianie zrestartuj stack:
+Then restart:
 
 ```bash
 docker compose down
 docker compose up -d
 ```
 
-### 5. Ważne zasady bezpieczeństwa
+### 5. Security rules
 
-- Nie używaj Tailscale Funnel do panelu n8n.
-- Nie wystawiaj `5678` publicznie w routerze ani reverse proxy.
-- iPhone i Mac muszą być połączone z tym samym tailnetem, żeby wywoływać webhook.
-- Sekrety trzymaj tylko w `.env`.
+- Do not use Tailscale Funnel for the n8n editor.
+- Do not expose port `5678` publicly through your router or reverse proxy.
+- All client devices must be in the same tailnet.
+- Keep secrets only in `.env`.
 
-## Import workflowów do n8n
+## Import the Workflows
 
 ### Workflow 1: `Daily News Digest - Build`
 
-1. Otwórz n8n.
-2. Kliknij `Workflows`.
-3. Kliknij `Import from File`.
-4. Wskaż plik:
+1. Open n8n.
+2. Go to `Workflows`.
+3. Click `Import from File`.
+4. Select:
 
 ```text
 workflows/daily-news-digest-build.json
 ```
- 
-5. Zapisz workflow.
-6. Otwórz node `NVIDIA NIM Primary` i sprawdź, czy expressions wyglądają poprawnie.
-7. Otwórz node `NVIDIA NIM Fallback` i sprawdź fallback model.
-8. Aktywuj workflow dopiero po teście ręcznym.
+
+5. Save the workflow.
+6. Run it manually once before activating it.
 
 ### Workflow 2: `Daily News Digest - Get Latest`
 
-1. Kliknij `Import from File`.
-2. Wskaż plik:
+1. Click `Import from File`.
+2. Select:
 
 ```text
 workflows/daily-news-digest-get-latest.json
 ```
 
-3. Zapisz workflow.
-4. Aktywuj workflow po pierwszym wygenerowaniu digestu.
+3. Save the workflow.
+4. Activate it after the first digest has been generated.
 
-## Jak działa workflow `Daily News Digest - Build`
+## How `Daily News Digest - Build` Works
 
-1. `Schedule Trigger` uruchamia workflow codziennie o 07:00 czasu `Europe/Warsaw`.
-2. Node `RSS Sources Config` przekazuje do serwisu Pythona:
-   - ścieżkę do konfiguracji RSS
-   - limit artykułów
-   - flagę AI dedupe
-3. Node `Build Digest In Python` wywołuje `http://digest-builder:8000/build`.
-4. Serwis Pythona:
-   - pobiera RSS-y
-   - normalizuje URL-e i odrzuca stare wpisy
-   - scala podobne artykuły do story clusterów
-   - porównuje je z historią w PostgreSQL
-   - liczy impact, novelty, confirmation, scope fit i urgency
-   - wzbogaca topowe story o tekst z docelowych stron
-   - zapisuje run/story/article metadata do PostgreSQL
-5. n8n zapisuje wynik do:
+1. `Schedule Trigger` runs every day at `07:00` in `Europe/Warsaw`.
+2. `RSS Sources Config` sends the Python service:
+   - the RSS config path
+   - the maximum number of articles
+   - the AI dedupe flag
+3. `Build Digest In Python` calls `http://digest-builder:8000/build`.
+4. The Python service:
+   - fetches RSS feeds
+   - normalizes URLs and drops stale items
+   - merges similar articles into story clusters
+   - compares them with recent history in PostgreSQL
+   - computes `impact`, `novelty`, `confirmation`, `scope_fit`, and `urgency`
+   - enriches top stories with article page text
+   - optionally runs AI editorial review
+   - stores run, story, and article metadata in PostgreSQL
+5. n8n writes the final digest to:
    - `storage/digests/latest.md`
    - `storage/digests/archive/YYYY-MM-DD.md`
 
-## Strojenie wag bez zmiany kodu
+## Tune Weights Without Changing Code
 
-Plik:
+The file:
 
 ```text
 config/editorial-settings.json
 ```
 
-steruje:
+controls:
 
-- wagami końcowymi `impact / novelty / confirmation / scope_fit / urgency`
-- słowami kluczowymi i ich wagami
-- karą dla ogólnych historii wojennych
-- progami dopasowania story
-- domyślnym `top-N` dla enrichmentu
-- etapem `AI editorial review` dla shortlisty story clusterów
+- final weights for `impact / novelty / confirmation / scope_fit / urgency`
+- keyword weights
+- generic war story penalties
+- story matching thresholds
+- the default enrichment top-N
+- AI editorial review settings
 
-Po zmianie tego pliku wystarczy przeładować stack:
+After changing only this file, a normal restart is enough:
 
 ```bash
 docker compose up -d
 ```
 
-Jeśli zmienisz też obraz lub zależności, użyj:
+If you also changed the image or dependencies:
 
 ```bash
 docker compose up --build -d
 ```
 
-## AI editorial review
+## AI Editorial Review
 
-Po heurystycznym shortlistingu system może zrobić drugi etap oceny przez model.
+After heuristic ranking, the system can run a second model-based review pass.
 
 Pipeline:
 
-1. heurystyki i clustering wybierają kandydatów
-2. enrichment pobiera tekst dla topowych historii
-3. AI ocenia shortlistę i zwraca JSON z:
+1. heuristics and clustering produce candidates
+2. enrichment fetches text for top stories
+3. AI reviews the shortlist and returns JSON with:
    - `keep`
    - `editorialAdjustment`
    - `importance`
    - `scopeFit`
    - `warRelevance`
    - `reason`
-4. końcowy ranking to heurystyka plus bonus lub kara od AI
+4. the final rank is the heuristic score plus AI bonus or penalty
 
-Ustawienia tego etapu są w:
+The settings live in:
 
 ```text
 config/editorial-settings.json
 ```
 
-Sekcja:
+In the `ai_editorial_review` section.
 
-```json
-"ai_editorial_review": {
-  "enabled": true,
-  "shortlist_size": 24,
-  "temperature": 0.1,
-  "max_tokens": 2800,
-  "max_abs_adjustment": 20,
-  "reject_penalty": 18,
-  "weight": 1.0
-}
-```
+If `NVIDIA_API_KEY` is missing or the API fails, the workflow falls back to heuristics only.
 
-Jeśli `NVIDIA_API_KEY` nie jest ustawiony albo API nie odpowie, workflow wraca do samej heurystyki.
-
-Prompt dla tego etapu jest w:
+The editable prompt for this pass is here:
 
 ```text
 prompts/ai-editorial-review.md
 ```
 
-Możesz go edytować bez zmiany kodu.
+## How `Daily News Digest - Get Latest` Works
 
-## Jak działa workflow `Daily News Digest - Get Latest`
-
-1. `Webhook` obsługuje metodę `GET` na ścieżce:
+1. `Webhook` handles `GET` on:
 
 ```text
 /daily-news-digest
 ```
 
-2. `Read Latest Digest File` czyta `storage/digests/latest.md`.
-3. `Binary To Text` zamienia plik na tekst.
-4. `Respond To Webhook` zwraca samą treść digestu jako `text/markdown`.
+2. `Read Latest Digest File` reads `storage/digests/latest.md`.
+3. `Binary To Text` converts the file to text.
+4. `Respond To Webhook` returns the digest as `text/markdown`.
 
-To jest wygodne dla Apple Shortcuts, bo skrót dostaje gotowy tekst bez dodatkowego JSON-a.
+This is convenient for Apple Shortcuts because the shortcut gets clean text, not extra JSON.
 
-## Konfiguracja env w n8n
+## Environment Variables in n8n
 
-W tym MVP nie tworzysz osobnych credentiali dla NVIDIA API w n8n.
+In this MVP you do not create a separate NVIDIA credential in n8n.
 
-- `NVIDIA_API_KEY` jest przekazywany do kontenera przez Docker Compose.
-- node `HTTP Request` czyta go przez `{{$env.NVIDIA_API_KEY}}`.
-- po zmianie `.env` zrestartuj kontener n8n:
+- `NVIDIA_API_KEY` is passed into the container through Docker Compose.
+- the HTTP call path reads it through the environment.
+- after changing `.env`, restart the stack:
 
 ```bash
 docker compose down
 docker compose up -d
 ```
 
-## Testowanie krok po kroku
+## Testing Checklist
 
-### Test 1. Czy n8n działa
+### 1. Verify n8n loads
 
-1. Otwórz `http://127.0.0.1:5678`.
-2. Upewnij się, że panel się ładuje.
+1. Open `http://127.0.0.1:5678`.
+2. Make sure the editor loads.
 
-### Test 2. Czy NVIDIA API działa
+### 2. Verify the NVIDIA API works
 
-1. Uruchom test `curl` z sekcji wyżej.
-2. Potwierdź, że dostajesz `choices[0].message.content`.
+1. Run the curl test above.
+2. Confirm you receive `choices[0].message.content`.
 
-### Test 3. Czy workflow Build generuje digest
+### 3. Verify the Build workflow creates a digest
 
-1. Otwórz workflow `Daily News Digest - Build`.
-2. Kliknij `Execute workflow`.
-3. Poczekaj na zakończenie.
-4. Sprawdź, czy node `Write Latest Digest` przeszedł poprawnie.
-5. Sprawdź plik:
+1. Open `Daily News Digest - Build`.
+2. Click `Execute workflow`.
+3. Wait for the run to finish.
+4. Confirm `Write Latest Digest` succeeded.
+5. Check:
 
 ```text
 storage/digests/latest.md
 ```
 
-### Test 4. Czy webhook zwraca digest
+### 4. Verify the webhook returns the digest
 
-1. Otwórz workflow `Daily News Digest - Get Latest`.
-2. Aktywuj workflow.
-3. Wywołaj webhook z terminala:
+1. Open `Daily News Digest - Get Latest`.
+2. Activate it.
+3. Call the webhook:
 
 ```bash
 curl http://127.0.0.1:5678/webhook/daily-news-digest
 ```
 
-Jeśli używasz Tailscale Serve, użyj zamiast tego URL-a Tailscale.
+If you use Tailscale Serve, use the Tailscale URL instead.
 
-### Test 5. Czy Apple Shortcut zapisuje notatkę
+### 5. Verify Apple Shortcut creates a note
 
-1. Skonfiguruj skrót według instrukcji niżej.
-2. Uruchom go na iPhonie albo Macu podłączonym do tailnetu.
-3. Otwórz Apple Notes i sprawdź nową notatkę.
+1. Configure the shortcut using the instructions below.
+2. Run it on an iPhone or Mac connected to the tailnet.
+3. Check Apple Notes for the new note.
 
-## Apple Shortcut: `Zapisz Daily News Digest`
+## Apple Shortcut: Save Daily News Digest
 
-Cel: pobrać najnowszy digest i zapisać go jako nową notatkę.
+Goal: fetch the latest digest and create a new Apple Note from it.
 
-### URL webhooka
+### Webhook URL
 
-Jeśli używasz Tailscale Serve, webhook będzie zwykle wyglądał tak:
+With Tailscale Serve, the webhook will usually look like:
 
 ```text
-https://twoje-urzadzenie.twoj-tailnet.ts.net/webhook/daily-news-digest
+https://your-device.your-tailnet.ts.net/webhook/daily-news-digest
 ```
 
-Nie używaj lokalnego `127.0.0.1` na iPhonie.
+Do not use `127.0.0.1` on iPhone.
 
-### iPhone: krok po kroku
+### iPhone setup
 
-1. Otwórz aplikację `Shortcuts`.
-2. Kliknij `+`, aby dodać nowy skrót.
-3. Nazwij go `Zapisz Daily News Digest`.
-4. Dodaj akcję `Get Contents of URL`.
-5. Ustaw:
-   - URL: URL webhooka n8n przez Tailscale
+1. Open `Shortcuts`.
+2. Tap `+`.
+3. Name it `Save Daily News Digest`.
+4. Add `Get Contents of URL`.
+5. Set:
+   - URL: the n8n webhook URL through Tailscale
    - Method: `GET`
-6. Dodaj akcję `Current Date`.
-7. Dodaj akcję `Format Date`.
-8. Ustaw format na `Custom`.
-9. Ustaw wzorzec na:
+6. Add `Current Date`.
+7. Add `Format Date`.
+8. Choose `Custom`.
+9. Use:
 
 ```text
 yyyy-MM-dd
 ```
 
-10. Dodaj akcję `Create Note`.
-11. Ustaw tytuł notatki na:
+10. Add `Create Note`.
+11. Set the note title to:
 
 ```text
 News Digest - [Formatted Date]
 ```
 
-12. Ustaw treść notatki na wynik z `Get Contents of URL`.
-13. Jeśli akcja `Create Note` pozwala wskazać folder, wybierz folder `News Digest`.
-14. Jeśli folderu nie ma, utwórz go wcześniej ręcznie w Apple Notes.
-15. Zapisz skrót.
-16. Uruchom skrót testowo.
+12. Set the note body to the result of `Get Contents of URL`.
+13. If available, choose the `News Digest` folder.
+14. If the folder does not exist, create it manually in Apple Notes first.
+15. Save the shortcut.
+16. Run it once as a test.
 
-### Mac: krok po kroku
+### Mac setup
 
-1. Otwórz aplikację `Shortcuts`.
-2. Kliknij `+`.
-3. Nazwij skrót `Zapisz Daily News Digest`.
-4. Dodaj `Get Contents of URL`.
-5. Ustaw metodę `GET`.
-6. Wklej URL webhooka przez Tailscale.
-7. Dodaj `Current Date`.
-8. Dodaj `Format Date` z formatem `yyyy-MM-dd`.
-9. Dodaj `Create Note`.
-10. Tytuł:
+1. Open `Shortcuts`.
+2. Click `+`.
+3. Name it `Save Daily News Digest`.
+4. Add `Get Contents of URL`.
+5. Set method `GET`.
+6. Paste the Tailscale webhook URL.
+7. Add `Current Date`.
+8. Add `Format Date` with `yyyy-MM-dd`.
+9. Add `Create Note`.
+10. Title:
 
 ```text
 News Digest - [Formatted Date]
 ```
 
-11. Treść:
+11. Body:
 
 ```text
 [Get Contents of URL]
 ```
 
-12. Jeśli interfejs pokazuje wybór folderu, ustaw `News Digest`.
-13. Zapisz i uruchom skrót.
+12. If folder selection is available, choose `News Digest`.
+13. Save and run it.
 
-## Apple Shortcut: `Pobierz Daily News Digest`
+## Apple Shortcut: Fetch Daily News Digest
 
-To prostsza wersja bez zapisu do Notes.
+A simpler version without saving to Notes.
 
-### iPhone lub Mac
+### iPhone or Mac
 
-1. Utwórz nowy skrót `Pobierz Daily News Digest`.
-2. Dodaj akcję `Get Contents of URL`.
-3. Ustaw metodę `GET`.
-4. Wklej URL webhooka.
-5. Dodaj akcję `Quick Look` albo `Show Result`.
-6. Zapisz skrót.
+1. Create a new shortcut named `Fetch Daily News Digest`.
+2. Add `Get Contents of URL`.
+3. Set method `GET`.
+4. Paste the webhook URL.
+5. Add `Quick Look` or `Show Result`.
+6. Save the shortcut.
 
-Po uruchomieniu zobaczysz sam digest na ekranie.
+When you run it, the digest will be displayed on screen.
 
-## Future enhancement: `Streść ten link`
+## Future Enhancement: Summarize This Link
 
-Tego workflowu nie implementujemy teraz, ale to dobry następny krok.
+Not implemented here yet, but it is a good next step.
 
-Pomysł:
+Idea:
 
-1. Skrót działa z `Share Sheet`.
-2. Przejmuje URL aktualnej strony.
-3. Wysyła URL do webhooka n8n.
-4. n8n pobiera metadane albo treść linku.
-5. NVIDIA NIM robi streszczenie.
-6. Wynik trafia do Apple Notes albo jest wyświetlany od razu.
+1. The shortcut runs from the Share Sheet.
+2. It receives the current URL.
+3. It sends the URL to an n8n webhook.
+4. n8n fetches metadata or page content.
+5. NVIDIA NIM produces a summary.
+6. The result is saved to Apple Notes or shown immediately.
 
-## Przykładowe źródła RSS
+## Example RSS Sources
 
-W MVP są dodane neutralne przykłady:
+The MVP includes neutral example sources:
 
 - AI: `https://venturebeat.com/category/ai/feed/`
 - Apple / Tech: `https://9to5mac.com/feed/`
-- produktywność: `https://zapier.com/blog/rss.xml`
+- productivity: `https://zapier.com/blog/rss.xml`
 - cybersecurity: `https://thehackernews.com/feeds/posts/default`
 - dev tools: `https://stackoverflow.blog/feed/`
-- rynek pracy tech: `https://weworkremotely.com/categories/remote-programming-jobs.rss`
+- tech jobs: `https://weworkremotely.com/categories/remote-programming-jobs.rss`
 
-Możesz je łatwo wymienić, edytując konkretne node’y `RSS Feed Read`.
+You can replace them by editing the configured sources or workflow inputs.
 
-## Jak zmienić źródła RSS
+## Change RSS Sources
 
-1. Otwórz workflow `Daily News Digest - Build`.
-2. Kliknij node `RSS AI`, `RSS Apple Tech` itd.
-3. Podmień pole `URL`.
-4. Zapisz workflow.
-5. Uruchom testowo `Execute workflow`.
+1. Open `Daily News Digest - Build`.
+2. Edit the relevant RSS source definition.
+3. Save the workflow.
+4. Run `Execute workflow` as a test.
 
-Nie dodawaj na start zbyt wielu źródeł. 5–8 feedów na MVP to rozsądny zakres.
+Do not start with too many sources. `5-8` feeds is still a good MVP-sized range.
 
-## Jak zmienić zainteresowania w promptcie
+## Change Interests in the Prompt
 
-Masz dwie opcje:
+You have two options:
 
-1. Prosta:
-   - edytuj system prompt bezpośrednio w node `NVIDIA NIM Primary` i `NVIDIA NIM Fallback`
-2. Porządkowa:
-   - potraktuj plik `prompts/nvidia-news-editor.md` jako źródło prawdy
-   - skopiuj zmiany z pliku do node’ów HTTP Request
+1. Simple:
+   - edit the prompt directly where it is used
+2. Cleaner:
+   - treat `prompts/nvidia-news-editor.md` as the source of truth
+   - copy changes into the relevant request path if you use that prompt downstream
 
-Na MVP najprościej po prostu zedytować prompt w node’ach.
+## Change the NVIDIA Model
 
-## Jak zmienić model NVIDIA
-
-Zmień w `.env`:
+Update `.env`:
 
 ```env
-NVIDIA_NIM_MODEL=twoj-model
-NVIDIA_NIM_FALLBACK_MODEL=twoj-fallback
+NVIDIA_NIM_MODEL=your-model
+NVIDIA_NIM_FALLBACK_MODEL=your-fallback
 ```
 
-Potem restart:
+Then restart:
 
 ```bash
 docker compose down
 docker compose up -d
 ```
 
-## Jak wyłączyć AI i działać jako lista linków
+## Disable AI and Fall Back to Basic Output
 
-Masz dwie proste opcje:
+You have two simple options:
 
-1. Ustaw w workflow stałe przejście do `Build Basic Digest`.
-2. Tymczasowo wpisz zły model albo pusty `NVIDIA_API_KEY`, żeby workflow przeszedł do fallbacku bez AI.
+1. Route directly to a basic digest path.
+2. Temporarily set a bad model or empty `NVIDIA_API_KEY` so the AI path is skipped or fails over.
 
-Pierwsza opcja jest czyściejsza.
+The first option is cleaner.
 
-## Typowe problemy
+## Troubleshooting
 
-### NVIDIA API zwraca 401
+### NVIDIA API returns 401
 
-Najczęstsze przyczyny:
+Most common causes:
 
-- zły `NVIDIA_API_KEY`
-- spacje lub cudzysłowy w `.env`
-- kontener n8n nie został zrestartowany po zmianie `.env`
+- wrong `NVIDIA_API_KEY`
+- extra spaces or quotes in `.env`
+- the container was not restarted after editing `.env`
 
-### NVIDIA API zwraca 404 lub błąd modelu
+### NVIDIA API returns 404 or model errors
 
-Najczęstsze przyczyny:
+Most common causes:
 
-- niepoprawna nazwa modelu
-- model jest niedostępny dla Twojego konta
+- invalid model name
+- the model is not available for your account
 
-Sprawdź:
+Check:
 
 ```env
 NVIDIA_NIM_MODEL=meta/llama-3.3-70b-instruct
 NVIDIA_NIM_FALLBACK_MODEL=nvidia/nvidia-nemotron-nano-9b-v2
 ```
 
-### NVIDIA API zwraca 429 lub limity
+### NVIDIA API returns 429 or quota errors
 
-To zwykle rate limit lub quota.
+Usually rate limiting or quota.
 
-Co zrobić:
+Try:
 
-- spróbuj ponownie za kilka minut
-- obniż częstotliwość testów
-- przetestuj fallback model
-- tymczasowo użyj trybu bez AI
+- waiting a few minutes
+- reducing test frequency
+- testing the fallback model
+- temporarily using a non-AI mode
 
-### RSS node zwraca mało danych lub błąd
+### RSS returns too little data or errors
 
-Nie każdy feed jest idealny. Niektóre mogą:
+Not every feed is reliable. Some feeds:
 
-- zwracać tylko część wpisów
-- blokować żądania
-- czasem odpowiadać niestabilnie
+- expose only a subset of posts
+- block requests
+- respond inconsistently
 
-Na MVP po prostu podmień feed na inny.
+For an MVP, just replace unstable feeds.
 
-### Webhook nie działa na iPhonie
+### Webhook does not work on iPhone
 
-Sprawdź:
+Check:
 
-- czy iPhone jest zalogowany do Tailscale
-- czy urządzenie z n8n jest online
-- czy `tailscale serve status` pokazuje aktywne mapowanie
-- czy workflow `Daily News Digest - Get Latest` jest aktywny
+- that iPhone is signed in to Tailscale
+- that the host machine is online
+- that `tailscale serve status` shows an active mapping
+- that `Daily News Digest - Get Latest` is active
 
-### `latest.md` nie istnieje
+### `latest.md` does not exist
 
-Najpierw uruchom workflow `Daily News Digest - Build` ręcznie. Dopiero potem testuj `Get Latest`.
+Run `Daily News Digest - Build` manually first. Only then test `Get Latest`.
 
-## Debugowanie workflowu NVIDIA
+## Debugging the AI Path
 
-Jeśli AI nie działa:
+If AI is not working:
 
-1. Otwórz ostatnie wykonanie workflowu.
-2. Kliknij node `NVIDIA NIM Primary`.
-3. Sprawdź:
-   - status HTTP
-   - body błędu
-   - czy `Authorization` faktycznie ma token
-4. Jeśli primary zawiedzie, sprawdź node `NVIDIA NIM Fallback`.
-5. Jeśli oba zawiodą, sprawdź wynik `Build Basic Digest`.
+1. Open the latest workflow execution.
+2. Inspect the builder call path and any relevant HTTP node output.
+3. Check:
+   - HTTP status
+   - error body
+   - whether the authorization token is actually present
+4. If the primary path fails, verify fallback behavior.
 
-To zamierzone zachowanie. Digest ma powstać nawet bez AI.
+The system is designed to keep producing a digest even when AI is unavailable.
 
 ## Backup
 
-Na MVP wystarczą trzy warstwy backupu:
+For an MVP, three layers are enough:
 
-- Apple Notes przechowuje kopie dziennych digestów
-- katalog `storage/digests/archive/` przechowuje lokalne archiwum Markdown
-- Docker volumes przechowują stan n8n i PostgreSQL
+- Apple Notes keeps user-facing copies of daily digests
+- `storage/digests/archive/` keeps a local Markdown archive
+- Docker volumes keep n8n and PostgreSQL state
 
-Jeśli chcesz zrobić szybki backup projektu, skopiuj:
+For a quick project backup, copy:
 
-- cały katalog projektu
-- Docker volumes albo eksport Dockera
+- the whole project directory
+- Docker volumes or Docker exports
 
-## Aktualizacja n8n
+## Update n8n
 
-1. Zatrzymaj stack:
+1. Stop the stack:
 
 ```bash
 docker compose down
 ```
 
-2. Pobierz nowszy obraz:
+2. Pull newer images:
 
 ```bash
 docker compose pull
 ```
 
-3. Uruchom ponownie:
+3. Start again:
 
 ```bash
 docker compose up -d
 ```
 
-4. Otwórz n8n i sprawdź, czy workflowy dalej się importują i wykonują poprawnie.
+4. Open n8n and verify that workflows still import and execute correctly.
 
-## Ręczne zbudowanie workflowu node po node
+## Possible Future Extensions
 
-Jeśli import JSON nie zadziała przez różnice wersji n8n, zbuduj workflow ręcznie.
+Good next steps:
 
-### Workflow `Daily News Digest - Build`
-
-Dodaj kolejno:
-
-1. `Schedule Trigger`
-   - cron: `0 7 * * *`
-   - timezone: `Europe/Warsaw`
-
-2. Kilka node’ów `RSS Feed Read`
-   - po jednym dla każdego feedu
-
-3. `Merge`
-   - połącz feedy w trybie `Append`
-
-4. `Code`
-   - wklej kod z sekcji `Code node: czyszczenie URL i deduplikacja`
-
-5. `HTTP Request`
-   - metoda: `POST`
-   - URL: `https://integrate.api.nvidia.com/v1/chat/completions`
-   - headers:
-     - `Authorization: Bearer {{$env.NVIDIA_API_KEY}}`
-     - `Content-Type: application/json`
-   - body JSON:
-
-```json
-{
-  "model": "{{$env.NVIDIA_NIM_MODEL || 'meta/llama-3.3-70b-instruct'}}",
-  "temperature": 0.2,
-  "max_tokens": 2500,
-  "messages": [
-    {
-      "role": "system",
-      "content": "Jesteś moim osobistym redaktorem newsów. Pisz po polsku, konkretnie, bez wymyślania faktów."
-    },
-    {
-      "role": "user",
-      "content": "Przygotuj dzienny digest na podstawie poniższych artykułów:\n\n{{$json.articlesText}}"
-    }
-  ]
-}
-```
-
-6. `Code`
-   - wyciągnij `choices[0].message.content`
-
-7. Drugi `HTTP Request`
-   - taki sam, ale z modelem `{{$env.NVIDIA_NIM_FALLBACK_MODEL}}`
-
-8. `Code`
-   - fallback bez AI
-
-9. `Convert to File`
-   - source property: `digest`
-
-10. `Read/Write Files from Disk`
-   - zapisz do `/files/digests/latest.md`
-
-### Workflow `Daily News Digest - Get Latest`
-
-Dodaj kolejno:
-
-1. `Webhook`
-   - method: `GET`
-   - path: `daily-news-digest`
-   - response mode: `Using Respond to Webhook node`
-
-2. `Read/Write Files from Disk`
-   - odczyt `/files/digests/latest.md`
-
-3. `Code`
-   - zamiana binary na text
-
-4. `Respond to Webhook`
-   - typ odpowiedzi: `Text`
-   - body: `{{$json.digest}}`
-
-## Code node: czyszczenie URL i deduplikacja
-
-```javascript
-const TRACKING_PARAMS = new Set([
-  'utm_source',
-  'utm_medium',
-  'utm_campaign',
-  'utm_term',
-  'utm_content',
-  'ref',
-  'fbclid',
-  'gclid',
-  'mc_cid',
-  'mc_eid',
-]);
-
-const MAX_ARTICLES = 30;
-
-const stripHtml = (value = '') =>
-  String(value)
-    .replace(/<[^>]*>/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-
-const sourceFromUrl = (value) => {
-  try {
-    return new URL(value).hostname.replace(/^www\./, '') || 'unknown';
-  } catch {
-    return 'unknown';
-  }
-};
-
-const normalizeUrl = (value) => {
-  try {
-    const url = new URL(value);
-
-    for (const key of TRACKING_PARAMS) {
-      url.searchParams.delete(key);
-    }
-
-    url.hash = '';
-
-    const ordered = [...url.searchParams.entries()].sort((a, b) =>
-      a[0].localeCompare(b[0]),
-    );
-
-    url.search = '';
-
-    for (const [key, val] of ordered) {
-      url.searchParams.append(key, val);
-    }
-
-    return url.toString().replace(/\/$/, '');
-  } catch {
-    return null;
-  }
-};
-
-const getPublishedAt = (row) =>
-  row.isoDate || row.pubDate || row.published || row.date || row.createdAt || null;
-
-const seen = new Set();
-const articles = [];
-
-for (const item of $input.all()) {
-  const row = item.json;
-  const rawUrl = row.link || row.url || row.guid || row.id || '';
-  const url = normalizeUrl(rawUrl);
-
-  if (!url || seen.has(url)) continue;
-
-  seen.add(url);
-
-  articles.push({
-    title: stripHtml(row.title || 'Bez tytułu'),
-    source: sourceFromUrl(url),
-    summary: stripHtml(
-      row.contentSnippet || row.content || row.summary || row.description || '',
-    ).slice(0, 500),
-    url,
-    publishedAt: getPublishedAt(row),
-  });
-}
-
-articles.sort((a, b) => {
-  const left = a.publishedAt ? new Date(a.publishedAt).getTime() : 0;
-  const right = b.publishedAt ? new Date(b.publishedAt).getTime() : 0;
-  return right - left;
-});
-
-return [
-  {
-    json: {
-      articles: articles.slice(0, MAX_ARTICLES),
-      articlesText: JSON.stringify(articles.slice(0, MAX_ARTICLES), null, 2),
-    },
-  },
-];
-```
-
-## Code node: fallback digest bez AI
-
-```javascript
-const source = $('Clean & Deduplicate Articles').first().json;
-const articles = source.articles || [];
-const digestDate = new Date().toISOString().slice(0, 10);
-
-const lines = [
-  `# News Digest - ${digestDate}`,
-  '',
-  'AI unavailable — generated basic link list.',
-  '',
-  '## Linki',
-  '',
-];
-
-for (const article of articles) {
-  const date = article.publishedAt ? String(article.publishedAt).slice(0, 10) : 'brak daty';
-  lines.push(`- [${article.title}](${article.url}) — ${article.source}, ${date}`);
-}
-
-return [
-  {
-    json: {
-      digest: lines.join('\n'),
-    },
-  },
-];
-```
-
-## Jak rozszerzyć projekt później
-
-Dobry następny krok to:
-
-- newslettery z maila jako dodatkowe źródło
-- `Streść ten link` z Apple Share Sheet
-- scoring artykułów przed wysłaniem do AI
-- osobne digesty: AI, Apple, praca
-- zapis historii digestów do SQLite albo PostgreSQL
-- dashboard z poprzednimi digestami
-- automatyczne tagowanie notatek
-- wysyłka digestu do Telegrama albo maila
+- email newsletters as additional sources
+- a `Summarize This Link` shortcut from the Apple Share Sheet
+- better pre-AI scoring
+- separate digests for AI, Apple, and jobs
+- a digest history dashboard
+- automatic note tagging
+- delivery to Telegram or email
