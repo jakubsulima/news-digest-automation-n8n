@@ -1,0 +1,158 @@
+[
+  {
+    "name": "Money.pl Gospodarka",
+    "category": "Polska / Gospodarka",
+    "url": "https://www.money.pl/rss/rss-gospodarka.xml",
+    "priority": 4
+  },
+  {
+    "name": "Stooq",
+    "category": "Polska / Giełda",
+    "url": "https://stooq.pl/rss/",
+    "priority": 4
+  },
+  {
+    "name": "StockWatch",
+    "category": "Polska / Giełda",
+    "url": "https://www.stockwatch.pl/rss/",
+    "priority": 4
+  },
+  {
+    "name": "Niebezpiecznik",
+    "category": "Cyberbezpieczeństwo PL",
+    "url": "https://feeds.feedburner.com/niebezpiecznik/",
+    "priority": 3
+  },
+  {
+    "name": "CERT Polska",
+    "category": "Cyberbezpieczeństwo PL",
+    "url": "https://cert.pl/feed/",
+    "priority": 3
+  },
+  {
+    "name": "Defence24",
+    "category": "Polska / Geopolityka / Bezpieczeństwo",
+    "url": "https://defence24.pl/_rss",
+    "priority": 4
+  },
+  {
+    "name": "Defence24 EN",
+    "category": "Świat / Geopolityka / Bezpieczeństwo",
+    "url": "https://defence24.com/_rss",
+    "priority": 4
+  },
+  {
+    "name": "BBC World",
+    "category": "Świat / Ważne wydarzenia",
+    "url": "https://feeds.bbci.co.uk/news/world/rss.xml",
+    "priority": 5
+  },
+  {
+    "name": "BBC Top Stories",
+    "category": "Świat / Ważne wydarzenia",
+    "url": "https://feeds.bbci.co.uk/news/rss.xml",
+    "priority": 4
+  },
+  {
+    "name": "The Guardian World",
+    "category": "Świat / Ważne wydarzenia",
+    "url": "https://www.theguardian.com/world/rss",
+    "priority": 4
+  },
+  {
+    "name": "NPR World",
+    "category": "Świat / Ważne wydarzenia",
+    "url": "https://feeds.npr.org/1004/rss.xml",
+    "priority": 4
+  },
+  {
+    "name": "BBC Business",
+    "category": "Świat / Biznes / Makro",
+    "url": "https://feeds.bbci.co.uk/news/business/rss.xml",
+    "priority": 4
+  },
+  {
+    "name": "The Guardian Business",
+    "category": "Świat / Biznes / Makro",
+    "url": "https://www.theguardian.com/uk/business/rss",
+    "priority": 3
+  },
+  {
+    "name": "NPR Business",
+    "category": "Świat / Biznes / Makro",
+    "url": "https://feeds.npr.org/1006/rss.xml",
+    "priority": 3
+  },
+  {
+    "name": "Hacker News Frontpage",
+    "category": "Software / IT",
+    "url": "https://hnrss.org/frontpage",
+    "priority": 5
+  },
+  {
+    "name": "Hacker News Best",
+    "category": "Software / IT",
+    "url": "https://hnrss.org/best",
+    "priority": 3
+  },
+  {
+    "name": "Ars Technica",
+    "category": "Software / IT",
+    "url": "https://feeds.arstechnica.com/arstechnica/index",
+    "priority": 5
+  },
+  {
+    "name": "The Register",
+    "category": "Software / IT",
+    "url": "https://www.theregister.com/?lab_viewport=rss",
+    "priority": 4
+  },
+  {
+    "name": "TechCrunch",
+    "category": "Software / IT",
+    "url": "https://techcrunch.com/feed/",
+    "priority": 4
+  },
+  {
+    "name": "BBC Technology",
+    "category": "Software / IT",
+    "url": "https://feeds.bbci.co.uk/news/technology/rss.xml",
+    "priority": 4
+  },
+  {
+    "name": "GitHub Blog",
+    "category": "Software / DevTools",
+    "url": "https://github.blog/feed/",
+    "priority": 4
+  },
+  {
+    "name": "GitHub Engineering",
+    "category": "Software / Engineering",
+    "url": "https://github.blog/engineering/feed/",
+    "priority": 4
+  },
+  {
+    "name": "InfoQ",
+    "category": "Software / Architecture",
+    "url": "https://feed.infoq.com/",
+    "priority": 4
+  },
+  {
+    "name": "Martin Fowler",
+    "category": "Software / Architecture",
+    "url": "https://martinfowler.com/feed.atom",
+    "priority": 3
+  },
+  {
+    "name": "Hugging Face Blog",
+    "category": "AI / Open Source",
+    "url": "https://huggingface.co/blog/feed.xml",
+    "priority": 2
+  },
+  {
+    "name": "BleepingComputer",
+    "category": "Cybersecurity Global",
+    "url": "https://www.bleepingcomputer.com/feed/",
+    "priority": 3
+  }
+]

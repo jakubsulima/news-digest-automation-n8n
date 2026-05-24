@@ -1,0 +1,197 @@
+{
+  "name": "Daily News Digest - Build",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 7 * * *"
+            }
+          ]
+        }
+      },
+      "id": "0b4a6d4f-98e1-4c8d-8863-34dcde632100",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -520,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "return [{ json: { maxArticles: 30, enableAiDedupe: true, sourceConfigPath: '/project/config/rss-sources.json' } }];"
+      },
+      "id": "7c830cb8-d4ec-4cb6-874e-56536780c0aa",
+      "name": "RSS Sources Config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -180,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://digest-builder:8000/build",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": false
+            }
+          }
+        }
+      },
+      "id": "7baf5d7f-8710-4c80-a1df-44b710be0c5d",
+      "name": "Build Digest In Python",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        120,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "language": "javaScript",
+        "jsCode": "const body = $json.body || {};\nreturn [{ json: { digest: body.digest || '', digestDate: body.digestDate || new Date().toISOString().slice(0, 10), articleCount: body.articleCount || 0, deliveryMode: body.deliveryMode || 'python-service', errors: body.errors || [] } }];"
+      },
+      "id": "2263a7da-cb30-4ef2-b2f2-c4d57ea1e815",
+      "name": "Extract Digest Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        380,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "toText",
+        "sourceProperty": "digest",
+        "options": {
+          "fileName": "=latest.md"
+        }
+      },
+      "id": "8cff0fae-a577-44a2-b7c8-47e1bef9ef20",
+      "name": "Convert Digest To File",
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [
+        640,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "write",
+        "fileName": "/home/node/.n8n-files/digests/latest.md",
+        "options": {}
+      },
+      "id": "a0f7cab5-bfd5-4b31-a829-98031d7f5e21",
+      "name": "Write Latest Digest",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [
+        900,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "write",
+        "fileName": "={{ '/home/node/.n8n-files/digests/archive/' + $json.digestDate + '.md' }}",
+        "options": {}
+      },
+      "id": "2ca77b01-0bbc-4e5d-b728-99d17b94ab22",
+      "name": "Write Archive Digest",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [
+        900,
+        320
+      ]
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "RSS Sources Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RSS Sources Config": {
+      "main": [
+        [
+          {
+            "node": "Build Digest In Python",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Digest In Python": {
+      "main": [
+        [
+          {
+            "node": "Extract Digest Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Digest Result": {
+      "main": [
+        [
+          {
+            "node": "Convert Digest To File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Convert Digest To File": {
+      "main": [
+        [
+          {
+            "node": "Write Latest Digest",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Write Archive Digest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Warsaw"
+  },
+  "pinData": {},
+  "versionId": "eb7b714e-f6cf-4b6d-bfc4-51d10f878001",
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "active": false
+}

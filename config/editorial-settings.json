@@ -1,0 +1,180 @@
+{
+  "matching": {
+    "recent_story_lookback_days": 7,
+    "story_match_min_score": 0.68,
+    "title_change_threshold": 0.92
+  },
+  "enrichment": {
+    "default_top_n": 12
+  },
+  "ai_editorial_review": {
+    "enabled": true,
+    "shortlist_size": 24,
+    "temperature": 0.1,
+    "max_tokens": 2800,
+    "max_abs_adjustment": 20,
+    "reject_penalty": 18,
+    "weight": 1.0
+  },
+  "scoring": {
+    "newsworthy_keywords": {
+      "breach": 5,
+      "exploit": 5,
+      "vulnerability": 5,
+      "ransomware": 5,
+      "attack": 5,
+      "zero-day": 5,
+      "outage": 4,
+      "incident": 4,
+      "earnings": 4,
+      "ipo": 4,
+      "acquisition": 4,
+      "merger": 4,
+      "sanction": 4,
+      "troops": 2,
+      "war": 2,
+      "tariff": 4,
+      "rate cut": 4,
+      "fed": 3,
+      "ai": 3,
+      "model": 3,
+      "launch": 3,
+      "security": 3,
+      "cyber": 3,
+      "gpw": 3,
+      "gielda": 3
+    },
+    "scope_keywords": {
+      "ai": [
+        "ai",
+        "llm",
+        "model",
+        "openai",
+        "anthropic",
+        "nvidia",
+        "deepmind",
+        "inference"
+      ],
+      "devtools": [
+        "developer",
+        "devtools",
+        "github",
+        "gitlab",
+        "programming",
+        "software",
+        "engineering",
+        "compiler",
+        "framework",
+        "library",
+        "agent",
+        "cli"
+      ],
+      "poland_world": [
+        "polska",
+        "warsaw",
+        "gospodarka",
+        "economy",
+        "market",
+        "markets",
+        "business",
+        "macro",
+        "macroekonomia",
+        "geopolityka",
+        "geopolitics",
+        "security",
+        "cybersecurity",
+        "supply chain",
+        "regulation",
+        "policy"
+      ]
+    },
+    "war_filter": {
+      "signal_keywords": [
+        "war",
+        "troops",
+        "missile",
+        "missiles",
+        "drone strike",
+        "airstrike",
+        "front line",
+        "battlefield",
+        "artillery",
+        "offensive",
+        "ceasefire",
+        "military",
+        "defense ministry"
+      ],
+      "relevance_keywords": [
+        "sanction",
+        "sanctions",
+        "tariff",
+        "markets",
+        "market",
+        "economy",
+        "business",
+        "energy",
+        "gas",
+        "oil",
+        "chip",
+        "chips",
+        "semiconductor",
+        "supply chain",
+        "cyber",
+        "cybersecurity",
+        "technology",
+        "tech",
+        "policy",
+        "regulation",
+        "trade",
+        "nato"
+      ],
+      "scope_fit_score": 3,
+      "editorial_penalty": 18.0
+    },
+    "impact": {
+      "duplicate_weight_cap": 5,
+      "duplicate_weight_multiplier": 2,
+      "enriched_text_bonus": 2,
+      "long_summary_threshold": 220,
+      "long_summary_bonus": 1,
+      "normalizer": 2.4
+    },
+    "novelty": {
+      "same_url_24h_max": 3,
+      "same_story_24h_max": 5,
+      "same_story_72h_max": 7,
+      "older_story_max": 9
+    },
+    "confirmation": {
+      "score_for_1": 3,
+      "score_for_2": 6,
+      "score_for_3": 8,
+      "score_for_4": 9,
+      "score_for_5_plus": 10
+    },
+    "scope_fit": {
+      "ai_score": 10,
+      "devtools_score": 9,
+      "cyber_score": 9,
+      "poland_world_score": 8,
+      "default_score": 5
+    },
+    "urgency": {
+      "base_score": 2,
+      "score_6h": 10,
+      "score_24h": 8,
+      "score_48h": 6,
+      "score_72h": 5,
+      "score_older": 3,
+      "security_bonus": 1,
+      "markets_bonus": 1
+    },
+    "editorial_weights": {
+      "impact": 4.0,
+      "novelty": 2.5,
+      "confirmation": 1.5,
+      "scope_fit": 1.0,
+      "urgency": 1.0
+    }
+  }
+}
