@@ -1,0 +1,5 @@
+{
+  "buildCommand": "pnpm build:reader",
+  "installCommand": "pnpm install --frozen-lockfile",
+  "framework": "nextjs"
+}

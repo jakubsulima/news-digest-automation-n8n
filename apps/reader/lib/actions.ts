@@ -4,6 +4,9 @@ import { revalidatePath } from "next/cache";
 
 import { requireCurrentReader } from "./auth";
 import type { Database } from "./database.types";
+import { advanceDigestRun as advanceDigestRunStage } from "./digest-stage-executor";
+import { getActiveDigestRun, startOrGetActiveDigestRun } from "./digest-runs";
+import { requireCurrentOperator } from "./operator";
 import { createSupabaseAdminClient } from "./supabase";
 
 type StateField = "read_at" | "saved_at" | "archived_at";
@@ -40,4 +43,22 @@ export async function toggleSaved(newsItemId: string, currentValue: boolean) {
 
 export async function toggleArchived(newsItemId: string, currentValue: boolean) {
   await setItemState(newsItemId, "archived_at", !currentValue);
+}
+
+export async function startDigestRun() {
+  const operator = await requireCurrentOperator();
+  await startOrGetActiveDigestRun(operator.id);
+  revalidatePath("/");
+}
+
+export async function advanceDigestRun() {
+  await requireCurrentOperator();
+  const run = await getActiveDigestRun();
+
+  if (!run) {
+    return;
+  }
+
+  await advanceDigestRunStage(run.id);
+  revalidatePath("/");
 }
