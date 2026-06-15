@@ -30,15 +30,15 @@
     "priority": 3
   },
   {
-    "name": "Defence24",
-    "category": "Polska / Geopolityka / Bezpieczeństwo",
-    "url": "https://defence24.pl/_rss",
+    "name": "300Gospodarka",
+    "category": "Polska / Gospodarka / Technologie",
+    "url": "https://300gospodarka.pl/feed",
     "priority": 4
   },
   {
-    "name": "Defence24 EN",
-    "category": "Świat / Geopolityka / Bezpieczeństwo",
-    "url": "https://defence24.com/_rss",
+    "name": "Rest of World Money",
+    "category": "Świat / Gospodarka cyfrowa",
+    "url": "https://restofworld.org/feed/money/",
     "priority": 4
   },
   {
@@ -48,15 +48,15 @@
     "priority": 5
   },
   {
-    "name": "BBC Top Stories",
-    "category": "Świat / Ważne wydarzenia",
-    "url": "https://feeds.bbci.co.uk/news/rss.xml",
+    "name": "Rest of World Global",
+    "category": "Świat / Technologie / Biznes",
+    "url": "https://restofworld.org/feed/global/",
     "priority": 4
   },
   {
-    "name": "The Guardian World",
-    "category": "Świat / Ważne wydarzenia",
-    "url": "https://www.theguardian.com/world/rss",
+    "name": "Rest of World Innovation",
+    "category": "Świat / Technologie / Innowacje",
+    "url": "https://restofworld.org/feed/innovation/",
     "priority": 4
   },
   {
@@ -108,9 +108,9 @@
     "priority": 4
   },
   {
-    "name": "TechCrunch",
-    "category": "Software / IT",
-    "url": "https://techcrunch.com/feed/",
+    "name": "VentureBeat AI",
+    "category": "AI / Biznes / Rynek",
+    "url": "https://venturebeat.com/category/ai/feed",
     "priority": 4
   },
   {

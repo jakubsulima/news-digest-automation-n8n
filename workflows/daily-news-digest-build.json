@@ -109,7 +109,7 @@
     {
       "parameters": {
         "operation": "write",
-        "fileName": "={{ '/home/node/.n8n-files/digests/archive/' + $json.digestDate + '.md' }}",
+        "fileName": "={{ '/home/node/.n8n-files/digests/archive/' + $('Extract Digest Result').first().json.digestDate + '.md' }}",
         "options": {}
       },
       "id": "2ca77b01-0bbc-4e5d-b728-99d17b94ab22",

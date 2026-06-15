@@ -1,0 +1,47 @@
+# syntax=docker/dockerfile:1.7
+
+FROM node:22-alpine AS base
+
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV PNPM_HOME="/pnpm"
+ENV PATH="$PNPM_HOME:$PATH"
+
+WORKDIR /app
+
+RUN corepack enable
+
+FROM base AS deps
+
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY apps/reader/package.json apps/reader/package.json
+
+RUN pnpm install --frozen-lockfile --filter @daily-news-digest/reader...
+
+FROM base AS builder
+
+COPY --from=deps /app/node_modules ./node_modules
+COPY --from=deps /app/apps/reader/node_modules ./apps/reader/node_modules
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY apps/reader apps/reader
+
+RUN pnpm build:reader
+
+FROM node:22-alpine AS runner
+
+ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV HOSTNAME=0.0.0.0
+ENV PORT=3000
+
+WORKDIR /app
+
+RUN addgroup -S nextjs && adduser -S nextjs -G nextjs
+
+COPY --from=builder --chown=nextjs:nextjs /app/apps/reader/.next/standalone ./
+COPY --from=builder --chown=nextjs:nextjs /app/apps/reader/.next/static ./apps/reader/.next/static
+
+USER nextjs
+
+EXPOSE 3000
+
+CMD ["node", "apps/reader/server.js"]

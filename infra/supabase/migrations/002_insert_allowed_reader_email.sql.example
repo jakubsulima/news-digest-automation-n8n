@@ -1,0 +1,6 @@
+-- Copy this file to a real migration or run it manually in Supabase SQL editor.
+-- Replace the email before running.
+
+INSERT INTO private.allowed_reader_emails (email)
+VALUES (LOWER('you@example.com'))
+ON CONFLICT (email) DO NOTHING;

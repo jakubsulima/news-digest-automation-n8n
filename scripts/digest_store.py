@@ -217,6 +217,7 @@ class DigestStore:
                 for story in stories:
                     story_id = self._upsert_story(cur, story)
                     article_id = self._upsert_article(cur, story)
+                    snapshot_metadata = self._snapshot_metadata(story)
                     cur.execute(
                         """
                         INSERT INTO digest_story_articles (
@@ -268,29 +269,15 @@ class DigestStore:
                             run_id,
                             report_date,
                             story.story_key in selected_story_keys,
-                            float(getattr(story, "editorial_score", 0.0) or 0.0),
-                            int(getattr(story, "impact_score", 0) or 0),
-                            int(getattr(story, "novelty_score", 0) or 0),
-                            int(getattr(story, "confirmation_score", 0) or 0),
-                            int(getattr(story, "scope_fit_score", 0) or 0),
-                            int(getattr(story, "urgency_score", 0) or 0),
-                            int(getattr(story, "duplicate_count", 1) or 1),
+                            self._story_editorial_score(story),
+                            self._story_int(story, "impact_score"),
+                            self._story_int(story, "novelty_score"),
+                            self._story_int(story, "confirmation_score"),
+                            self._story_int(story, "scope_fit_score"),
+                            self._story_int(story, "urgency_score"),
+                            self._story_int(story, "duplicate_count", default=1),
                             self._json(list(getattr(story, "changed_fields", []) or [])),
-                            self._json(
-                                {
-                                    "matchedStoryKey": getattr(story, "matched_story_key", None),
-                                    "matchedTitle": getattr(story, "matched_title", None),
-                                    "matchedLastSeenAt": getattr(story, "matched_last_seen_at", None),
-                                    "enrichmentStatus": getattr(story, "enrichment_status", "not_requested"),
-                                    "aiKeep": getattr(story, "ai_keep", None),
-                                    "aiReason": getattr(story, "ai_reason", None),
-                                    "aiImportanceScore": getattr(story, "ai_importance_score", None),
-                                    "aiScopeFitScore": getattr(story, "ai_scope_fit_score", None),
-                                    "aiWarRelevanceScore": getattr(story, "ai_war_relevance_score", None),
-                                    "aiEditorialAdjustment": getattr(story, "ai_editorial_adjustment", 0.0),
-                                    "aiModel": getattr(story, "ai_model", None),
-                                }
-                            ),
+                            self._json(snapshot_metadata),
                         ),
                     )
             conn.commit()
@@ -298,14 +285,6 @@ class DigestStore:
 
     def _upsert_story(self, cur: Any, story: Any) -> int:
         published_at = getattr(story, "published_at", None)
-        latest_scores = {
-            "editorial": float(getattr(story, "editorial_score", 0.0) or 0.0),
-            "impact": int(getattr(story, "impact_score", 0) or 0),
-            "novelty": int(getattr(story, "novelty_score", 0) or 0),
-            "confirmation": int(getattr(story, "confirmation_score", 0) or 0),
-            "scopeFit": int(getattr(story, "scope_fit_score", 0) or 0),
-            "urgency": int(getattr(story, "urgency_score", 0) or 0),
-        }
         cur.execute(
             """
             INSERT INTO digest_story_clusters (
@@ -359,14 +338,15 @@ class DigestStore:
                 story.summary,
                 published_at,
                 published_at,
-                self._json(latest_scores),
-                int(getattr(story, "duplicate_count", 1) or 1),
-                int(getattr(story, "source_count", 1) or 1),
+                self._json(self._story_scores(story)),
+                self._story_int(story, "duplicate_count", default=1),
+                self._story_int(story, "source_count", default=1),
             ),
         )
         return int(cur.fetchone()[0])
 
     def _upsert_article(self, cur: Any, story: Any) -> int:
+        published_at = getattr(story, "published_at", None)
         enriched_text = getattr(story, "enriched_text", None)
         cur.execute(
             """
@@ -429,9 +409,9 @@ class DigestStore:
                 story.title,
                 story.source,
                 story.category,
-                getattr(story, "published_at", None),
+                published_at,
                 story.summary,
-                getattr(story, "published_at", None),
+                published_at,
                 story.story_key,
                 getattr(story, "enrichment_status", "not_requested"),
                 getattr(story, "enriched_title", None),
@@ -439,15 +419,51 @@ class DigestStore:
                 enriched_text,
                 len(str(enriched_text or "").split()),
                 getattr(story, "enriched_fetched_at", None),
-                self._json(
-                    {
-                        "duplicateSources": getattr(story, "duplicate_sources", []),
-                        "duplicateTitles": getattr(story, "duplicate_titles", []),
-                    }
-                ),
+                self._json(self._article_metadata(story)),
             ),
         )
         return int(cur.fetchone()[0])
+
+    @staticmethod
+    def _story_int(story: Any, field: str, *, default: int = 0) -> int:
+        return int(getattr(story, field, default) or default)
+
+    @staticmethod
+    def _story_editorial_score(story: Any) -> float:
+        return float(getattr(story, "editorial_score", 0.0) or 0.0)
+
+    def _story_scores(self, story: Any) -> dict[str, int | float]:
+        return {
+            "editorial": self._story_editorial_score(story),
+            "impact": self._story_int(story, "impact_score"),
+            "novelty": self._story_int(story, "novelty_score"),
+            "confirmation": self._story_int(story, "confirmation_score"),
+            "scopeFit": self._story_int(story, "scope_fit_score"),
+            "urgency": self._story_int(story, "urgency_score"),
+        }
+
+    @staticmethod
+    def _snapshot_metadata(story: Any) -> dict[str, Any]:
+        return {
+            "matchedStoryKey": getattr(story, "matched_story_key", None),
+            "matchedTitle": getattr(story, "matched_title", None),
+            "matchedLastSeenAt": getattr(story, "matched_last_seen_at", None),
+            "enrichmentStatus": getattr(story, "enrichment_status", "not_requested"),
+            "aiKeep": getattr(story, "ai_keep", None),
+            "aiReason": getattr(story, "ai_reason", None),
+            "aiImportanceScore": getattr(story, "ai_importance_score", None),
+            "aiScopeFitScore": getattr(story, "ai_scope_fit_score", None),
+            "aiWarRelevanceScore": getattr(story, "ai_war_relevance_score", None),
+            "aiEditorialAdjustment": getattr(story, "ai_editorial_adjustment", 0.0),
+            "aiModel": getattr(story, "ai_model", None),
+        }
+
+    @staticmethod
+    def _article_metadata(story: Any) -> dict[str, Any]:
+        return {
+            "duplicateSources": getattr(story, "duplicate_sources", []),
+            "duplicateTitles": getattr(story, "duplicate_titles", []),
+        }
 
     @staticmethod
     def _json(value: Any) -> str:

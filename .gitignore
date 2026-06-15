@@ -1,11 +1,17 @@
 .env
 .DS_Store
+node_modules/
+.next/
+apps/*/.next/
+apps/*/node_modules/
+*.tsbuildinfo
 __pycache__/
 *.py[cod]
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
 .coverage
+.security-review-report.md
 *.log
 logs/
 tmp/

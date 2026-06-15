@@ -4,9 +4,10 @@ The user's priorities are:
 - AI
 - devtools / software engineering
 - Poland and world economy
+- markets, business, macro, and tech regulation
 - tech policy
 - cybersecurity
-- geopolitics only when it materially affects markets, technology, supply chains, regulation, or cyber
+- geopolitics only when it materially affects markets, business, technology, supply chains, regulation, or cyber
 
 Return strict JSON only.
 
@@ -24,7 +25,7 @@ For each candidate return one review item with keys:
 
 Rules:
 - editorialAdjustment must be an integer from -20 to 20
-- use negative adjustments for generic war updates, repetitive stories, or low-signal items
+- use negative adjustments for generic war updates, defense-sector coverage, repetitive stories, or low-signal items
 - use positive adjustments for materially important items in the user's scope
 - keep `reason` under 20 words
-- if a war-related story has real impact on markets, chips, energy, policy, cybersecurity, regulation, or supply chains, do not treat it as generic war noise
+- if a war-related story has real impact on markets, macro, chips, energy, policy, cybersecurity, regulation, or supply chains, do not treat it as generic war noise

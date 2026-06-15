@@ -1,62 +1,52 @@
 # Daily News Digest
 
-A simple local n8n-based MVP that:
+Daily News Digest is a private news system that runs the automation pipeline locally and keeps the reader experience small, authenticated, and mobile-friendly.
 
-- fetches news from RSS every morning
-- clusters articles into story clusters
-- enriches top stories with text fetched from destination pages
-- stores run history, story state, and enriched article text in PostgreSQL
-- generates a Polish Markdown digest focused on what is new in the last day
-- writes the latest digest to a local file
-- exposes it through a private n8n webhook
-- lets you save it to Apple Notes through Apple Shortcuts
+The current version has four main parts:
 
-The project is intentionally simple. It does not rely on full-page scraping, it does not expose the n8n editor publicly, and it can be set up locally in one evening.
+- `n8n` runs the scheduled automation and exposes the latest Markdown digest through a private webhook.
+- `digest-builder` is a local Python HTTP service that fetches RSS, clusters stories, enriches top candidates, scores them, and writes Markdown output.
+- local PostgreSQL stores pipeline memory, story history, enriched article text, and run metadata.
+- `apps/reader` is a private Next.js reader app using Supabase Auth and Supabase Postgres for reader-facing items and per-user read/save/archive state.
 
-## Architecture
+The repository is a product monorepo. n8n is one subsystem, not the whole app.
 
-1. Docker Compose runs `n8n`, `PostgreSQL`, and the local Python `digest-builder` service.
-2. The `Daily News Digest - Build` workflow calls the Python service.
-3. The Python service:
-   - fetches RSS feeds
-   - normalizes URLs
-   - clusters similar stories
-   - compares them with recent history in PostgreSQL
-   - scores them heuristically
-   - enriches top candidates with article page text
-   - optionally runs an AI editorial review pass
-   - renders the final digest
-4. The digest is written to:
-   - `storage/digests/latest.md`
-   - `storage/digests/archive/YYYY-MM-DD.md`
-5. The `Daily News Digest - Get Latest` workflow returns `latest.md` over a GET webhook.
-6. Apple Shortcuts can fetch that webhook over Tailscale and save the result to Apple Notes.
+## Current Architecture
 
-## Why Keep a Local File
+```text
+Local Docker runtime:
+  n8n
+  digest-builder
+  local PostgreSQL
+  reader app at http://127.0.0.1:3000
 
-The digest is still delivered as a local file, but it is no longer the only state in the system.
+External services:
+  Supabase Auth
+  Supabase Postgres
+  NVIDIA NIM API, optional but recommended for AI editorial review
 
-- `latest.md` and the Markdown archive are convenient for reading and backup.
-- PostgreSQL stores cross-run story memory, which makes novelty, confirmation, and “what changed since yesterday” possible.
-- Enriched article text stays in the database, so you can debug ranking decisions or rebuild summaries without fetching pages again.
+Data flow:
+  RSS feeds -> digest-builder -> local PostgreSQL -> Markdown files
+  Markdown files -> n8n webhook -> Apple Shortcuts or manual readers
+  selected reader items -> /api/ingest -> Supabase -> Next.js reader UI
+```
 
-This keeps delivery simple while adding the state layer needed for a useful coverage-first digest.
+The exported n8n build workflow currently writes Markdown files. The reader ingest endpoint and contract are implemented, but the exported build workflow does not yet push selected items into `/api/ingest` by default. See [docs/ingest-contract.md](docs/ingest-contract.md) before wiring that step.
 
-## Project Structure
+## Repository Layout
 
 ```text
 daily-news-digest/
-  docker-compose.yml
-  .env.example
-  .gitignore
-  Dockerfile.digest-builder
-  README.md
-  workflows/
-    daily-news-digest-build.json
-    daily-news-digest-get-latest.json
+  apps/
+    reader/                    # Next.js private reader, shadcn/ui, Supabase Auth
   config/
-    rss-sources.json
-    editorial-settings.json
+    editorial-settings.json    # ranking, scoring, enrichment, AI review settings
+    rss-sources.json           # RSS source list
+  docs/
+    ingest-contract.md
+    project-structure.md
+  infra/
+    supabase/migrations/       # reader database schema and RLS
   prompts/
     ai-editorial-review.md
     nvidia-news-editor.md
@@ -65,106 +55,272 @@ daily-news-digest/
     digest_service.py
     digest_store.py
   storage/
-    digests/
-      latest.md
-      archive/
+    digests/                   # latest.md and archive output
+  workflows/
+    daily-news-digest-build.json
+    daily-news-digest-get-latest.json
+  docker-compose.yml
+  Dockerfile.digest-builder
+  Dockerfile.reader
+  package.json
+  pnpm-workspace.yaml
 ```
 
 ## Requirements
 
 - Docker Desktop or Docker Engine with Docker Compose
-- a Tailscale account and client on the machine running n8n
-- a Tailscale account on the iPhone and/or Mac that will call the webhook
-- an `NVIDIA_API_KEY` for NVIDIA Build / NIM
-- basic comfort with terminal commands
+- Node.js `>=20.9.0`
+- pnpm `>=10.30.1`
+- a Supabase project for the reader database and auth
+- an NVIDIA API key if AI editorial review should run
+- optional: Tailscale for private access to n8n webhooks from iPhone or Mac
 
-## Step-by-Step Setup
+## Environment Variables
 
-### 1. Enter the project directory
-
-```bash
-cd /Users/jakub/Desktop/n8n/daily-news-digest
-```
-
-### 2. Copy `.env.example` to `.env`
+Copy the example file first:
 
 ```bash
 cp .env.example .env
 ```
 
-### 3. Generate `N8N_ENCRYPTION_KEY`
+### Local Stack
+
+```env
+POSTGRES_USER=n8n
+POSTGRES_PASSWORD=change-me
+POSTGRES_DB=n8n
+POSTGRES_HOST=postgres
+POSTGRES_PORT=5432
+N8N_ENCRYPTION_KEY=replace-with-openssl-output
+GENERIC_TIMEZONE=Europe/Warsaw
+TZ=Europe/Warsaw
+```
+
+Generate `N8N_ENCRYPTION_KEY` with:
 
 ```bash
 openssl rand -hex 32
 ```
 
-Paste the output into `.env`:
+Keep this value stable after n8n has stored credentials. Rotating it casually can make existing n8n credentials unreadable.
+
+### NVIDIA
 
 ```env
-N8N_ENCRYPTION_KEY=paste-the-value-here
-```
-
-This must stay stable. Do not rotate it casually after the system is already running, or you may break stored credentials and data in n8n.
-
-### 4. Set PostgreSQL values in `.env`
-
-Example:
-
-```env
-POSTGRES_USER=n8n
-POSTGRES_PASSWORD=replace-me-with-a-strong-password
-POSTGRES_DB=n8n
-```
-
-### 5. Set `NVIDIA_API_KEY`
-
-In `.env`:
-
-```env
-NVIDIA_API_KEY=paste-your-key-here
-```
-
-Defaults are already provided:
-
-```env
+NVIDIA_API_KEY=replace-with-your-nvidia-api-key
 NVIDIA_NIM_MODEL=meta/llama-3.3-70b-instruct
 NVIDIA_NIM_FALLBACK_MODEL=nvidia/nvidia-nemotron-nano-9b-v2
+AI_DEDUPE_ENABLED=true
 ENRICH_TOP_N=12
 ```
 
-### 6. Start the stack
+If `NVIDIA_API_KEY` is empty or the API call fails, the digest builder falls back to the heuristic scoring path.
+
+### Reader And Supabase
+
+```env
+NEXT_PUBLIC_SUPABASE_URL=
+NEXT_PUBLIC_SUPABASE_ANON_KEY=
+SUPABASE_SERVICE_ROLE_KEY=
+ALLOWED_READER_EMAILS=you@example.com
+INGEST_SECRET=replace-with-long-random-secret
+NEXT_PUBLIC_APP_URL=http://127.0.0.1:3000
+```
+
+Get these values from Supabase:
+
+- `NEXT_PUBLIC_SUPABASE_URL`: Supabase project settings, API URL.
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY`: Supabase project API keys, anon/publishable key.
+- `SUPABASE_SERVICE_ROLE_KEY`: Supabase project API keys, service role key. Keep it server-side only.
+- `ALLOWED_READER_EMAILS`: comma-separated email allowlist for reader login.
+- `INGEST_SECRET`: generate locally with `openssl rand -hex 32`.
+
+The reader login page shows the missing variable names if the runtime config is incomplete.
+
+## Supabase Setup
+
+1. Create a Supabase project.
+2. In Supabase SQL editor, run the migrations in order:
+
+```text
+infra/supabase/migrations/001_reader_schema.sql
+infra/supabase/migrations/003_harden_reader_functions.sql
+infra/supabase/migrations/004_move_reader_allowlist_private.sql
+```
+
+3. Insert your reader email into the private allowlist. Start from:
+
+```text
+infra/supabase/migrations/002_insert_allowed_reader_email.sql.example
+```
+
+4. In Supabase Auth providers, keep email/password sign-in enabled.
+5. Create a Supabase Auth user for your allowlisted email and set a password. In the dashboard, use `Authentication` -> `Users` -> `Add user`; confirm the email there so local sign-in does not depend on delivery emails.
+6. In Supabase Auth URL configuration, add the local callback URL:
+
+```text
+http://127.0.0.1:3000/auth/callback
+```
+
+If you deploy the reader later, add the deployed callback URL too:
+
+```text
+https://your-reader-domain/auth/callback
+```
+
+## Install And Validate The Reader Locally
+
+```bash
+corepack enable
+pnpm install --frozen-lockfile
+pnpm typecheck:reader
+pnpm build:reader
+```
+
+Notes:
+
+- The reader uses Next.js standalone output for Docker.
+- `pnpm lint:reader` is currently not a reliable command because the installed Next CLI no longer supports `next lint` as configured.
+- In restricted sandboxes, `pnpm build:reader` may fail if Turbopack cannot bind its internal worker port. Running the build normally on the host or in Docker works.
+
+## Start The Stack
 
 ```bash
 docker compose up -d
 ```
 
-If you changed the builder image or dependencies, rebuild:
+Rebuild after changing Dockerfiles, dependencies, or reader source:
 
 ```bash
 docker compose up --build -d
 ```
 
-### 7. Verify containers
+Check containers:
 
 ```bash
 docker compose ps
 ```
 
-You should see `postgres`, `n8n`, and `digest-builder` running.
+Expected services:
 
-### 8. Open n8n
+- `daily-news-digest-postgres`
+- `daily-news-digest-n8n`
+- `daily-news-digest-builder`
+- `daily-news-digest-reader`
+
+Open the apps:
 
 ```text
-http://127.0.0.1:5678
+n8n editor:  http://127.0.0.1:5678
+reader app:  http://127.0.0.1:3000
 ```
 
-The editor is intentionally only exposed locally.
+Both ports are bound to `127.0.0.1`. The reader container also runs as a non-root user with a read-only runtime filesystem, dropped Linux capabilities, and `no-new-privileges`.
 
-## Test the NVIDIA API with curl
+## Import n8n Workflows
 
-Before importing workflows, it is worth checking that the key works.
+Import both workflow exports from n8n:
 
-Load the `.env` variables into your current shell:
+```text
+workflows/daily-news-digest-build.json
+workflows/daily-news-digest-get-latest.json
+```
+
+Recommended order:
+
+1. Import `Daily News Digest - Build`.
+2. Run it manually once.
+3. Confirm it writes `storage/digests/latest.md`.
+4. Import `Daily News Digest - Get Latest`.
+5. Activate the webhook workflow after the first digest exists.
+
+## How The Build Workflow Works
+
+`Daily News Digest - Build` runs daily at `07:00` in `Europe/Warsaw`.
+
+It sends this payload to the Python service:
+
+```text
+POST http://digest-builder:8000/build
+```
+
+The Python service:
+
+- loads RSS sources from `config/rss-sources.json`
+- loads scoring and AI settings from `config/editorial-settings.json`
+- fetches RSS items and normalizes URLs
+- clusters related articles into stories
+- compares current stories against local PostgreSQL history
+- computes impact, novelty, confirmation, scope fit, and urgency
+- enriches top stories with article text where possible
+- optionally runs the NVIDIA-backed editorial review pass
+- persists run/story/article metadata to local PostgreSQL
+- writes Markdown output to `storage/digests/latest.md` and `storage/digests/archive/YYYY-MM-DD.md`
+
+## How The Latest Digest Webhook Works
+
+`Daily News Digest - Get Latest` handles:
+
+```text
+GET /webhook/daily-news-digest
+```
+
+It reads:
+
+```text
+storage/digests/latest.md
+```
+
+and returns it as:
+
+```text
+text/markdown; charset=utf-8
+```
+
+Local test:
+
+```bash
+curl http://127.0.0.1:5678/webhook/daily-news-digest
+```
+
+This webhook is convenient for Apple Shortcuts, but it has no app-level auth in the exported workflow. Keep it private behind localhost or Tailscale, or add a token check before exposing it more broadly.
+
+## Reader App
+
+The reader is a private Next.js app in `apps/reader`.
+
+Current reader features:
+
+- email/password login through Supabase Auth
+- email allowlist check
+- feed of reader-facing news items
+- article detail page
+- read/unread toggle
+- saved/bookmarked toggle
+- archive/hide toggle
+- mobile-first shadcn/ui interface
+- protected ingest route at `POST /api/ingest`
+
+The reader uses Supabase for:
+
+- `news_items`
+- `reader_item_states`
+- auth sessions
+- private allowed-reader email checks through RLS helper functions
+
+The ingest route is documented in [docs/ingest-contract.md](docs/ingest-contract.md).
+
+## Testing Checklist
+
+### Local Services
+
+```bash
+docker compose ps
+```
+
+### NVIDIA API
+
+Load local environment variables:
 
 ```bash
 set -a
@@ -172,7 +328,7 @@ source .env
 set +a
 ```
 
-Then run:
+Call the chat completion endpoint:
 
 ```bash
 curl https://integrate.api.nvidia.com/v1/chat/completions \
@@ -191,506 +347,154 @@ curl https://integrate.api.nvidia.com/v1/chat/completions \
   }'
 ```
 
-If it works, you should get JSON with `choices[0].message.content`.
-
-## Tailscale Setup
-
-Goal: private access to n8n and webhooks without exposing the service publicly.
-
-### 1. Sign in to Tailscale on the n8n machine
-
-Make sure the Docker host is in the same tailnet as your iPhone and/or Mac.
-
-### 2. Expose local n8n through Tailscale Serve
-
-```bash
-tailscale serve --bg http://127.0.0.1:5678
-```
-
-### 3. Check status
-
-```bash
-tailscale serve status
-```
-
-You will get the device URL in your tailnet. Use that URL in Shortcuts.
-
-### 4. Optionally set proper external URLs in `.env`
-
-If you want n8n to generate webhook URLs with the Tailscale hostname:
-
-```env
-N8N_HOST=your-device.your-tailnet.ts.net
-N8N_PROTOCOL=https
-N8N_EDITOR_BASE_URL=https://your-device.your-tailnet.ts.net
-WEBHOOK_URL=https://your-device.your-tailnet.ts.net/
-```
-
-Then restart:
-
-```bash
-docker compose down
-docker compose up -d
-```
-
-### 5. Security rules
-
-- Do not use Tailscale Funnel for the n8n editor.
-- Do not expose port `5678` publicly through your router or reverse proxy.
-- All client devices must be in the same tailnet.
-- Keep secrets only in `.env`.
-
-## Import the Workflows
-
-### Workflow 1: `Daily News Digest - Build`
-
-1. Open n8n.
-2. Go to `Workflows`.
-3. Click `Import from File`.
-4. Select:
-
-```text
-workflows/daily-news-digest-build.json
-```
-
-5. Save the workflow.
-6. Run it manually once before activating it.
-
-### Workflow 2: `Daily News Digest - Get Latest`
-
-1. Click `Import from File`.
-2. Select:
-
-```text
-workflows/daily-news-digest-get-latest.json
-```
-
-3. Save the workflow.
-4. Activate it after the first digest has been generated.
-
-## How `Daily News Digest - Build` Works
-
-1. `Schedule Trigger` runs every day at `07:00` in `Europe/Warsaw`.
-2. `RSS Sources Config` sends the Python service:
-   - the RSS config path
-   - the maximum number of articles
-   - the AI dedupe flag
-3. `Build Digest In Python` calls `http://digest-builder:8000/build`.
-4. The Python service:
-   - fetches RSS feeds
-   - normalizes URLs and drops stale items
-   - merges similar articles into story clusters
-   - compares them with recent history in PostgreSQL
-   - computes `impact`, `novelty`, `confirmation`, `scope_fit`, and `urgency`
-   - enriches top stories with article page text
-   - optionally runs AI editorial review
-   - stores run, story, and article metadata in PostgreSQL
-5. n8n writes the final digest to:
-   - `storage/digests/latest.md`
-   - `storage/digests/archive/YYYY-MM-DD.md`
-
-## Tune Weights Without Changing Code
-
-The file:
-
-```text
-config/editorial-settings.json
-```
-
-controls:
-
-- final weights for `impact / novelty / confirmation / scope_fit / urgency`
-- keyword weights
-- generic war story penalties
-- story matching thresholds
-- the default enrichment top-N
-- AI editorial review settings
-
-After changing only this file, a normal restart is enough:
-
-```bash
-docker compose up -d
-```
-
-If you also changed the image or dependencies:
-
-```bash
-docker compose up --build -d
-```
-
-## AI Editorial Review
-
-After heuristic ranking, the system can run a second model-based review pass.
-
-Pipeline:
-
-1. heuristics and clustering produce candidates
-2. enrichment fetches text for top stories
-3. AI reviews the shortlist and returns JSON with:
-   - `keep`
-   - `editorialAdjustment`
-   - `importance`
-   - `scopeFit`
-   - `warRelevance`
-   - `reason`
-4. the final rank is the heuristic score plus AI bonus or penalty
-
-The settings live in:
-
-```text
-config/editorial-settings.json
-```
-
-In the `ai_editorial_review` section.
-
-If `NVIDIA_API_KEY` is missing or the API fails, the workflow falls back to heuristics only.
-
-The editable prompt for this pass is here:
-
-```text
-prompts/ai-editorial-review.md
-```
-
-## How `Daily News Digest - Get Latest` Works
-
-1. `Webhook` handles `GET` on:
-
-```text
-/daily-news-digest
-```
-
-2. `Read Latest Digest File` reads `storage/digests/latest.md`.
-3. `Binary To Text` converts the file to text.
-4. `Respond To Webhook` returns the digest as `text/markdown`.
-
-This is convenient for Apple Shortcuts because the shortcut gets clean text, not extra JSON.
-
-## Environment Variables in n8n
-
-In this MVP you do not create a separate NVIDIA credential in n8n.
-
-- `NVIDIA_API_KEY` is passed into the container through Docker Compose.
-- the HTTP call path reads it through the environment.
-- after changing `.env`, restart the stack:
-
-```bash
-docker compose down
-docker compose up -d
-```
-
-## Testing Checklist
-
-### 1. Verify n8n loads
+### Build Workflow
 
 1. Open `http://127.0.0.1:5678`.
-2. Make sure the editor loads.
+2. Run `Daily News Digest - Build` manually.
+3. Confirm `Write Latest Digest` and `Write Archive Digest` succeeded.
+4. Check `storage/digests/latest.md`.
 
-### 2. Verify the NVIDIA API works
-
-1. Run the curl test above.
-2. Confirm you receive `choices[0].message.content`.
-
-### 3. Verify the Build workflow creates a digest
-
-1. Open `Daily News Digest - Build`.
-2. Click `Execute workflow`.
-3. Wait for the run to finish.
-4. Confirm `Write Latest Digest` succeeded.
-5. Check:
-
-```text
-storage/digests/latest.md
-```
-
-### 4. Verify the webhook returns the digest
-
-1. Open `Daily News Digest - Get Latest`.
-2. Activate it.
-3. Call the webhook:
+### Latest Digest Webhook
 
 ```bash
 curl http://127.0.0.1:5678/webhook/daily-news-digest
 ```
 
-If you use Tailscale Serve, use the Tailscale URL instead.
+### Reader
 
-### 5. Verify Apple Shortcut creates a note
+1. Open `http://127.0.0.1:3000`.
+2. If config is missing, fill the listed `.env` variables and restart the reader.
+3. Sign in with an email that exists in `private.allowed_reader_emails`.
+4. Verify the feed loads.
 
-1. Configure the shortcut using the instructions below.
-2. Run it on an iPhone or Mac connected to the tailnet.
-3. Check Apple Notes for the new note.
+If the feed is empty, the Supabase reader database has no ingested `news_items` yet. Use the ingest contract to push items from n8n or a test client.
 
-## Apple Shortcut: Save Daily News Digest
+## Tailscale Setup For Private Webhook Access
 
-Goal: fetch the latest digest and create a new Apple Note from it.
+Tailscale is only needed if another device should call the local n8n webhook.
 
-### Webhook URL
+1. Sign in to Tailscale on the Docker host.
+2. Make sure the iPhone or Mac is in the same tailnet.
+3. Serve local n8n through Tailscale:
 
-With Tailscale Serve, the webhook will usually look like:
+```bash
+tailscale serve --bg http://127.0.0.1:5678
+```
+
+4. Check the URL:
+
+```bash
+tailscale serve status
+```
+
+Optional `.env` values for generated n8n URLs:
+
+```env
+N8N_HOST=your-device-name.your-tailnet.ts.net
+N8N_PROTOCOL=https
+N8N_EDITOR_BASE_URL=https://your-device-name.your-tailnet.ts.net
+WEBHOOK_URL=https://your-device-name.your-tailnet.ts.net/
+```
+
+Restart after changing those values:
+
+```bash
+docker compose down
+docker compose up -d
+```
+
+Security rules:
+
+- Do not use Tailscale Funnel for the n8n editor.
+- Do not expose port `5678` through a public router or public reverse proxy.
+- Add webhook authentication before exposing `/webhook/daily-news-digest` outside a trusted tailnet.
+
+## Apple Shortcuts
+
+Use the Tailscale webhook URL, not `127.0.0.1`, from iPhone:
 
 ```text
 https://your-device.your-tailnet.ts.net/webhook/daily-news-digest
 ```
 
-Do not use `127.0.0.1` on iPhone.
+### Save Daily News Digest
 
-### iPhone setup
-
-1. Open `Shortcuts`.
-2. Tap `+`.
-3. Name it `Save Daily News Digest`.
-4. Add `Get Contents of URL`.
-5. Set:
-   - URL: the n8n webhook URL through Tailscale
-   - Method: `GET`
-6. Add `Current Date`.
-7. Add `Format Date`.
-8. Choose `Custom`.
-9. Use:
-
-```text
-yyyy-MM-dd
-```
-
-10. Add `Create Note`.
-11. Set the note title to:
-
-```text
-News Digest - [Formatted Date]
-```
-
-12. Set the note body to the result of `Get Contents of URL`.
-13. If available, choose the `News Digest` folder.
-14. If the folder does not exist, create it manually in Apple Notes first.
-15. Save the shortcut.
-16. Run it once as a test.
-
-### Mac setup
-
-1. Open `Shortcuts`.
-2. Click `+`.
-3. Name it `Save Daily News Digest`.
-4. Add `Get Contents of URL`.
-5. Set method `GET`.
-6. Paste the Tailscale webhook URL.
-7. Add `Current Date`.
-8. Add `Format Date` with `yyyy-MM-dd`.
-9. Add `Create Note`.
-10. Title:
-
-```text
-News Digest - [Formatted Date]
-```
-
-11. Body:
-
-```text
-[Get Contents of URL]
-```
-
-12. If folder selection is available, choose `News Digest`.
-13. Save and run it.
-
-## Apple Shortcut: Fetch Daily News Digest
-
-A simpler version without saving to Notes.
-
-### iPhone or Mac
-
-1. Create a new shortcut named `Fetch Daily News Digest`.
+1. Create a shortcut named `Save Daily News Digest`.
 2. Add `Get Contents of URL`.
 3. Set method `GET`.
-4. Paste the webhook URL.
+4. Paste the Tailscale webhook URL.
+5. Add `Current Date`.
+6. Add `Format Date` with custom format `yyyy-MM-dd`.
+7. Add `Create Note`.
+8. Use title `News Digest - [Formatted Date]`.
+9. Use the result of `Get Contents of URL` as the note body.
+
+### Fetch Daily News Digest
+
+1. Create a shortcut named `Fetch Daily News Digest`.
+2. Add `Get Contents of URL`.
+3. Set method `GET`.
+4. Paste the Tailscale webhook URL.
 5. Add `Quick Look` or `Show Result`.
-6. Save the shortcut.
 
-When you run it, the digest will be displayed on screen.
+## Tuning Sources And Scoring
 
-## Future Enhancement: Summarize This Link
+Change RSS sources in:
 
-Not implemented here yet, but it is a good next step.
-
-Idea:
-
-1. The shortcut runs from the Share Sheet.
-2. It receives the current URL.
-3. It sends the URL to an n8n webhook.
-4. n8n fetches metadata or page content.
-5. NVIDIA NIM produces a summary.
-6. The result is saved to Apple Notes or shown immediately.
-
-## Example RSS Sources
-
-The MVP includes neutral example sources:
-
-- AI: `https://venturebeat.com/category/ai/feed/`
-- Apple / Tech: `https://9to5mac.com/feed/`
-- productivity: `https://zapier.com/blog/rss.xml`
-- cybersecurity: `https://thehackernews.com/feeds/posts/default`
-- dev tools: `https://stackoverflow.blog/feed/`
-- tech jobs: `https://weworkremotely.com/categories/remote-programming-jobs.rss`
-
-You can replace them by editing the configured sources or workflow inputs.
-
-## Change RSS Sources
-
-1. Open `Daily News Digest - Build`.
-2. Edit the relevant RSS source definition.
-3. Save the workflow.
-4. Run `Execute workflow` as a test.
-
-Do not start with too many sources. `5-8` feeds is still a good MVP-sized range.
-
-## Change Interests in the Prompt
-
-You have two options:
-
-1. Simple:
-   - edit the prompt directly where it is used
-2. Cleaner:
-   - treat `prompts/nvidia-news-editor.md` as the source of truth
-   - copy changes into the relevant request path if you use that prompt downstream
-
-## Change the NVIDIA Model
-
-Update `.env`:
-
-```env
-NVIDIA_NIM_MODEL=your-model
-NVIDIA_NIM_FALLBACK_MODEL=your-fallback
+```text
+config/rss-sources.json
 ```
 
-Then restart:
+Change ranking, enrichment, and AI review settings in:
 
-```bash
-docker compose down
-docker compose up -d
+```text
+config/editorial-settings.json
 ```
 
-## Disable AI and Fall Back to Basic Output
+Change the editable AI review prompt in:
 
-You have two simple options:
-
-1. Route directly to a basic digest path.
-2. Temporarily set a bad model or empty `NVIDIA_API_KEY` so the AI path is skipped or fails over.
-
-The first option is cleaner.
-
-## Troubleshooting
-
-### NVIDIA API returns 401
-
-Most common causes:
-
-- wrong `NVIDIA_API_KEY`
-- extra spaces or quotes in `.env`
-- the container was not restarted after editing `.env`
-
-### NVIDIA API returns 404 or model errors
-
-Most common causes:
-
-- invalid model name
-- the model is not available for your account
-
-Check:
-
-```env
-NVIDIA_NIM_MODEL=meta/llama-3.3-70b-instruct
-NVIDIA_NIM_FALLBACK_MODEL=nvidia/nvidia-nemotron-nano-9b-v2
+```text
+prompts/ai-editorial-review.md
 ```
 
-### NVIDIA API returns 429 or quota errors
-
-Usually rate limiting or quota.
-
-Try:
-
-- waiting a few minutes
-- reducing test frequency
-- testing the fallback model
-- temporarily using a non-AI mode
-
-### RSS returns too little data or errors
-
-Not every feed is reliable. Some feeds:
-
-- expose only a subset of posts
-- block requests
-- respond inconsistently
-
-For an MVP, just replace unstable feeds.
-
-### Webhook does not work on iPhone
-
-Check:
-
-- that iPhone is signed in to Tailscale
-- that the host machine is online
-- that `tailscale serve status` shows an active mapping
-- that `Daily News Digest - Get Latest` is active
-
-### `latest.md` does not exist
-
-Run `Daily News Digest - Build` manually first. Only then test `Get Latest`.
-
-## Debugging the AI Path
-
-If AI is not working:
-
-1. Open the latest workflow execution.
-2. Inspect the builder call path and any relevant HTTP node output.
-3. Check:
-   - HTTP status
-   - error body
-   - whether the authorization token is actually present
-4. If the primary path fails, verify fallback behavior.
-
-The system is designed to keep producing a digest even when AI is unavailable.
-
-## Backup
-
-For an MVP, three layers are enough:
-
-- Apple Notes keeps user-facing copies of daily digests
-- `storage/digests/archive/` keeps a local Markdown archive
-- Docker volumes keep n8n and PostgreSQL state
-
-For a quick project backup, copy:
-
-- the whole project directory
-- Docker volumes or Docker exports
-
-## Update n8n
-
-1. Stop the stack:
-
-```bash
-docker compose down
-```
-
-2. Pull newer images:
-
-```bash
-docker compose pull
-```
-
-3. Start again:
+After config-only changes:
 
 ```bash
 docker compose up -d
 ```
 
-4. Open n8n and verify that workflows still import and execute correctly.
+After dependency or image changes:
 
-## Possible Future Extensions
+```bash
+docker compose up --build -d
+```
 
-Good next steps:
+## Security Notes
 
-- email newsletters as additional sources
-- a `Summarize This Link` shortcut from the Apple Share Sheet
-- better pre-AI scoring
-- separate digests for AI, Apple, and jobs
-- a digest history dashboard
-- automatic note tagging
-- delivery to Telegram or email
+- Keep secrets in `.env`; it is ignored by git.
+- `SUPABASE_SERVICE_ROLE_KEY` must stay server-side only.
+- n8n is bound to localhost by default.
+- the reader is bound to localhost in Docker Compose by default.
+- the latest digest webhook has no built-in auth in the exported workflow.
+- the digest-builder service is internal to the Compose network; do not publish it publicly.
+- production dependency audit is available with `pnpm audit:prod`.
+
+## Useful Commands
+
+```bash
+pnpm install --frozen-lockfile
+pnpm typecheck:reader
+pnpm build:reader
+pnpm audit:prod
+
+docker compose up -d
+docker compose up --build -d
+docker compose logs -f reader
+docker compose logs -f digest-builder
+docker compose down
+```
+
+## Related Docs
+
+- [docs/project-structure.md](docs/project-structure.md)
+- [docs/ingest-contract.md](docs/ingest-contract.md)

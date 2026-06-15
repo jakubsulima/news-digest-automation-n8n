@@ -1,0 +1,41 @@
+name: Reader CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  reader:
+    runs-on: ubuntu-latest
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-anon-key
+      SUPABASE_SERVICE_ROLE_KEY: ci-service-role-key
+      ALLOWED_READER_EMAILS: ci@example.com
+      INGEST_SECRET: ci-ingest-secret
+      NEXT_PUBLIC_APP_URL: http://localhost:3000
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20.9.0"
+
+      - name: Enable pnpm
+        run: corepack enable
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Audit production dependencies
+        run: pnpm audit --prod
+
+      - name: Typecheck reader
+        run: pnpm typecheck
+
+      - name: Build reader
+        run: pnpm build

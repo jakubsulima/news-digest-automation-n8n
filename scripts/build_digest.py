@@ -10,7 +10,6 @@ import math
 import os
 import re
 import sys
-import textwrap
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -124,11 +123,19 @@ DEFAULT_EDITORIAL_CONFIG = {
             "acquisition": 4,
             "merger": 4,
             "sanction": 4,
-            "troops": 2,
-            "war": 2,
+            "inflation": 4,
+            "gdp": 4,
+            "layoffs": 3,
+            "funding": 3,
             "tariff": 4,
             "rate cut": 4,
+            "antitrust": 4,
             "fed": 3,
+            "ecb": 3,
+            "chip": 4,
+            "semiconductor": 4,
+            "cloud": 3,
+            "datacenter": 3,
             "ai": 3,
             "model": 3,
             "launch": 3,
@@ -147,6 +154,9 @@ DEFAULT_EDITORIAL_CONFIG = {
                 "nvidia",
                 "deepmind",
                 "inference",
+                "foundation model",
+                "agentic",
+                "gpu",
             ],
             "devtools": [
                 "developer",
@@ -161,6 +171,10 @@ DEFAULT_EDITORIAL_CONFIG = {
                 "library",
                 "agent",
                 "cli",
+                "api",
+                "open source",
+                "infrastructure",
+                "platform",
             ],
             "poland_world": [
                 "polska",
@@ -172,13 +186,24 @@ DEFAULT_EDITORIAL_CONFIG = {
                 "business",
                 "macro",
                 "macroekonomia",
-                "geopolityka",
-                "geopolitics",
-                "security",
+                "inflation",
+                "gdp",
+                "central bank",
+                "stocks",
+                "equity",
+                "bond",
+                "bonds",
+                "yield",
                 "cybersecurity",
                 "supply chain",
                 "regulation",
                 "policy",
+                "antitrust",
+                "semiconductor",
+                "chip",
+                "chips",
+                "cloud",
+                "data center",
             ],
         },
         "war_filter": {
@@ -196,6 +221,12 @@ DEFAULT_EDITORIAL_CONFIG = {
                 "ceasefire",
                 "military",
                 "defense ministry",
+                "defence ministry",
+                "defense",
+                "defence",
+                "arms",
+                "munitions",
+                "navy",
             ],
             "relevance_keywords": [
                 "sanction",
@@ -208,6 +239,11 @@ DEFAULT_EDITORIAL_CONFIG = {
                 "energy",
                 "gas",
                 "oil",
+                "inflation",
+                "fx",
+                "bond",
+                "bonds",
+                "rates",
                 "chip",
                 "chips",
                 "semiconductor",
@@ -219,10 +255,10 @@ DEFAULT_EDITORIAL_CONFIG = {
                 "policy",
                 "regulation",
                 "trade",
-                "nato",
+                "export control",
             ],
             "scope_fit_score": 3,
-            "editorial_penalty": 18.0,
+            "editorial_penalty": 24.0,
         },
         "impact": {
             "duplicate_weight_cap": 5,
@@ -250,7 +286,7 @@ DEFAULT_EDITORIAL_CONFIG = {
             "devtools_score": 9,
             "cyber_score": 9,
             "poland_world_score": 8,
-            "default_score": 5,
+            "default_score": 4,
         },
         "urgency": {
             "base_score": 2,
@@ -279,9 +315,10 @@ The user's priorities are:
 - AI
 - devtools / software engineering
 - Poland and world economy
+- markets, business, macro, and tech regulation
 - tech policy
 - cybersecurity
-- geopolitics only when it materially affects markets, technology, supply chains, regulation, or cyber
+- geopolitics only when it materially affects markets, business, technology, supply chains, regulation, or cyber
 
 Return strict JSON only.
 
@@ -299,10 +336,10 @@ For each candidate return one review item with keys:
 
 Rules:
 - editorialAdjustment must be an integer from -20 to 20
-- use negative adjustments for generic war updates, repetitive stories, or low-signal items
+- use negative adjustments for generic war updates, defense-sector coverage, repetitive stories, or low-signal items
 - use positive adjustments for materially important items in the user's scope
 - keep `reason` under 20 words
-- if a war-related story has real impact on markets, chips, energy, policy, cybersecurity, regulation, or supply chains, do not treat it as generic war noise
+- if a war-related story has real impact on markets, macro, chips, energy, policy, cybersecurity, regulation, or supply chains, do not treat it as generic war noise
 """
 
 
@@ -1367,7 +1404,7 @@ def scope_fit_score_component(article: Article) -> int:
         return int(scope_fit["devtools_score"])
     if contains_any(category, ("cyber", "bezpieczeń", "bezpieczen")):
         return int(scope_fit["cyber_score"])
-    if contains_any(category, ("polska", "świat", "swiat", "gospodarka", "geopolityka", "biznes")):
+    if contains_any(category, ("polska", "gospodarka", "biznes")):
         return int(scope_fit["poland_world_score"])
     if contains_any(text, scope_keywords["poland_world"]):
         return int(scope_fit["poland_world_score"])
@@ -1535,41 +1572,38 @@ def select_articles(
     return selected[:max_articles]
 
 
-def build_summary(article: Article) -> str:
-    sentences: list[str] = []
-    seen: set[str] = set()
+def build_reader_summary(article: Article, sentence_limit: int = 2) -> list[str]:
     candidates = [
         *(split_sentences(article.enriched_description or "")[:2]),
-        *(split_sentences(article.enriched_text or "")[:3]),
+        *(split_sentences(article.enriched_text or "")[:2]),
         *(split_sentences(article.summary)[:2]),
     ]
-    if article.duplicate_sources:
-        sources = ", ".join(article.duplicate_sources[:4])
-        candidates.append(f"Temat pojawil sie tez w innych zrodlach, m.in. {sources}.")
-    if article.changed_fields and "new_story" not in article.changed_fields:
-        candidates.append(f"Od poprzedniego uruchomienia zmienily sie pola: {', '.join(article.changed_fields[:3])}.")
-    if article.ai_reason:
-        candidates.append(f"Ocena AI: {article.ai_reason}.")
-    if article.enrichment_status != "enriched":
-        candidates.append("Dostepne streszczenie opiera sie glownie na metadanych RSS, wiec warto otworzyc link po pelny kontekst.")
-    candidates.append("Najlepszym kliknieciem jest link kanoniczny tej historii, bo skupia najbardziej informacyjna wersje tematu.")
+    sentences: list[str] = []
+    seen: set[str] = set()
     for candidate in candidates:
         sentence = normalize_sentence(candidate)
-        key = sentence.lower()
+        key = normalize_whitespace(sentence).lower()
         if not sentence or key in seen:
             continue
         seen.add(key)
         sentences.append(sentence)
-        if len(sentences) >= 5:
+        if len(sentences) >= sentence_limit:
             break
-    while len(sentences) < 4:
-        sentences.append("Ta historia utrzymala sie wysoko, bo laczy sensowny impact z aktualnoscia i dopasowaniem do zakresu digestu.")
-    return " ".join(sentences[:5])
+    if sentences:
+        return sentences
+    return ["Brak sensownego streszczenia w feedzie, warto otworzyc link do pelnego tekstu."]
+
+
+def article_status_label(article: Article) -> str:
+    if "new_story" in article.changed_fields:
+        return "nowa historia"
+    if article.changed_fields:
+        return "aktualizacja"
+    return "wybrane do digestu"
 
 
 def render_digest(
     articles: list[Article],
-    source_counts: dict[str, int],
     errors: list[str],
     report_date: str,
     sources: list[SourceConfig],
@@ -1578,38 +1612,55 @@ def render_digest(
     grouped = {category: [article for article in articles if article.category == category] for category in category_order}
     new_story_count = sum(1 for article in articles if "new_story" in article.changed_fields)
     continuing_story_count = len(articles) - new_story_count
-    snapshot_lines = [f"- {category}: {len(grouped[category])} story clusterow." for category in category_order]
-    snapshot_lines.append(f"- Lacznie po deduplikacji: {len(articles)} story clusterow.")
-    snapshot_lines.append(f"- Nowe historie: {new_story_count}. Kontynuacje lub aktualizacje: {continuing_story_count}.")
-    if errors:
-        snapshot_lines.append(f"- Problemy z feedami lub storage: {', '.join(errors[:3])}.")
-    lines = [f"# News Digest - {report_date}", "", "## Szybkie podsumowanie dnia", ""]
-    lines.extend(snapshot_lines)
-    lines.extend(["", "## Zrodla", ""])
-    for source in sources:
+    non_empty_categories = [category for category in category_order if grouped[category]]
+    lines = [
+        f"# News Digest - {report_date}",
+        "",
+        "## Dzien w 60 sekund",
+        "",
+        f"- Lacznie: {len(articles)} wybranych historii po deduplikacji.",
+        f"- Nowe: {new_story_count}. Aktualizacje lub kontynuacje: {continuing_story_count}.",
+    ]
+    if non_empty_categories:
+        top_categories = sorted(non_empty_categories, key=lambda category: len(grouped[category]), reverse=True)[:3]
         lines.append(
-            f"- {source.name} | {source.category} | priority {source.priority}/5 | "
-            f"{source_counts.get(source.name, 0)} wpisow | {source.url}"
+            "- Najwiecej dzis: "
+            + ", ".join(f"{category} ({len(grouped[category])})" for category in top_categories)
+            + "."
         )
+    if articles:
+        lines.extend(["", "## Najwazniejsze historie", ""])
+        for index, article in enumerate(articles[:5], start=1):
+            summary_lines = build_reader_summary(article, sentence_limit=1)
+            lines.extend(
+                [
+                    f"{index}. **{article.title}**",
+                    f"   {summary_lines[0]}",
+                    f"   Zrodlo: {article.source} | Data: {format_article_date(article.published_at)} | {article_status_label(article)}.",
+                    f"   Link: {article.url}",
+                    "",
+                ]
+            )
+    if errors:
+        lines.extend(["## Problemy techniczne", ""])
+        for error in errors[:3]:
+            lines.append(f"- {error}")
     for category in category_order:
-        lines.extend(["", f"## {category}", ""])
         bucket = grouped[category]
         if not bucket:
-            lines.append("Brak artykulow w tej kategorii.")
             continue
+        lines.extend(["", f"## {category}", ""])
         for article in bucket:
+            summary_lines = build_reader_summary(article)
             lines.extend(
                 [
                     f"### {article.title}",
-                    f"Zrodlo: {article.source}",
-                    f"Kategoria: {article.category}",
-                    f"Skoring: impact {article.impact_score}/10 | novelty {article.novelty_score}/10 | "
-                    f"confirmation {article.confirmation_score}/10 | scope {article.scope_fit_score}/10 | urgency {article.urgency_score}/10",
-                    f"Ocena redakcyjna: {article.editorial_score:.1f}/100",
-                    f"Data: {format_article_date(article.published_at)}",
-                    "Podsumowanie:",
-                    textwrap.fill(build_summary(article), width=100),
-                    f"Link: {article.url}",
+                    f"- Zrodlo: {article.source}",
+                    f"- Data: {format_article_date(article.published_at)}",
+                    f"- Status: {article_status_label(article)}",
+                    f"- Ocena redakcyjna: {article.editorial_score:.1f}/100",
+                    *(f"- {sentence}" for sentence in summary_lines),
+                    f"- Link: {article.url}",
                     "",
                 ]
             )
@@ -1717,7 +1768,7 @@ def build_digest_artifacts(
         category_order=category_order_with_articles(sources, articles),
     )
     report_date = digest_date()
-    digest = render_digest(selected, effective_counts, effective_errors, report_date, sources)
+    digest = render_digest(selected, effective_errors, report_date, sources)
     latest_path, archive_path = write_outputs(digest, output_dir, report_date)
 
     storage_status, run_id = persist_story_state(

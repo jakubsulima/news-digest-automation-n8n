@@ -1,0 +1,25 @@
+{
+  "name": "daily-news-digest",
+  "private": true,
+  "engines": {
+    "node": ">=20.9.0",
+    "pnpm": ">=10.30.1"
+  },
+  "scripts": {
+    "install:check": "pnpm install --frozen-lockfile",
+    "audit": "pnpm audit",
+    "audit:prod": "pnpm audit --prod",
+    "dev:reader": "pnpm --dir apps/reader dev",
+    "build:reader": "pnpm --dir apps/reader build",
+    "lint:reader": "pnpm --dir apps/reader lint",
+    "typecheck:reader": "pnpm --dir apps/reader typecheck",
+    "build": "pnpm build:reader",
+    "typecheck": "pnpm typecheck:reader"
+  },
+  "pnpm": {
+    "overrides": {
+      "postcss": ">=8.5.10"
+    }
+  },
+  "packageManager": "pnpm@10.30.1"
+}

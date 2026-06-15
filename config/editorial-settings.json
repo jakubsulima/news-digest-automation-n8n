@@ -31,11 +31,19 @@
       "acquisition": 4,
       "merger": 4,
       "sanction": 4,
-      "troops": 2,
-      "war": 2,
+      "inflation": 4,
+      "gdp": 4,
+      "layoffs": 3,
+      "funding": 3,
       "tariff": 4,
       "rate cut": 4,
+      "antitrust": 4,
       "fed": 3,
+      "ecb": 3,
+      "chip": 4,
+      "semiconductor": 4,
+      "cloud": 3,
+      "datacenter": 3,
       "ai": 3,
       "model": 3,
       "launch": 3,
@@ -53,7 +61,10 @@
         "anthropic",
         "nvidia",
         "deepmind",
-        "inference"
+        "inference",
+        "foundation model",
+        "agentic",
+        "gpu"
       ],
       "devtools": [
         "developer",
@@ -67,7 +78,11 @@
         "framework",
         "library",
         "agent",
-        "cli"
+        "cli",
+        "api",
+        "open source",
+        "infrastructure",
+        "platform"
       ],
       "poland_world": [
         "polska",
@@ -79,13 +94,24 @@
         "business",
         "macro",
         "macroekonomia",
-        "geopolityka",
-        "geopolitics",
-        "security",
+        "inflation",
+        "gdp",
+        "central bank",
+        "stocks",
+        "equity",
+        "bond",
+        "bonds",
+        "yield",
         "cybersecurity",
         "supply chain",
         "regulation",
-        "policy"
+        "policy",
+        "antitrust",
+        "semiconductor",
+        "chip",
+        "chips",
+        "cloud",
+        "data center"
       ]
     },
     "war_filter": {
@@ -102,7 +128,13 @@
         "offensive",
         "ceasefire",
         "military",
-        "defense ministry"
+        "defense ministry",
+        "defence ministry",
+        "defense",
+        "defence",
+        "arms",
+        "munitions",
+        "navy"
       ],
       "relevance_keywords": [
         "sanction",
@@ -115,6 +147,11 @@
         "energy",
         "gas",
         "oil",
+        "inflation",
+        "fx",
+        "bond",
+        "bonds",
+        "rates",
         "chip",
         "chips",
         "semiconductor",
@@ -126,10 +163,10 @@
         "policy",
         "regulation",
         "trade",
-        "nato"
+        "export control"
       ],
       "scope_fit_score": 3,
-      "editorial_penalty": 18.0
+      "editorial_penalty": 24.0
     },
     "impact": {
       "duplicate_weight_cap": 5,
@@ -157,7 +194,7 @@
       "devtools_score": 9,
       "cyber_score": 9,
       "poland_world_score": 8,
-      "default_score": 5
+      "default_score": 4
     },
     "urgency": {
       "base_score": 2,

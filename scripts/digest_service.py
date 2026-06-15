@@ -22,6 +22,7 @@ from build_digest import (
 
 HOST = "0.0.0.0"
 PORT = 8000
+DEFAULT_OUTPUT_PATH = Path(DEFAULT_OUTPUT_DIR)
 
 
 def parse_sources(items: object, config_path: Path | None = None) -> list[SourceConfig]:
@@ -43,6 +44,28 @@ def parse_sources(items: object, config_path: Path | None = None) -> list[Source
     return parsed or load_source_configs(effective_path)
 
 
+def _build_artifacts(
+    *,
+    rows: list[dict[str, object]],
+    sources: list[SourceConfig],
+    source_counts: dict[str, int],
+    errors: list[str],
+    max_articles: int,
+    delivery_mode: str,
+    enable_ai_dedupe: bool | None,
+) -> dict[str, object]:
+    return build_digest_artifacts(
+        rows=rows,
+        sources=sources,
+        source_counts=source_counts,
+        errors=errors,
+        output_dir=DEFAULT_OUTPUT_PATH,
+        max_articles=max_articles,
+        delivery_mode=delivery_mode,
+        enable_ai_dedupe=enable_ai_dedupe,
+    )
+
+
 def build_digest_response(payload: dict[str, object] | None = None) -> dict[str, object]:
     payload = payload or {}
     config_path = payload.get("sourceConfigPath")
@@ -58,14 +81,11 @@ def build_digest_response(payload: dict[str, object] | None = None) -> dict[str,
     fixture_path = payload.get("fixturePath")
     if isinstance(fixture_path, str) and fixture_path.strip():
         rows = load_rows_from_fixture(Path(fixture_path))
-        source_counts = source_counts_from_rows(rows)
-        errors: list[str] = []
-        return build_digest_artifacts(
+        return _build_artifacts(
             rows=rows,
             sources=sources,
-            source_counts=source_counts,
-            errors=errors,
-            output_dir=Path(DEFAULT_OUTPUT_DIR),
+            source_counts=source_counts_from_rows(rows),
+            errors=[],
             max_articles=max_articles,
             delivery_mode="python-service-fixture",
             enable_ai_dedupe=enable_ai,
@@ -79,24 +99,22 @@ def build_digest_response(payload: dict[str, object] | None = None) -> dict[str,
         errors = payload.get("errors")
         if not isinstance(errors, list):
             errors = []
-        return build_digest_artifacts(
+        return _build_artifacts(
             rows=rows,
             sources=sources,
             source_counts={str(key): int(value) for key, value in source_counts.items()},
             errors=[str(item) for item in errors],
-            output_dir=Path(DEFAULT_OUTPUT_DIR),
             max_articles=max_articles,
             delivery_mode="python-service-n8n-rss",
             enable_ai_dedupe=enable_ai,
         )
 
     rows, source_counts, errors = fetch_rows_for_sources(sources)
-    return build_digest_artifacts(
+    return _build_artifacts(
         rows=rows,
         sources=sources,
         source_counts=source_counts,
         errors=errors,
-        output_dir=Path(DEFAULT_OUTPUT_DIR),
         max_articles=max_articles,
         delivery_mode="python-service",
         enable_ai_dedupe=enable_ai,
@@ -124,15 +142,18 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _send_not_found(self) -> None:
+        self._send_json(HTTPStatus.NOT_FOUND, {"status": "error", "message": "Not found"})
+
     def do_GET(self) -> None:  # noqa: N802
         if self.path == "/health":
             self._send_json(HTTPStatus.OK, {"status": "ok"})
             return
-        self._send_json(HTTPStatus.NOT_FOUND, {"status": "error", "message": "Not found"})
+        self._send_not_found()
 
     def do_POST(self) -> None:  # noqa: N802
         if self.path != "/build":
-            self._send_json(HTTPStatus.NOT_FOUND, {"status": "error", "message": "Not found"})
+            self._send_not_found()
             return
         try:
             payload = self._read_json()
