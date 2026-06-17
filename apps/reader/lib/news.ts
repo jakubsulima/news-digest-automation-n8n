@@ -1,6 +1,7 @@
 import "server-only";
 
 import { createSupabaseAdminClient } from "./supabase";
+import { plainTextFromHtml } from "./text";
 
 export type NewsItemWithState = {
   id: string;
@@ -51,8 +52,8 @@ export async function getReaderNewsItems(userId: string): Promise<NewsItemWithSt
       id: item.id,
       externalId: item.external_id,
       digestDate: item.digest_date,
-      title: item.title,
-      summary: item.summary,
+      title: plainTextFromHtml(item.title),
+      summary: plainTextFromHtml(item.summary),
       source: item.source,
       sourceUrl: item.source_url,
       category: item.category,
@@ -98,8 +99,8 @@ export async function getReaderNewsItem(itemId: string, userId: string): Promise
     id: item.id,
     externalId: item.external_id,
     digestDate: item.digest_date,
-    title: item.title,
-    summary: item.summary,
+    title: plainTextFromHtml(item.title),
+    summary: plainTextFromHtml(item.summary),
     source: item.source,
     sourceUrl: item.source_url,
     category: item.category,

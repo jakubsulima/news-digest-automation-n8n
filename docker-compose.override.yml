@@ -1,0 +1,15 @@
+services:
+  reader:
+    build:
+      target: dev
+    read_only: false
+    environment:
+      NODE_ENV: development
+      WATCHPACK_POLLING: "true"
+      CHOKIDAR_USEPOLLING: "true"
+    volumes:
+      - ./apps/reader:/app/apps/reader
+      - ./config/rss-sources.json:/app/config/rss-sources.json:ro
+      - /app/node_modules
+      - /app/apps/reader/node_modules
+      - /app/apps/reader/.next

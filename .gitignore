@@ -17,8 +17,3 @@ logs/
 tmp/
 temp/
 storage/**
-!storage/.gitkeep
-!storage/digests/
-!storage/digests/.gitkeep
-!storage/digests/archive/
-!storage/digests/archive/.gitkeep

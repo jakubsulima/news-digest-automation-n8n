@@ -4,6 +4,7 @@ import { ZodError } from "zod";
 import { requireEnv } from "@/lib/env";
 import { normalizeIngestPayload } from "@/lib/ingest-schema";
 import { createSupabaseAdminClient } from "@/lib/supabase";
+import { plainTextFromHtml } from "@/lib/text";
 
 export async function POST(request: Request) {
   const expectedToken = requireEnv("INGEST_SECRET");
@@ -34,8 +35,8 @@ export async function POST(request: Request) {
   const rows = items.map((item) => ({
     external_id: item.externalId,
     digest_date: item.digestDate,
-    title: item.title,
-    summary: item.summary,
+    title: plainTextFromHtml(item.title),
+    summary: plainTextFromHtml(item.summary),
     source: item.source,
     source_url: item.sourceUrl,
     category: item.category,
