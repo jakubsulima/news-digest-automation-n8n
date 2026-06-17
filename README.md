@@ -104,7 +104,8 @@ The Vercel build uses:
 ```json
 {
   "installCommand": "pnpm install --frozen-lockfile",
-  "buildCommand": "pnpm build"
+  "buildCommand": "pnpm build",
+  "ignoreCommand": "[ \"$VERCEL_GIT_COMMIT_REF\" != \"main\" ]"
 }
 ```
 
@@ -114,6 +115,8 @@ The Vercel build uses:
 2. Use the repository root containing `vercel.json`.
 3. Set the environment variables listed above.
 4. Deploy from `main`.
+
+Pushes to non-`main` branches are ignored by Vercel. Merge into `main` or push to `main` to deploy.
 
 Vercel Cron invokes:
 
