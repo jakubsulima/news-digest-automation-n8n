@@ -47,6 +47,7 @@ const ARTICLE_FETCH_TIMEOUT_MS = 12_000;
 const ENRICH_TOP_N = 12;
 const ENRICHMENT_BATCH_SIZE = 2;
 const PUBLISH_TOP_N = 30;
+const RUNNING_STAGE_STALE_MS = 90_000;
 const SUPABASE_FILTER_BATCH_MAX_COUNT = 40;
 const SUPABASE_FILTER_BATCH_MAX_ENCODED_LENGTH = 6_000;
 const SUPABASE_WRITE_BATCH_SIZE = 500;
@@ -1220,14 +1221,20 @@ async function runStageForRun(stage: PipelineStageRun, digestRunId: string): Pro
   throw new Error(`${stageName} stage is not ported to the hosted pipeline yet.`);
 }
 
-function currentRunnableStage(stages: PipelineStageRun[]) {
+function runningStageIsStale(stage: PipelineStageRun, nowMs = Date.now()) {
+  if (!stage.started_at) {
+    return true;
+  }
+
+  const startedAtMs = Date.parse(stage.started_at);
+
+  return Number.isNaN(startedAtMs) || nowMs - startedAtMs > RUNNING_STAGE_STALE_MS;
+}
+
+function queuedStage(stages: PipelineStageRun[]) {
   const sortedStages = sortDigestStages(stages);
 
-  return (
-    sortedStages.find((stage) => stage.status === "running") ||
-    sortedStages.find((stage) => stage.status === "queued") ||
-    null
-  );
+  return sortedStages.find((stage) => stage.status === "queued") || null;
 }
 
 export async function advanceDigestRun(digestRunId: string): Promise<AdvanceDigestRunResult> {
@@ -1246,8 +1253,41 @@ export async function advanceDigestRun(digestRunId: string): Promise<AdvanceDige
     };
   }
 
-  const stage = currentRunnableStage(run.stages);
   const supabase = createSupabaseAdminClient();
+  const runningStage = sortDigestStages(run.stages).find((stage) => stage.status === "running") || null;
+  let stage: PipelineStageRun | null = null;
+
+  if (runningStage && !runningStageIsStale(runningStage)) {
+    return {
+      runId: run.id,
+      status: "running",
+      advancedStage: runningStage.stage_name,
+      message: `${runningStage.stage_name} is already running.`,
+    };
+  }
+
+  if (runningStage) {
+    const { data, error } = await supabase
+      .from("pipeline_stage_runs")
+      .update({
+        error_message: null,
+        finished_at: null,
+        started_at: null,
+        status: "queued",
+      })
+      .eq("id", runningStage.id)
+      .eq("status", "running")
+      .select("*")
+      .maybeSingle();
+
+    if (error) {
+      throw error;
+    }
+
+    stage = data;
+  }
+
+  stage = stage || queuedStage(run.stages);
 
   if (!stage) {
     const now = new Date().toISOString();
@@ -1257,7 +1297,8 @@ export async function advanceDigestRun(digestRunId: string): Promise<AdvanceDige
         finished_at: now,
         status: "succeeded",
       })
-      .eq("id", run.id);
+      .eq("id", run.id)
+      .in("status", ["queued", "running"]);
 
     if (error) {
       throw error;
@@ -1278,7 +1319,8 @@ export async function advanceDigestRun(digestRunId: string): Promise<AdvanceDige
       started_at: run.started_at ?? now,
       status: "running",
     })
-    .eq("id", run.id);
+    .eq("id", run.id)
+    .in("status", ["queued", "running"]);
 
   if (runError) {
     throw runError;
@@ -1325,9 +1367,10 @@ export async function advanceDigestRun(digestRunId: string): Promise<AdvanceDige
       .update({
         finished_at: stageComplete ? finishedAt : null,
         metrics: result.metrics ?? {},
-        status: stageComplete ? "succeeded" : "running",
+        status: stageComplete ? "succeeded" : "queued",
       })
-      .eq("id", claimedStage.id);
+      .eq("id", claimedStage.id)
+      .eq("status", "running");
 
     if (stageError) {
       throw stageError;
@@ -1350,7 +1393,8 @@ export async function advanceDigestRun(digestRunId: string): Promise<AdvanceDige
           finished_at: finishedAt,
           status: "succeeded",
         })
-        .eq("id", run.id);
+        .eq("id", run.id)
+        .eq("status", "running");
 
       if (digestRunError) {
         throw digestRunError;
@@ -1381,7 +1425,8 @@ export async function advanceDigestRun(digestRunId: string): Promise<AdvanceDige
           finished_at: finishedAt,
           status: "failed",
         })
-        .eq("id", claimedStage.id),
+        .eq("id", claimedStage.id)
+        .eq("status", "running"),
       supabase
         .from("digest_runs")
         .update({
@@ -1389,7 +1434,8 @@ export async function advanceDigestRun(digestRunId: string): Promise<AdvanceDige
           finished_at: finishedAt,
           status: "failed",
         })
-        .eq("id", run.id),
+        .eq("id", run.id)
+        .eq("status", "running"),
     ]);
 
     if (stageError) {
