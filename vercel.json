@@ -1,5 +1,5 @@
 {
-  "buildCommand": "pnpm build:reader",
+  "buildCommand": "pnpm build",
   "crons": [
     {
       "path": "/api/digest-runs/advance",

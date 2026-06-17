@@ -104,7 +104,7 @@ The Vercel build uses:
 ```json
 {
   "installCommand": "pnpm install --frozen-lockfile",
-  "buildCommand": "pnpm build:reader"
+  "buildCommand": "pnpm build"
 }
 ```
 
