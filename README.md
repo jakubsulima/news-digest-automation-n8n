@@ -127,13 +127,13 @@ The route requires:
 Authorization: Bearer $CRON_SECRET
 ```
 
-The configured schedule is once per minute:
+The configured schedule is once daily at 06:00 UTC:
 
 ```json
-"* * * * *"
+"0 6 * * *"
 ```
 
-If your Vercel plan does not support once-per-minute cron, change the schedule in `vercel.json` to the shortest supported interval.
+Vercel Hobby supports daily cron jobs. Upgrade the plan before using shorter intervals such as once per minute.
 
 ## Operations
 

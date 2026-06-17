@@ -61,6 +61,7 @@ export function DigestRunPanel({ initialRun, retrySlot }: DigestRunPanelProps) {
   const [run, setRun] = useState(initialRun);
   const [isStarting, setIsStarting] = useState(false);
   const [clientError, setClientError] = useState<string | null>(null);
+  const isAdvancingRef = useRef(false);
   const refreshedTerminalRunRef = useRef<string | null>(null);
 
   const sortedStages = useMemo(() => run?.stages ?? [], [run]);
@@ -105,6 +106,30 @@ export function DigestRunPanel({ initialRun, retrySlot }: DigestRunPanelProps) {
     return nextRun;
   }, [router]);
 
+  const advanceRun = useCallback(async () => {
+    if (isAdvancingRef.current) {
+      return null;
+    }
+
+    isAdvancingRef.current = true;
+
+    try {
+      const response = await fetch("/api/digest-runs/advance", {
+        cache: "no-store",
+        method: "POST",
+      });
+      const payload = (await response.json()) as { ok: boolean; error?: string };
+
+      if (!response.ok || !payload.ok) {
+        throw new Error(payload.error || "Could not advance digest run.");
+      }
+
+      return refreshRun();
+    } finally {
+      isAdvancingRef.current = false;
+    }
+  }, [refreshRun]);
+
   const startRun = useCallback(async () => {
     setIsStarting(true);
     setClientError(null);
@@ -118,12 +143,13 @@ export function DigestRunPanel({ initialRun, retrySlot }: DigestRunPanelProps) {
       }
 
       setRun(payload.run);
+      await advanceRun();
     } catch (error) {
       setClientError(error instanceof Error ? error.message : "Could not start digest run.");
     } finally {
       setIsStarting(false);
     }
-  }, []);
+  }, [advanceRun]);
 
   useEffect(() => {
     if (!active || clientError || isStarting) {
@@ -131,13 +157,13 @@ export function DigestRunPanel({ initialRun, retrySlot }: DigestRunPanelProps) {
     }
 
     const timer = window.setInterval(() => {
-      void refreshRun().catch((error) => {
-        setClientError(error instanceof Error ? error.message : "Could not refresh digest run.");
+      void advanceRun().catch((error) => {
+        setClientError(error instanceof Error ? error.message : "Could not advance digest run.");
       });
     }, 2_000);
 
     return () => window.clearInterval(timer);
-  }, [active, clientError, isStarting, refreshRun]);
+  }, [active, advanceRun, clientError, isStarting]);
 
   return (
     <section className="overflow-hidden border-y py-4" aria-label="Digest run">
