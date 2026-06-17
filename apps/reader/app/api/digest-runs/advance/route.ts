@@ -6,6 +6,10 @@ import { getCurrentOperator } from "@/lib/operator";
 
 export const maxDuration = 60;
 
+function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : "Could not advance digest run.";
+}
+
 async function advanceActiveRun() {
   const run = await getActiveDigestRun();
 
@@ -28,9 +32,13 @@ export async function GET(request: Request) {
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
   }
 
-  const result = await advanceActiveRun();
+  try {
+    const result = await advanceActiveRun();
 
-  return NextResponse.json({ ok: true, result });
+    return NextResponse.json({ ok: true, result });
+  } catch (error) {
+    return NextResponse.json({ ok: false, error: errorMessage(error) }, { status: 500 });
+  }
 }
 
 export async function POST() {
@@ -40,7 +48,11 @@ export async function POST() {
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
   }
 
-  const result = await advanceActiveRun();
+  try {
+    const result = await advanceActiveRun();
 
-  return NextResponse.json({ ok: true, result });
+    return NextResponse.json({ ok: true, result });
+  } catch (error) {
+    return NextResponse.json({ ok: false, error: errorMessage(error) }, { status: 500 });
+  }
 }

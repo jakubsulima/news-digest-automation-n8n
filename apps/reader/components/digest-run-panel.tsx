@@ -30,6 +30,11 @@ type DigestRunPanelProps = {
   retrySlot?: ReactNode;
 };
 
+type ApiPayload<T> = Partial<T> & {
+  ok: boolean;
+  error?: string;
+};
+
 const STAGE_COPY: Record<string, { label: string; verb: string }> = {
   source_fetch: { label: "Sources", verb: "Gathering feeds" },
   article_normalization: { label: "Articles", verb: "Cleaning article data" },
@@ -54,6 +59,23 @@ function isActiveRun(run: DigestRun | null) {
 
 function stageCopy(stageName: string) {
   return STAGE_COPY[stageName] ?? { label: stageName.replaceAll("_", " "), verb: "Working" };
+}
+
+async function readApiPayload<T>(response: Response, fallbackError: string): Promise<ApiPayload<T>> {
+  const text = await response.text();
+
+  if (!text) {
+    return response.ok ? ({ ok: true } as ApiPayload<T>) : ({ ok: false, error: fallbackError } as ApiPayload<T>);
+  }
+
+  try {
+    return JSON.parse(text) as ApiPayload<T>;
+  } catch {
+    return {
+      ok: false,
+      error: response.ok ? fallbackError : `${fallbackError} (${response.status})`,
+    } as ApiPayload<T>;
+  }
 }
 
 export function DigestRunPanel({ initialRun, retrySlot }: DigestRunPanelProps) {
@@ -83,8 +105,8 @@ export function DigestRunPanel({ initialRun, retrySlot }: DigestRunPanelProps) {
   const progress = displayStages.length ? Math.round((completedStageCount / displayStages.length) * 100) : 0;
 
   const refreshRun = useCallback(async () => {
-    const response = await fetch("/api/digest-runs", { cache: "no-store" });
-    const payload = (await response.json()) as { ok: boolean; error?: string; run?: DigestRun | null };
+    const response = await fetch(`/api/digest-runs?ts=${Date.now()}`);
+    const payload = await readApiPayload<{ run?: DigestRun | null }>(response, "Could not load digest run.");
 
     if (!response.ok || !payload.ok) {
       throw new Error(payload.error || "Could not load digest run.");
@@ -115,10 +137,9 @@ export function DigestRunPanel({ initialRun, retrySlot }: DigestRunPanelProps) {
 
     try {
       const response = await fetch("/api/digest-runs/advance", {
-        cache: "no-store",
         method: "POST",
       });
-      const payload = (await response.json()) as { ok: boolean; error?: string };
+      const payload = await readApiPayload<Record<string, never>>(response, "Could not advance digest run.");
 
       if (!response.ok || !payload.ok) {
         throw new Error(payload.error || "Could not advance digest run.");
@@ -136,7 +157,7 @@ export function DigestRunPanel({ initialRun, retrySlot }: DigestRunPanelProps) {
 
     try {
       const response = await fetch("/api/digest-runs", { method: "POST" });
-      const payload = (await response.json()) as { ok: boolean; error?: string; run?: DigestRun };
+      const payload = await readApiPayload<{ run?: DigestRun }>(response, "Could not start digest run.");
 
       if (!response.ok || !payload.ok || !payload.run) {
         throw new Error(payload.error || "Could not start digest run.");
