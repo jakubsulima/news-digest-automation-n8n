@@ -174,6 +174,45 @@ export async function retryFailedDigestRun(digestRunId: string): Promise<DigestR
   return getDigestRunById(run.id);
 }
 
+export async function resetDigestRun(digestRunId?: string): Promise<DigestRunOverview | null> {
+  const run = digestRunId ? await getDigestRunById(digestRunId) : (await getActiveDigestRun()) || (await getLatestDigestRun());
+
+  if (!run || run.status === "cancelled" || run.status === "succeeded") {
+    return run;
+  }
+
+  const now = new Date().toISOString();
+  const supabase = createSupabaseAdminClient();
+  const { error: runError } = await supabase
+    .from("digest_runs")
+    .update({
+      error_message: null,
+      finished_at: now,
+      status: "cancelled",
+    })
+    .eq("id", run.id);
+
+  if (runError) {
+    throw runError;
+  }
+
+  const { error: stageError } = await supabase
+    .from("pipeline_stage_runs")
+    .update({
+      error_message: null,
+      finished_at: now,
+      status: "skipped",
+    })
+    .eq("digest_run_id", run.id)
+    .in("status", ["queued", "running", "failed"]);
+
+  if (stageError) {
+    throw stageError;
+  }
+
+  return getDigestRunById(run.id);
+}
+
 export async function startOrGetActiveDigestRun(userId: string): Promise<DigestRunOverview> {
   const activeRun = await getActiveDigestRun();
 

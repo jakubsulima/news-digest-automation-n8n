@@ -1,17 +1,14 @@
-import { ExternalLink, Inbox, LogOut, RotateCcw } from "lucide-react";
-import Link from "next/link";
+import { Inbox, LogOut, RotateCcw } from "lucide-react";
 
-import { Badge } from "@/components/ui/badge";
-import { Button, buttonVariants } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
 import { DigestRunPanel } from "@/components/digest-run-panel";
-import { NewsItemActions } from "@/components/news-item-actions";
+import { NewsItemCard } from "@/components/news-item-card";
 import { retryDigestRun } from "@/lib/actions";
 import { requireCurrentReader } from "@/lib/auth";
 import { getDigestRunStatus } from "@/lib/digest-runs";
 import { getReaderNewsItems } from "@/lib/news";
 import { createSupabaseServerClient } from "@/lib/supabase";
-import { cn } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
@@ -20,19 +17,6 @@ async function signOut() {
 
   const supabase = await createSupabaseServerClient();
   await supabase.auth.signOut();
-}
-
-function formatDate(value: string | null) {
-  if (!value) {
-    return "No date";
-  }
-
-  return new Intl.DateTimeFormat("en", {
-    month: "short",
-    day: "numeric",
-    hour: value.includes("T") ? "2-digit" : undefined,
-    minute: value.includes("T") ? "2-digit" : undefined,
-  }).format(new Date(value));
 }
 
 export default async function HomePage() {
@@ -89,50 +73,9 @@ export default async function HomePage() {
 
       {visibleItems.length ? (
         <section className="grid gap-3" aria-label="News feed">
-          {visibleItems.map((item) => {
-            const isRead = Boolean(item.readAt);
-            const isSaved = Boolean(item.savedAt);
-            const isArchived = Boolean(item.archivedAt);
-
-            return (
-              <Card key={item.id} className={cn(isRead && "bg-card/70", isArchived && "opacity-60")}>
-                <CardHeader>
-                  <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                    <Badge variant="secondary" className="bg-accent text-accent-foreground">
-                      {item.category}
-                    </Badge>
-                    <span>{item.source}</span>
-                    <span>{formatDate(item.publishedAt || item.digestDate)}</span>
-                    {item.importanceScore === null ? null : (
-                      <Badge variant="outline">{item.importanceScore}</Badge>
-                    )}
-                  </div>
-
-                  <CardTitle className="text-base leading-snug sm:text-lg">
-                    <Link className="hover:underline" href={`/news/${item.id}`}>
-                      {item.title}
-                    </Link>
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="grid gap-4">
-                  <p className="text-sm leading-6 text-muted-foreground">{item.summary}</p>
-
-                  <div className="flex flex-wrap items-center gap-2">
-                    <NewsItemActions itemId={item.id} isRead={isRead} isSaved={isSaved} isArchived={isArchived} />
-                    <a
-                      className={buttonVariants({ variant: "outline", size: "lg" })}
-                      href={item.sourceUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      <ExternalLink aria-hidden="true" />
-                      Source
-                    </a>
-                  </div>
-                </CardContent>
-              </Card>
-            );
-          })}
+          {visibleItems.map((item) => (
+            <NewsItemCard key={item.id} item={item} />
+          ))}
         </section>
       ) : (
         <Card>

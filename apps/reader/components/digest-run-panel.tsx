@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { Activity, Check, Circle, Loader2, Play, Sparkles, X } from "lucide-react";
+import { Activity, Check, Circle, Loader2, Play, RotateCcw, Sparkles, X } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -82,6 +82,7 @@ export function DigestRunPanel({ initialRun, retrySlot }: DigestRunPanelProps) {
   const router = useRouter();
   const [run, setRun] = useState(initialRun);
   const [isStarting, setIsStarting] = useState(false);
+  const [isResetting, setIsResetting] = useState(false);
   const [clientError, setClientError] = useState<string | null>(null);
   const isAdvancingRef = useRef(false);
   const refreshedTerminalRunRef = useRef<string | null>(null);
@@ -145,6 +146,7 @@ export function DigestRunPanel({ initialRun, retrySlot }: DigestRunPanelProps) {
         throw new Error(payload.error || "Could not advance digest run.");
       }
 
+      setClientError(null);
       return refreshRun();
     } finally {
       isAdvancingRef.current = false;
@@ -172,19 +174,43 @@ export function DigestRunPanel({ initialRun, retrySlot }: DigestRunPanelProps) {
     }
   }, [advanceRun]);
 
+  const resetRun = useCallback(async () => {
+    setIsResetting(true);
+    setClientError(null);
+
+    try {
+      const response = await fetch("/api/digest-runs/reset", { method: "POST" });
+      const payload = await readApiPayload<{ run?: DigestRun | null }>(response, "Could not reset digest run.");
+
+      if (!response.ok || !payload.ok) {
+        throw new Error(payload.error || "Could not reset digest run.");
+      }
+
+      setRun(payload.run ?? null);
+      router.refresh();
+    } catch (error) {
+      setClientError(error instanceof Error ? error.message : "Could not reset digest run.");
+    } finally {
+      setIsResetting(false);
+    }
+  }, [router]);
+
   useEffect(() => {
-    if (!active || clientError || isStarting) {
+    if (!active || isStarting || isResetting) {
       return;
     }
 
     const timer = window.setInterval(() => {
       void advanceRun().catch((error) => {
         setClientError(error instanceof Error ? error.message : "Could not advance digest run.");
+        void refreshRun().catch(() => {
+          // Keep the visible error from the advance request; the next tick will retry.
+        });
       });
     }, 2_000);
 
     return () => window.clearInterval(timer);
-  }, [active, advanceRun, clientError, isStarting]);
+  }, [active, advanceRun, isResetting, isStarting, refreshRun]);
 
   return (
     <section className="overflow-hidden border-y py-4" aria-label="Digest run">
@@ -266,14 +292,26 @@ export function DigestRunPanel({ initialRun, retrySlot }: DigestRunPanelProps) {
           </div>
         </div>
 
-        <div className="flex items-center gap-2 sm:justify-end">
+        <div className="flex flex-wrap items-center gap-2 sm:justify-end">
           {run?.status === "failed" ? (
-            retrySlot
+            <>
+              {retrySlot}
+              <Button type="button" size="lg" variant="outline" onClick={resetRun} disabled={isResetting}>
+                {isResetting ? <Loader2 className="animate-spin" aria-hidden="true" /> : <RotateCcw aria-hidden="true" />}
+                Reset run
+              </Button>
+            </>
           ) : active ? (
-            <div className="inline-flex h-9 items-center gap-2 rounded-lg border bg-card px-3 text-sm font-medium text-muted-foreground">
-              <Sparkles className="size-4 animate-pulse text-primary" aria-hidden="true" />
-              Running
-            </div>
+            <>
+              <div className="inline-flex h-9 items-center gap-2 rounded-lg border bg-card px-3 text-sm font-medium text-muted-foreground">
+                <Sparkles className="size-4 animate-pulse text-primary" aria-hidden="true" />
+                Running
+              </div>
+              <Button type="button" size="lg" variant="outline" onClick={resetRun} disabled={isResetting}>
+                {isResetting ? <Loader2 className="animate-spin" aria-hidden="true" /> : <RotateCcw aria-hidden="true" />}
+                Reset run
+              </Button>
+            </>
           ) : (
             <Button type="button" size="lg" onClick={startRun} disabled={isStarting}>
               {isStarting ? <Loader2 className="animate-spin" aria-hidden="true" /> : <Play aria-hidden="true" />}
