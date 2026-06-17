@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { requireCurrentReader } from "./auth";
 import type { Database } from "./database.types";
 import { advanceDigestRun as advanceDigestRunStage } from "./digest-stage-executor";
-import { getActiveDigestRun, startOrGetActiveDigestRun } from "./digest-runs";
+import { getActiveDigestRun, retryFailedDigestRun, startOrGetActiveDigestRun } from "./digest-runs";
 import { requireCurrentOperator } from "./operator";
 import { createSupabaseAdminClient } from "./supabase";
 
@@ -60,5 +60,11 @@ export async function advanceDigestRun() {
   }
 
   await advanceDigestRunStage(run.id);
+  revalidatePath("/");
+}
+
+export async function retryDigestRun(digestRunId: string) {
+  await requireCurrentOperator();
+  await retryFailedDigestRun(digestRunId);
   revalidatePath("/");
 }

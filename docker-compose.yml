@@ -1,76 +1,4 @@
 services:
-  postgres:
-    image: postgres:16-alpine
-    container_name: daily-news-digest-postgres
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB}
-      TZ: ${TZ}
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-
-  n8n:
-    image: docker.n8n.io/n8nio/n8n:2.21.7
-    container_name: daily-news-digest-n8n
-    restart: unless-stopped
-    depends_on:
-      postgres:
-        condition: service_healthy
-      digest-builder:
-        condition: service_started
-    ports:
-      - "127.0.0.1:5678:5678"
-    environment:
-      DB_TYPE: postgresdb
-      DB_POSTGRESDB_HOST: postgres
-      DB_POSTGRESDB_PORT: 5432
-      DB_POSTGRESDB_DATABASE: ${POSTGRES_DB}
-      DB_POSTGRESDB_USER: ${POSTGRES_USER}
-      DB_POSTGRESDB_PASSWORD: ${POSTGRES_PASSWORD}
-      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY}
-      GENERIC_TIMEZONE: ${GENERIC_TIMEZONE}
-      TZ: ${TZ}
-      N8N_HOST: ${N8N_HOST:-localhost}
-      N8N_PROTOCOL: ${N8N_PROTOCOL:-http}
-      N8N_EDITOR_BASE_URL: ${N8N_EDITOR_BASE_URL:-http://localhost:5678}
-      WEBHOOK_URL: ${WEBHOOK_URL:-http://localhost:5678/}
-    volumes:
-      - n8n_data:/home/node/.n8n
-      - ./storage:/home/node/.n8n-files
-      - ./config:/project/config:ro
-      - ./workflows:/project/workflows:ro
-      - ./prompts:/project/prompts:ro
-
-  digest-builder:
-    build:
-      context: .
-      dockerfile: Dockerfile.digest-builder
-    container_name: daily-news-digest-builder
-    restart: unless-stopped
-    working_dir: /project
-    environment:
-      TZ: ${TZ}
-      POSTGRES_HOST: ${POSTGRES_HOST:-postgres}
-      POSTGRES_PORT: ${POSTGRES_PORT:-5432}
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB}
-      NVIDIA_API_KEY: ${NVIDIA_API_KEY:-}
-      NVIDIA_NIM_MODEL: ${NVIDIA_NIM_MODEL:-meta/llama-3.3-70b-instruct}
-      AI_DEDUPE_ENABLED: ${AI_DEDUPE_ENABLED:-true}
-      ENRICH_TOP_N: ${ENRICH_TOP_N:-12}
-    volumes:
-      - ./config:/project/config:ro
-      - ./scripts:/project/scripts:ro
-      - ./storage:/project/storage
-
   reader:
     build:
       context: .
@@ -86,6 +14,7 @@ services:
       SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
       ALLOWED_READER_EMAILS: ${ALLOWED_READER_EMAILS:-}
       INGEST_SECRET: ${INGEST_SECRET:-}
+      CRON_SECRET: ${CRON_SECRET:-}
       NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-http://127.0.0.1:3000}
     read_only: true
     tmpfs:
@@ -103,7 +32,3 @@ services:
       interval: 30s
       timeout: 5s
       retries: 5
-
-volumes:
-  n8n_data:
-  postgres_data:

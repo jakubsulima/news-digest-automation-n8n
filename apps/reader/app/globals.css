@@ -135,3 +135,13 @@
     @apply underline-offset-4;
   }
 }
+
+@keyframes digest-scan {
+  0% {
+    transform: translateX(-120%);
+  }
+
+  100% {
+    transform: translateX(360%);
+  }
+}

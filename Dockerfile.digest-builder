@@ -1,7 +1,0 @@
-FROM python:3.12-alpine
-
-WORKDIR /project
-
-RUN pip install --no-cache-dir "psycopg[binary]==3.2.9"
-
-CMD ["python3", "/project/scripts/digest_service.py"]

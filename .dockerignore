@@ -10,9 +10,5 @@ node_modules
 !.env.example
 !**/.env.example
 
-storage
-workflows
-config
-prompts
-infra
 docs
+infra

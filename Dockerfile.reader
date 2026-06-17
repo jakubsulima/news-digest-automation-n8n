@@ -17,12 +17,25 @@ COPY apps/reader/package.json apps/reader/package.json
 
 RUN pnpm install --frozen-lockfile --filter @daily-news-digest/reader...
 
+FROM deps AS dev
+
+ENV NODE_ENV=development
+ENV HOSTNAME=0.0.0.0
+ENV PORT=3000
+ENV WATCHPACK_POLLING=true
+ENV CHOKIDAR_USEPOLLING=true
+
+EXPOSE 3000
+
+CMD ["pnpm", "--dir", "apps/reader", "dev", "--hostname", "0.0.0.0"]
+
 FROM base AS builder
 
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/apps/reader/node_modules ./apps/reader/node_modules
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/reader apps/reader
+COPY config/rss-sources.json config/rss-sources.json
 
 RUN pnpm build:reader
 

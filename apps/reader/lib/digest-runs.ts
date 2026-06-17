@@ -126,6 +126,54 @@ export async function getDigestRunStatus(): Promise<DigestRunOverview | null> {
   return (await getActiveDigestRun()) || getLatestDigestRun();
 }
 
+export async function retryFailedDigestRun(digestRunId: string): Promise<DigestRunOverview | null> {
+  const run = await getDigestRunById(digestRunId);
+
+  if (!run || run.status !== "failed") {
+    return run;
+  }
+
+  const failedStage = run.stages.find((stage) => stage.status === "failed");
+
+  if (!failedStage) {
+    return run;
+  }
+
+  const failedStageIndex = DIGEST_STAGE_NAMES.indexOf(failedStage.stage_name);
+  const retryStageNames = DIGEST_STAGE_NAMES.slice(failedStageIndex);
+  const supabase = createSupabaseAdminClient();
+  const { error: runError } = await supabase
+    .from("digest_runs")
+    .update({
+      error_message: null,
+      finished_at: null,
+      status: "queued",
+    })
+    .eq("id", run.id);
+
+  if (runError) {
+    throw runError;
+  }
+
+  const { error: stageError } = await supabase
+    .from("pipeline_stage_runs")
+    .update({
+      error_message: null,
+      finished_at: null,
+      metrics: {},
+      started_at: null,
+      status: "queued",
+    })
+    .eq("digest_run_id", run.id)
+    .in("stage_name", retryStageNames);
+
+  if (stageError) {
+    throw stageError;
+  }
+
+  return getDigestRunById(run.id);
+}
+
 export async function startOrGetActiveDigestRun(userId: string): Promise<DigestRunOverview> {
   const activeRun = await getActiveDigestRun();
 

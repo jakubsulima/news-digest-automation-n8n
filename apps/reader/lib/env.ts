@@ -10,9 +10,10 @@ const requiredReaderRuntimeEnv = [
   "SUPABASE_SERVICE_ROLE_KEY",
   "ALLOWED_READER_EMAILS",
   "INGEST_SECRET",
+  "CRON_SECRET",
 ] as const;
 
-export function requireEnv(name: (typeof requiredServerEnv)[number] | "INGEST_SECRET"): string {
+export function requireEnv(name: (typeof requiredServerEnv)[number] | "INGEST_SECRET" | "CRON_SECRET"): string {
   const value = process.env[name];
   if (!value) {
     throw new Error(`Missing required environment variable: ${name}`);
