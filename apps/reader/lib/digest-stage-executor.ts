@@ -1003,20 +1003,21 @@ async function runEditorialScoringStage(digestRunId: string): Promise<StageResul
     .sort((left, right) => right.scores.editorialScore - left.scores.editorialScore);
   const selectedIds = new Set(scored.slice(0, PUBLISH_TOP_N).map(({ snapshot }) => snapshot.id));
   const supabase = createSupabaseAdminClient();
+  const scoredSnapshots: StorySnapshotInsert[] = scored.map(({ scores, snapshot }) => ({
+    ...snapshot,
+    confirmation_score: scores.confirmationScore,
+    editorial_score: scores.editorialScore,
+    impact_score: scores.impactScore,
+    is_selected: selectedIds.has(snapshot.id),
+    novelty_score: scores.noveltyScore,
+    scope_fit_score: scores.scopeFitScore,
+    urgency_score: scores.urgencyScore,
+  }));
 
-  for (const { scores, snapshot } of scored) {
-    const { error } = await supabase
-      .from("story_snapshots")
-      .update({
-        confirmation_score: scores.confirmationScore,
-        editorial_score: scores.editorialScore,
-        impact_score: scores.impactScore,
-        is_selected: selectedIds.has(snapshot.id),
-        novelty_score: scores.noveltyScore,
-        scope_fit_score: scores.scopeFitScore,
-        urgency_score: scores.urgencyScore,
-      })
-      .eq("id", snapshot.id);
+  for (const snapshotBatch of chunk(scoredSnapshots, SUPABASE_WRITE_BATCH_SIZE)) {
+    const { error } = await supabase.from("story_snapshots").upsert(snapshotBatch, {
+      onConflict: "id",
+    });
 
     if (error) {
       throw error;

@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 
 import { advanceDigestRun } from "@/lib/digest-stage-executor";
 import { getActiveDigestRun } from "@/lib/digest-runs";
@@ -8,6 +8,12 @@ export const maxDuration = 60;
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : "Could not advance digest run.";
+}
+
+function logBackgroundAdvanceError(error: unknown) {
+  console.error("Background digest advance failed", {
+    error: errorMessage(error),
+  });
 }
 
 async function advanceActiveRun() {
@@ -48,11 +54,23 @@ export async function POST() {
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
   }
 
-  try {
-    const result = await advanceActiveRun();
+  after(async () => {
+    try {
+      await advanceActiveRun();
+    } catch (error) {
+      logBackgroundAdvanceError(error);
+    }
+  });
 
-    return NextResponse.json({ ok: true, result });
-  } catch (error) {
-    return NextResponse.json({ ok: false, error: errorMessage(error) }, { status: 500 });
-  }
+  return NextResponse.json(
+    {
+      ok: true,
+      result: {
+        advancedStage: null,
+        message: "Digest run advancement scheduled.",
+        status: "scheduled",
+      },
+    },
+    { status: 202 },
+  );
 }
