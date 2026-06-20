@@ -28,8 +28,8 @@ export async function getReaderNewsItems(userId: string): Promise<NewsItemWithSt
       .select(
         "id, external_id, digest_date, title, summary, source, source_url, category, importance_score, published_at",
       )
-      .order("digest_date", { ascending: false })
       .order("published_at", { ascending: false, nullsFirst: false })
+      .order("digest_date", { ascending: false })
       .limit(100),
     supabase
       .from("reader_item_states")

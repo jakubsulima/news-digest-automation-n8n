@@ -6,7 +6,7 @@ import type { Database } from "../../database.types";
 import { createSupabaseAdminClient } from "../../supabase";
 import { loadRunArticles, type RunArticle } from "../run-articles";
 import type { StageRunner } from "../types";
-import { chunk, chunkByEncodedLength, jsonString, throwDatabaseError } from "../utils";
+import { chunk, chunkByEncodedLength, jsonNumber, jsonString, throwDatabaseError } from "../utils";
 import {
   SUPABASE_FILTER_BATCH_MAX_COUNT,
   SUPABASE_FILTER_BATCH_MAX_ENCODED_LENGTH,
@@ -210,6 +210,7 @@ export const runStoryClusteringStage: StageRunner = async ({ digestRunId }) => {
         category: canonical.category,
         publishedAt: canonical.last_seen_at,
         source: canonical.source,
+        sourcePriority: jsonNumber(canonical.metadata, "sourcePriority"),
         summary: canonical.enriched_description || canonical.raw_summary || "",
         title: canonical.title,
       },

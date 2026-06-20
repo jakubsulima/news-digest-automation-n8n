@@ -9,6 +9,8 @@
     "install:check": "pnpm install --frozen-lockfile",
     "audit": "pnpm audit",
     "audit:prod": "pnpm audit --prod",
+    "knip": "knip --no-progress --include files,dependencies,unlisted,binaries,unresolved",
+    "knip:exports": "knip --no-progress --exports",
     "dev:reader": "pnpm --dir apps/reader dev",
     "build:reader": "pnpm --dir apps/reader build",
     "lint:reader": "pnpm --dir apps/reader lint",
@@ -22,5 +24,8 @@
       "postcss": ">=8.5.10"
     }
   },
-  "packageManager": "pnpm@10.30.1"
+  "packageManager": "pnpm@10.30.1",
+  "devDependencies": {
+    "knip": "^5.88.1"
+  }
 }

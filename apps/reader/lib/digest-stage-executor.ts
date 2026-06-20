@@ -8,7 +8,7 @@ import { createSupabaseAdminClient } from "./supabase";
 
 const RUNNING_STAGE_STALE_MS = 90_000;
 
-export type AdvanceDigestRunResult = {
+type AdvanceDigestRunResult = {
   runId: string;
   status: DigestRun["status"];
   advancedStage: PipelineStageRun["stage_name"] | null;

@@ -10,7 +10,7 @@
     "build": "next build",
     "start": "next start",
     "cleanup:text": "node scripts/cleanup-text.mjs",
-    "lint": "next lint",
+    "lint": "pnpm --dir ../.. knip --workspace apps/reader",
     "test": "vitest run",
     "typecheck": "tsc --noEmit -p tsconfig.typecheck.json"
   },

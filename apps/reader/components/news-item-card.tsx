@@ -16,11 +16,15 @@ const DISPLAY_TIME_ZONE = "Europe/Warsaw";
 
 type NewsItemCardProps = {
   item: NewsItemWithState;
+  onItemStateChange?: (
+    itemId: string,
+    state: Pick<NewsItemWithState, "archivedAt" | "readAt" | "savedAt">,
+  ) => void;
 };
 
 function formatDate(value: string | null) {
   if (!value) {
-    return "No date";
+    return "No publication date";
   }
 
   return new Intl.DateTimeFormat("en-US", {
@@ -44,16 +48,20 @@ function compactSummary(value: string) {
   return `${compacted}...`;
 }
 
-export function NewsItemCard({ item }: NewsItemCardProps) {
+export function NewsItemCard({ item, onItemStateChange }: NewsItemCardProps) {
   const [expanded, setExpanded] = useState(false);
-  const [archived, setArchived] = useState(Boolean(item.archivedAt));
   const isRead = Boolean(item.readAt);
   const isSaved = Boolean(item.savedAt);
+  const isArchived = Boolean(item.archivedAt);
   const hasLongSummary = item.summary.length > SUMMARY_MAX_CHARS;
   const previewSummary = compactSummary(item.summary);
 
-  if (archived) {
+  if (isArchived) {
     return null;
+  }
+
+  function toTimestamp(enabled: boolean, currentValue: string | null) {
+    return enabled ? currentValue ?? new Date().toISOString() : null;
   }
 
   return (
@@ -64,7 +72,7 @@ export function NewsItemCard({ item }: NewsItemCardProps) {
             {item.category}
           </Badge>
           <span>{item.source}</span>
-          <span>{formatDate(item.publishedAt || item.digestDate)}</span>
+          <span>{formatDate(item.publishedAt)}</span>
           {item.importanceScore === null ? null : <Badge variant="outline">{item.importanceScore}</Badge>}
         </div>
 
@@ -98,8 +106,14 @@ export function NewsItemCard({ item }: NewsItemCardProps) {
             itemId={item.id}
             isRead={isRead}
             isSaved={isSaved}
-            isArchived={archived}
-            onArchivedChange={setArchived}
+            isArchived={isArchived}
+            onStateChange={(state) =>
+              onItemStateChange?.(item.id, {
+                archivedAt: toTimestamp(state.archived, item.archivedAt),
+                readAt: toTimestamp(state.read, item.readAt),
+                savedAt: toTimestamp(state.saved, item.savedAt),
+              })
+            }
           />
           <a
             className={buttonVariants({ variant: "outline", size: "lg" })}

@@ -10,6 +10,7 @@ import { requireCurrentReader } from "@/lib/auth";
 import { getReaderNewsItem } from "@/lib/news";
 
 export const dynamic = "force-dynamic";
+const DISPLAY_TIME_ZONE = "Europe/Warsaw";
 
 type NewsDetailPageProps = {
   params: Promise<{
@@ -19,12 +20,13 @@ type NewsDetailPageProps = {
 
 function formatDate(value: string | null) {
   if (!value) {
-    return "No date";
+    return "No publication date";
   }
 
   return new Intl.DateTimeFormat("en", {
     dateStyle: "medium",
     timeStyle: value.includes("T") ? "short" : undefined,
+    timeZone: DISPLAY_TIME_ZONE,
   }).format(new Date(value));
 }
 
@@ -64,7 +66,7 @@ export default async function NewsDetailPage({ params }: NewsDetailPageProps) {
               {item.category}
             </Badge>
             <span>{item.source}</span>
-            <span>{formatDate(item.publishedAt || item.digestDate)}</span>
+            <span>{formatDate(item.publishedAt)}</span>
             {item.importanceScore === null ? null : <Badge variant="outline">{item.importanceScore}</Badge>}
           </div>
 

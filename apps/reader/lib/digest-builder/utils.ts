@@ -35,7 +35,7 @@ export function compactText(value: string, maxLength: number) {
   return compacted.length > maxLength ? `${compacted.slice(0, maxLength - 1).trim()}...` : compacted;
 }
 
-export function jsonObject(value: Json): Record<string, Json | undefined> {
+function jsonObject(value: Json): Record<string, Json | undefined> {
   return value && typeof value === "object" && !Array.isArray(value) ? value : {};
 }
 

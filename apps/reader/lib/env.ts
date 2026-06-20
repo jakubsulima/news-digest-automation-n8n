@@ -29,7 +29,7 @@ export function hasReaderRuntimeConfig(): boolean {
   return getMissingReaderRuntimeEnvNames().length === 0;
 }
 
-export function getAllowedReaderEmails(): string[] {
+function getAllowedReaderEmails(): string[] {
   return (process.env.ALLOWED_READER_EMAILS || "")
     .split(",")
     .map((email) => email.trim().toLowerCase())

@@ -16,10 +16,6 @@ function publishedSummary(snapshot: StorySnapshotRow) {
 }
 
 async function deleteStaleNewsItems(currentExternalIds: string[]) {
-  if (!currentExternalIds.length) {
-    return 0;
-  }
-
   const supabase = createSupabaseAdminClient();
   const { data, error } = await supabase.from("news_items").select("id, external_id");
 
@@ -28,7 +24,9 @@ async function deleteStaleNewsItems(currentExternalIds: string[]) {
   }
 
   const current = new Set(currentExternalIds);
-  const staleIds = (data || []).filter((item) => !current.has(item.external_id)).map((item) => item.id);
+  const staleIds = (data || [])
+    .filter((item) => currentExternalIds.length === 0 || !current.has(item.external_id))
+    .map((item) => item.id);
 
   for (const staleBatch of chunk(staleIds, SUPABASE_WRITE_BATCH_SIZE)) {
     const { error: deleteError } = await supabase.from("news_items").delete().in("id", staleBatch);
@@ -92,7 +90,7 @@ export const runReaderPublicationStage: StageRunner = async ({ digestRunId }) =>
     }
   }
 
-  const deletedStaleCount = rows.length ? await deleteStaleNewsItems(rows.map((row) => row.external_id)) : 0;
+  const deletedStaleCount = await deleteStaleNewsItems(rows.map((row) => row.external_id));
 
   return {
     metrics: {

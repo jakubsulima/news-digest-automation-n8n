@@ -111,7 +111,11 @@ describe("fetchSourceItemsForRun", () => {
           ok: true,
           status: 200,
           text: async () =>
-            `<rss><channel><item><title>Good</title><link>https://example.com/good</link></item></channel></rss>`,
+            `<rss><channel><item>
+              <title>Good</title>
+              <link>https://example.com/good</link>
+              <pubDate>Sat, 20 Jun 2026 09:00:00 GMT</pubDate>
+            </item></channel></rss>`,
         } as Response;
       }
 
@@ -125,6 +129,7 @@ describe("fetchSourceItemsForRun", () => {
     const result = await fetchSourceItemsForRun({
       digestRunId: "run-5",
       fetchImpl: fetchImpl as unknown as typeof fetch,
+      now: new Date("2026-06-20T12:00:00.000Z"),
       sources: [
         { ...source, name: "Good Source", url: "https://feeds.example.test/good" },
         { ...source, name: "Bad Source", url: "https://feeds.example.test/bad" },
@@ -135,12 +140,66 @@ describe("fetchSourceItemsForRun", () => {
     expect(result.metrics).toEqual({
       errors: ["Bad Source: HTTP 503"],
       fetchedItemCount: 1,
+      fetchedWarsawDates: ["2026-06-20", "2026-06-19"],
+      parsedItemCount: 1,
+      skippedOldItemCount: 0,
+      skippedUndatedItemCount: 0,
       sourceCounts: {
         "Good Source": 1,
       },
       sourcesConfigured: 2,
       sourcesFailed: 1,
       sourcesSucceeded: 1,
+    });
+  });
+
+  it("keeps only items published today or yesterday in Warsaw time", async () => {
+    const fetchImpl = vi.fn(async () => {
+      return {
+        ok: true,
+        status: 200,
+        text: async () =>
+          `<rss><channel>
+            <item>
+              <title>Today</title>
+              <link>https://example.com/today</link>
+              <pubDate>Sat, 20 Jun 2026 08:00:00 GMT</pubDate>
+            </item>
+            <item>
+              <title>Yesterday</title>
+              <link>https://example.com/yesterday</link>
+              <pubDate>Fri, 19 Jun 2026 18:30:00 GMT</pubDate>
+            </item>
+            <item>
+              <title>Old</title>
+              <link>https://example.com/old</link>
+              <pubDate>Thu, 18 Jun 2026 18:30:00 GMT</pubDate>
+            </item>
+            <item>
+              <title>Undated</title>
+              <link>https://example.com/undated</link>
+            </item>
+          </channel></rss>`,
+      } as Response;
+    });
+
+    const result = await fetchSourceItemsForRun({
+      digestRunId: "run-6",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      now: new Date("2026-06-20T12:00:00.000Z"),
+      sources: [{ ...source, name: "Recent Source", url: "https://feeds.example.test/recent" }],
+    });
+
+    expect(result.sourceItems.map((item) => rawPayload(item).title)).toEqual(["Today", "Yesterday"]);
+    expect(result.metrics).toMatchObject({
+      fetchedItemCount: 2,
+      fetchedWarsawDates: ["2026-06-20", "2026-06-19"],
+      parsedItemCount: 4,
+      skippedOldItemCount: 1,
+      skippedUndatedItemCount: 1,
+      sourceCounts: {
+        "Recent Source": 2,
+      },
     });
   });
 });

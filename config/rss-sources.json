@@ -21,13 +21,13 @@
     "name": "Niebezpiecznik",
     "category": "Cyberbezpieczeństwo PL",
     "url": "https://feeds.feedburner.com/niebezpiecznik/",
-    "priority": 3
+    "priority": 1
   },
   {
     "name": "CERT Polska",
     "category": "Cyberbezpieczeństwo PL",
     "url": "https://cert.pl/feed/",
-    "priority": 3
+    "priority": 1
   },
   {
     "name": "300Gospodarka",
@@ -63,6 +63,24 @@
     "name": "NPR World",
     "category": "Świat / Ważne wydarzenia",
     "url": "https://feeds.npr.org/1004/rss.xml",
+    "priority": 4
+  },
+  {
+    "name": "The Guardian World",
+    "category": "Świat / Geopolityka",
+    "url": "https://www.theguardian.com/world/rss",
+    "priority": 5
+  },
+  {
+    "name": "POLITICO Europe",
+    "category": "Świat / Geopolityka / Europa",
+    "url": "https://www.politico.eu/feed/",
+    "priority": 5
+  },
+  {
+    "name": "Al Jazeera",
+    "category": "Świat / Geopolityka",
+    "url": "https://www.aljazeera.com/xml/rss/all.xml",
     "priority": 4
   },
   {
@@ -153,6 +171,6 @@
     "name": "BleepingComputer",
     "category": "Cybersecurity Global",
     "url": "https://www.bleepingcomputer.com/feed/",
-    "priority": 3
+    "priority": 1
   }
 ]

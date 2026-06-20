@@ -44,6 +44,8 @@ const STAGE_COPY: Record<string, { label: string; verb: string }> = {
   reader_publication: { label: "Publish", verb: "Preparing the feed" },
   finalization: { label: "Done", verb: "Finalizing" },
 };
+const ACTIVE_STATUS_REFRESH_MS = 4_000;
+const ACTIVE_ADVANCE_MS = 8_000;
 
 function formatRunStatus(status: RunStatus | null) {
   if (!status) {
@@ -106,7 +108,7 @@ export function DigestRunPanel({ initialRun, retrySlot }: DigestRunPanelProps) {
   const progress = displayStages.length ? Math.round((completedStageCount / displayStages.length) * 100) : 0;
 
   const refreshRun = useCallback(async () => {
-    const response = await fetch(`/api/digest-runs?ts=${Date.now()}`);
+    const response = await fetch("/api/digest-runs", { cache: "no-store" });
     const payload = await readApiPayload<{ run?: DigestRun | null }>(response, "Could not load digest run.");
 
     if (!response.ok || !payload.ok) {
@@ -138,6 +140,7 @@ export function DigestRunPanel({ initialRun, retrySlot }: DigestRunPanelProps) {
 
     try {
       const response = await fetch("/api/digest-runs/advance", {
+        cache: "no-store",
         method: "POST",
       });
       const payload = await readApiPayload<Record<string, never>>(response, "Could not advance digest run.");
@@ -147,11 +150,11 @@ export function DigestRunPanel({ initialRun, retrySlot }: DigestRunPanelProps) {
       }
 
       setClientError(null);
-      return refreshRun();
+      return null;
     } finally {
       isAdvancingRef.current = false;
     }
-  }, [refreshRun]);
+  }, []);
 
   const startRun = useCallback(async () => {
     setIsStarting(true);
@@ -200,16 +203,38 @@ export function DigestRunPanel({ initialRun, retrySlot }: DigestRunPanelProps) {
       return;
     }
 
-    const timer = window.setInterval(() => {
+    const tabIsVisible = () => document.visibilityState === "visible";
+
+    const refreshIfVisible = () => {
+      if (!tabIsVisible()) {
+        return;
+      }
+
+      void refreshRun().catch((error) => {
+        setClientError(error instanceof Error ? error.message : "Could not load digest run.");
+      });
+    };
+
+    const advanceIfVisible = () => {
+      if (!tabIsVisible()) {
+        return;
+      }
+
       void advanceRun().catch((error) => {
         setClientError(error instanceof Error ? error.message : "Could not advance digest run.");
-        void refreshRun().catch(() => {
-          // Keep the visible error from the advance request; the next tick will retry.
-        });
       });
-    }, 2_000);
+    };
 
-    return () => window.clearInterval(timer);
+    advanceIfVisible();
+    refreshIfVisible();
+
+    const refreshTimer = window.setInterval(refreshIfVisible, ACTIVE_STATUS_REFRESH_MS);
+    const advanceTimer = window.setInterval(advanceIfVisible, ACTIVE_ADVANCE_MS);
+
+    return () => {
+      window.clearInterval(refreshTimer);
+      window.clearInterval(advanceTimer);
+    };
   }, [active, advanceRun, isResetting, isStarting, refreshRun]);
 
   return (
