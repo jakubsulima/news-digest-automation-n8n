@@ -12,6 +12,7 @@
     "dev:reader": "pnpm --dir apps/reader dev",
     "build:reader": "pnpm --dir apps/reader build",
     "lint:reader": "pnpm --dir apps/reader lint",
+    "test:reader": "pnpm --dir apps/reader test",
     "typecheck:reader": "pnpm --dir apps/reader typecheck",
     "build": "pnpm build:reader",
     "typecheck": "pnpm typecheck:reader"

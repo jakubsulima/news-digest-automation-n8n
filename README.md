@@ -44,6 +44,7 @@ ALLOWED_READER_EMAILS=you@example.com
 INGEST_SECRET=replace-with-long-random-secret
 CRON_SECRET=replace-with-long-random-cron-secret
 NEXT_PUBLIC_APP_URL=http://127.0.0.1:3000
+DIGEST_RUN_RETENTION_LIMIT=100
 ```
 
 Notes:
@@ -51,6 +52,7 @@ Notes:
 - `SUPABASE_SERVICE_ROLE_KEY`, `INGEST_SECRET`, and `CRON_SECRET` must stay server-side.
 - `ALLOWED_READER_EMAILS` is a comma-separated login allowlist.
 - Set `NEXT_PUBLIC_APP_URL` to the Vercel production URL after deploy.
+- `DIGEST_RUN_RETENTION_LIMIT` is optional; it keeps the newest completed digest runs and deletes older completed runs. Queued and running runs are never pruned.
 
 ## Supabase Setup
 
@@ -141,6 +143,8 @@ Vercel Hobby supports daily cron jobs. Upgrade the plan before using shorter int
 ## Operations
 
 Start a digest from the reader UI with `Run digest`. The UI only creates/observes runs; Vercel Cron advances the pipeline.
+
+Completed digest runs are pruned automatically when starting a new run and after a run finishes. The default keeps the newest 100 completed runs; set `DIGEST_RUN_RETENTION_LIMIT` to a different positive number if you need more or less history.
 
 Sanitize existing stored text after changing HTML cleanup logic:
 

@@ -11,6 +11,7 @@
     "start": "next start",
     "cleanup:text": "node scripts/cleanup-text.mjs",
     "lint": "next lint",
+    "test": "vitest run",
     "typecheck": "tsc --noEmit -p tsconfig.typecheck.json"
   },
   "dependencies": {
@@ -36,6 +37,7 @@
     "@types/react-dom": "19.2.3",
     "postcss": "^8.5.15",
     "tailwindcss": "^4.3.1",
-    "typescript": "5.9.3"
+    "typescript": "5.9.3",
+    "vitest": "^2.1.9"
   }
 }
