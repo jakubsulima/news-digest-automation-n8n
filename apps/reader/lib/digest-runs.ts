@@ -9,6 +9,9 @@ type PipelineStageRunRow = Database["public"]["Tables"]["pipeline_stage_runs"]["
 type PipelineStageRunInsert = Database["public"]["Tables"]["pipeline_stage_runs"]["Insert"];
 
 const ACTIVE_RUN_STATUSES = ["queued", "running"] as const;
+const COMPLETED_RUN_STATUSES = ["succeeded", "failed", "cancelled"] as const;
+const DEFAULT_DIGEST_RUN_RETENTION_LIMIT = 100;
+const DIGEST_RUN_PRUNE_BATCH_SIZE = 500;
 
 export const DIGEST_STAGE_NAMES: PipelineStageRunRow["stage_name"][] = [
   "source_fetch",
@@ -42,6 +45,18 @@ function stageRowsForRun(digestRunId: string): PipelineStageRunInsert[] {
     stage_name: stageName,
     status: "queued",
   }));
+}
+
+function getDigestRunRetentionLimit() {
+  const rawValue = process.env.DIGEST_RUN_RETENTION_LIMIT;
+
+  if (!rawValue) {
+    return DEFAULT_DIGEST_RUN_RETENTION_LIMIT;
+  }
+
+  const parsed = Number.parseInt(rawValue, 10);
+
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_DIGEST_RUN_RETENTION_LIMIT;
 }
 
 export function sortDigestStages(stages: PipelineStageRunRow[]) {
@@ -213,12 +228,52 @@ export async function resetDigestRun(digestRunId?: string): Promise<DigestRunOve
   return getDigestRunById(run.id);
 }
 
+export async function pruneCompletedDigestRuns(): Promise<{ deletedRunCount: number; retentionLimit: number }> {
+  const retentionLimit = getDigestRunRetentionLimit();
+  const supabase = createSupabaseAdminClient();
+  let deletedRunCount = 0;
+
+  while (true) {
+    const { data, error } = await supabase
+      .from("digest_runs")
+      .select("id")
+      .in("status", [...COMPLETED_RUN_STATUSES])
+      .order("created_at", { ascending: false })
+      .order("id", { ascending: false })
+      .range(retentionLimit, retentionLimit + DIGEST_RUN_PRUNE_BATCH_SIZE - 1);
+
+    if (error) {
+      throw error;
+    }
+
+    const staleRunIds = (data || []).map((row) => row.id);
+
+    if (staleRunIds.length === 0) {
+      return { deletedRunCount, retentionLimit };
+    }
+
+    const { error: deleteError } = await supabase
+      .from("digest_runs")
+      .delete()
+      .in("id", staleRunIds)
+      .in("status", [...COMPLETED_RUN_STATUSES]);
+
+    if (deleteError) {
+      throw deleteError;
+    }
+
+    deletedRunCount += staleRunIds.length;
+  }
+}
+
 export async function startOrGetActiveDigestRun(userId: string): Promise<DigestRunOverview> {
   const activeRun = await getActiveDigestRun();
 
   if (activeRun) {
     return activeRun;
   }
+
+  await pruneCompletedDigestRuns();
 
   const supabase = createSupabaseAdminClient();
   const run: DigestRunInsert = {
