@@ -267,6 +267,105 @@ export type Database = {
         };
         Relationships: [];
       };
+      reader_sources: {
+        Row: {
+          id: string;
+          name: string;
+          category: string;
+          feed_url: string;
+          priority: number;
+          enabled: boolean;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          name: string;
+          category: string;
+          feed_url: string;
+          priority?: number;
+          enabled?: boolean;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          name?: string;
+          category?: string;
+          feed_url?: string;
+          priority?: number;
+          enabled?: boolean;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      reader_digest_settings: {
+        Row: {
+          user_id: string;
+          publish_top_n: number;
+          summary_max_chars: number;
+          minimum_importance_score: number;
+          feed_targets: Json;
+          preferred_keywords: Json;
+          excluded_keywords: Json;
+          require_major_security: boolean;
+          use_ai_summaries: boolean;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          user_id: string;
+          publish_top_n?: number;
+          summary_max_chars?: number;
+          minimum_importance_score?: number;
+          feed_targets?: Json;
+          preferred_keywords?: Json;
+          excluded_keywords?: Json;
+          require_major_security?: boolean;
+          use_ai_summaries?: boolean;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          user_id?: string;
+          publish_top_n?: number;
+          summary_max_chars?: number;
+          minimum_importance_score?: number;
+          feed_targets?: Json;
+          preferred_keywords?: Json;
+          excluded_keywords?: Json;
+          require_major_security?: boolean;
+          use_ai_summaries?: boolean;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      reader_item_feedback: {
+        Row: {
+          news_item_id: string;
+          user_id: string;
+          sentiment: "more" | "less";
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          news_item_id: string;
+          user_id: string;
+          sentiment: "more" | "less";
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          news_item_id?: string;
+          user_id?: string;
+          sentiment?: "more" | "less";
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
       source_items: {
         Row: {
           id: string;

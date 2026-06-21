@@ -1,23 +1,17 @@
 import "server-only";
 
 import type { Database } from "../../database.types";
+import { getDigestSettingsForRun, type ReaderDigestSettings } from "../../digest-settings";
 import { readerFeedForCategory, type ReaderFeedId } from "../../feed-categories";
+import { feedbackScoreAdjustment, getFeedbackProfileForUser } from "../../reader-feedback";
 import { createSupabaseAdminClient } from "../../supabase";
-import { IMPORTANT_KEYWORDS, PUBLISH_TOP_N, SCOPE_KEYWORDS, SUPABASE_WRITE_BATCH_SIZE } from "../constants";
+import { IMPORTANT_KEYWORDS, SCOPE_KEYWORDS, SUPABASE_WRITE_BATCH_SIZE } from "../constants";
 import type { StageRunner } from "../types";
 import { chunk, jsonNumber, jsonString } from "../utils";
 
 type StorySnapshotInsert = Database["public"]["Tables"]["story_snapshots"]["Insert"];
 type StorySnapshotRow = Database["public"]["Tables"]["story_snapshots"]["Row"];
 type ContentFeed = Exclude<ReaderFeedId, "all">;
-
-const FEED_SELECTION_TARGETS: Record<ContentFeed, number> = {
-  geopolitics: 14,
-  business: 6,
-  ai: 4,
-  software: 4,
-  security: 2,
-};
 
 const FEED_SELECTION_ORDER: ContentFeed[] = ["geopolitics", "business", "ai", "software", "security"];
 
@@ -53,6 +47,21 @@ async function loadRunSnapshots(digestRunId: string) {
   return data || [];
 }
 
+async function loadRunStartedByUserId(digestRunId: string) {
+  const supabase = createSupabaseAdminClient();
+  const { data, error } = await supabase
+    .from("digest_runs")
+    .select("started_by_user_id")
+    .eq("id", digestRunId)
+    .maybeSingle<Pick<Database["public"]["Tables"]["digest_runs"]["Row"], "started_by_user_id">>();
+
+  if (error) {
+    throw error;
+  }
+
+  return data?.started_by_user_id ?? null;
+}
+
 function textIncludesAny(text: string, keywords: string[]) {
   const lower = text.toLowerCase();
 
@@ -79,19 +88,23 @@ function feedScoreAdjustment(feed: ContentFeed, isMajorSecurity: boolean) {
   return 0;
 }
 
-function scoreSnapshot(snapshot: StorySnapshotRow) {
+function scoreSnapshot(snapshot: StorySnapshotRow, settings: ReaderDigestSettings) {
   const title = jsonString(snapshot.metadata, "title");
   const summary = jsonString(snapshot.metadata, "summary");
   const category = jsonString(snapshot.metadata, "category");
   const publishedAt = jsonString(snapshot.metadata, "publishedAt");
   const sourcePriority = Math.max(0, Math.min(5, jsonNumber(snapshot.metadata, "sourcePriority")));
   const text = `${title} ${summary} ${category}`;
+  const preferredKeywordHits = settings.preferredKeywords.filter((keyword) => text.toLowerCase().includes(keyword)).length;
   const impactScore = Math.max(
     1,
-    Math.min(10, 2 + IMPORTANT_KEYWORDS.filter((keyword) => text.toLowerCase().includes(keyword)).length),
+    Math.min(
+      10,
+      2 + IMPORTANT_KEYWORDS.filter((keyword) => text.toLowerCase().includes(keyword)).length + preferredKeywordHits,
+    ),
   );
   const confirmationScore = Math.min(10, snapshot.duplicate_count >= 5 ? 10 : snapshot.duplicate_count * 3);
-  const scopeFitScore = textIncludesAny(text, SCOPE_KEYWORDS) ? 9 : 4;
+  const scopeFitScore = textIncludesAny(text, [...SCOPE_KEYWORDS, ...settings.preferredKeywords]) ? 9 : 4;
   const publishedTimestamp = Date.parse(publishedAt);
   const ageHours = Number.isNaN(publishedTimestamp) ? 72 : (Date.now() - publishedTimestamp) / 3_600_000;
   const urgencyScore = ageHours <= 6 ? 10 : ageHours <= 24 ? 8 : ageHours <= 72 ? 5 : 3;
@@ -116,27 +129,43 @@ function scoreSnapshot(snapshot: StorySnapshotRow) {
 }
 
 export const runEditorialScoringStage: StageRunner = async ({ digestRunId }) => {
-  const snapshots = await loadRunSnapshots(digestRunId);
+  const [settings, snapshots, startedByUserId] = await Promise.all([
+    getDigestSettingsForRun(digestRunId),
+    loadRunSnapshots(digestRunId),
+    loadRunStartedByUserId(digestRunId),
+  ]);
+  const feedbackProfile = await getFeedbackProfileForUser(startedByUserId);
   const scored = snapshots
     .map((snapshot) => {
-      const scores = scoreSnapshot(snapshot);
+      const scores = scoreSnapshot(snapshot, settings);
       const title = jsonString(snapshot.metadata, "title");
       const summary = jsonString(snapshot.metadata, "summary");
       const category = jsonString(snapshot.metadata, "category");
+      const source = jsonString(snapshot.metadata, "source");
       const feed = readerFeedForCategory(category);
       const text = `${title} ${summary} ${category}`;
       const isMajorSecurity = feed === "security" ? securityStoryIsMajor(snapshot, text) : false;
+      const excludedKeywordPenalty = textIncludesAny(text, settings.excludedKeywords) ? 80 : 0;
+      const feedbackAdjustment = feedbackScoreAdjustment(feedbackProfile, { category, source, text });
 
       return {
+        feedbackAdjustment,
         feed,
         isMajorSecurity,
         scores,
-        selectionScore: scores.editorialScore + feedScoreAdjustment(feed, isMajorSecurity),
+        selectionScore:
+          scores.editorialScore + feedScoreAdjustment(feed, isMajorSecurity) + feedbackAdjustment - excludedKeywordPenalty,
         snapshot,
       };
     })
     .sort((left, right) => right.selectionScore - left.selectionScore);
-  const candidates = scored.filter((item) => item.feed !== "security" || item.isMajorSecurity);
+  const candidates = scored.filter((item) => {
+    if (item.scores.editorialScore < settings.minimumImportanceScore) {
+      return false;
+    }
+
+    return item.feed !== "security" || !settings.requireMajorSecurity || item.isMajorSecurity;
+  });
   const selectedIds = new Set<string>();
   const selectedCounts: Record<ContentFeed, number> = {
     geopolitics: 0,
@@ -147,7 +176,7 @@ export const runEditorialScoringStage: StageRunner = async ({ digestRunId }) => 
   };
 
   function selectItem(item: (typeof scored)[number]) {
-    if (selectedIds.size >= PUBLISH_TOP_N || selectedIds.has(item.snapshot.id)) {
+    if (selectedIds.size >= settings.publishTopN || selectedIds.has(item.snapshot.id)) {
       return;
     }
 
@@ -159,7 +188,7 @@ export const runEditorialScoringStage: StageRunner = async ({ digestRunId }) => 
     const feedCandidates = candidates.filter((item) => item.feed === feed);
 
     for (const item of feedCandidates) {
-      if (selectedCounts[feed] >= FEED_SELECTION_TARGETS[feed]) {
+      if (selectedCounts[feed] >= settings.feedTargets[feed]) {
         break;
       }
 
@@ -168,7 +197,7 @@ export const runEditorialScoringStage: StageRunner = async ({ digestRunId }) => 
   }
 
   for (const item of candidates) {
-    if (item.feed === "security" && selectedCounts.security >= FEED_SELECTION_TARGETS.security) {
+    if (item.feed === "security" && selectedCounts.security >= settings.feedTargets.security) {
       continue;
     }
 
@@ -201,7 +230,15 @@ export const runEditorialScoringStage: StageRunner = async ({ digestRunId }) => 
     metrics: {
       selectedCount: selectedIds.size,
       selectedFeedCounts: selectedCounts,
-      skippedNonMajorSecurityCount: scored.filter((item) => item.feed === "security" && !item.isMajorSecurity).length,
+      settings: {
+        minimumImportanceScore: settings.minimumImportanceScore,
+        publishTopN: settings.publishTopN,
+        requireMajorSecurity: settings.requireMajorSecurity,
+      },
+      feedbackAdjustedCount: scored.filter((item) => item.feedbackAdjustment !== 0).length,
+      skippedNonMajorSecurityCount: settings.requireMajorSecurity
+        ? scored.filter((item) => item.feed === "security" && !item.isMajorSecurity).length
+        : 0,
       storyCount: snapshots.length,
     },
   };
