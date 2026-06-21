@@ -31,13 +31,22 @@ function formatDate(value: string | null) {
     return "No publication date";
   }
 
-  return new Intl.DateTimeFormat("en-US", {
+  const includesTime = value.includes("T");
+  const parts = new Intl.DateTimeFormat("en-US", {
     month: "short",
     day: "numeric",
-    hour: value.includes("T") ? "2-digit" : undefined,
-    minute: value.includes("T") ? "2-digit" : undefined,
+    hour: includesTime ? "2-digit" : undefined,
+    minute: includesTime ? "2-digit" : undefined,
     timeZone: DISPLAY_TIME_ZONE,
-  }).format(new Date(value));
+  })
+    .formatToParts(new Date(value))
+    .reduce<Record<string, string>>((accumulator, part) => {
+      accumulator[part.type] = part.value;
+      return accumulator;
+    }, {});
+
+  const date = `${parts.month} ${parts.day}`;
+  return includesTime ? `${date}, ${parts.hour}:${parts.minute} ${parts.dayPeriod}` : date;
 }
 
 function compactSummary(value: string) {

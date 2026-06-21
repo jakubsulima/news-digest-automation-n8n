@@ -13,11 +13,19 @@ import { errorMessage } from "./digest-builder/utils";
 import { requireCurrentReader } from "./auth";
 import { requireCurrentOperator } from "./operator";
 import {
+  applyReaderSourcePreset,
   isReaderSourceValidationError,
   isReaderSourcesSchemaError,
   readerSourceFromFormData,
+  sourcePresetFromFormData,
   upsertReaderSource,
 } from "./reader-sources";
+
+function sourceSettingsRedirect(status: string, formData: FormData) {
+  const sourceFeed = String(formData.get("sourceFeed") || "all");
+
+  redirect(`/settings?status=${status}&sourceFeed=${encodeURIComponent(sourceFeed)}`);
+}
 
 export async function retryDigestRun(digestRunId: string) {
   await requireCurrentOperator();
@@ -57,5 +65,21 @@ export async function saveReaderSource(formData: FormData) {
         : "source-save-failed";
   }
 
-  redirect(`/settings?status=${status}`);
+  sourceSettingsRedirect(status, formData);
+}
+
+export async function saveReaderSourcePreset(formData: FormData) {
+  await requireCurrentOperator();
+  let status = "source-preset-saved";
+
+  try {
+    await applyReaderSourcePreset(sourcePresetFromFormData(formData));
+    revalidatePath("/");
+    revalidatePath("/settings");
+  } catch (error) {
+    console.error("Failed to apply reader source preset:", errorMessage(error));
+    status = isReaderSourcesSchemaError(error) ? "source-invalid" : "source-save-failed";
+  }
+
+  sourceSettingsRedirect(status, formData);
 }

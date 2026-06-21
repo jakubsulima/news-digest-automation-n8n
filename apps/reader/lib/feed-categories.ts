@@ -37,7 +37,12 @@ export function readerFeedForCategory(category: string): Exclude<ReaderFeedId, "
     return "ai";
   }
 
-  if (normalized.includes("software") || normalized.includes("devtools") || normalized.includes("engineering")) {
+  if (
+    normalized.includes("software") ||
+    normalized.includes("devtools") ||
+    normalized.includes("engineering") ||
+    normalized.includes("status")
+  ) {
     return "software";
   }
 
@@ -46,7 +51,12 @@ export function readerFeedForCategory(category: string): Exclude<ReaderFeedId, "
     normalized.includes("giełda") ||
     normalized.includes("biznes") ||
     normalized.includes("business") ||
-    normalized.includes("makro")
+    normalized.includes("makro") ||
+    normalized.includes("market") ||
+    normalized.includes("rynk") ||
+    normalized.includes("bank centralny") ||
+    normalized.includes("regulator") ||
+    normalized.includes("energy")
   ) {
     return "business";
   }

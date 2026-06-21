@@ -15,6 +15,8 @@ describe("feed categories", () => {
     expect(readerFeedForCategory("AI / Open Source")).toBe("ai");
     expect(readerFeedForCategory("Software / Engineering")).toBe("software");
     expect(readerFeedForCategory("Cyberbezpieczeństwo PL")).toBe("security");
+    expect(readerFeedForCategory("Świat / Biznes / Markets")).toBe("business");
+    expect(readerFeedForCategory("Software / Status")).toBe("software");
   });
 
   it("matches only items in the selected category feed", () => {

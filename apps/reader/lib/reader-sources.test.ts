@@ -89,8 +89,9 @@ describe("reader sources", () => {
     expect(sources.length).toBeGreaterThan(1);
     expect(sources[0]).toMatchObject({
       enabled: true,
-      name: "Money.pl Gospodarka",
-      url: "https://www.money.pl/rss/rss-gospodarka.xml",
+      name: "300Gospodarka",
+      url: "https://300gospodarka.pl/feed",
     });
+    expect(sources.some((source) => source.enabled === false)).toBe(false);
   });
 });
