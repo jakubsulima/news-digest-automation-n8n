@@ -1,20 +1,20 @@
 [
   {
-    "name": "Money.pl Gospodarka",
-    "category": "Polska / Gospodarka",
-    "url": "https://www.money.pl/rss/rss-gospodarka.xml",
+    "name": "300Gospodarka",
+    "category": "Polska / Gospodarka / Technologie",
+    "url": "https://300gospodarka.pl/feed",
     "priority": 4
   },
   {
-    "name": "Stooq",
-    "category": "Polska / Giełda",
-    "url": "https://stooq.pl/rss/",
+    "name": "Bankier Wiadomości",
+    "category": "Polska / Gospodarka / Giełda",
+    "url": "https://www.bankier.pl/rss/wiadomosci.xml",
     "priority": 4
   },
   {
-    "name": "StockWatch",
+    "name": "Bankier Giełda",
     "category": "Polska / Giełda",
-    "url": "https://www.stockwatch.pl/rss/",
+    "url": "https://www.bankier.pl/rss/gielda.xml",
     "priority": 4
   },
   {
@@ -30,40 +30,10 @@
     "priority": 1
   },
   {
-    "name": "300Gospodarka",
-    "category": "Polska / Gospodarka / Technologie",
-    "url": "https://300gospodarka.pl/feed",
-    "priority": 4
-  },
-  {
-    "name": "Rest of World Money",
-    "category": "Świat / Gospodarka cyfrowa",
-    "url": "https://restofworld.org/feed/money/",
-    "priority": 4
-  },
-  {
     "name": "BBC World",
-    "category": "Świat / Ważne wydarzenia",
+    "category": "Świat / Geopolityka",
     "url": "https://feeds.bbci.co.uk/news/world/rss.xml",
     "priority": 5
-  },
-  {
-    "name": "Rest of World Global",
-    "category": "Świat / Technologie / Biznes",
-    "url": "https://restofworld.org/feed/global/",
-    "priority": 4
-  },
-  {
-    "name": "Rest of World Innovation",
-    "category": "Świat / Technologie / Innowacje",
-    "url": "https://restofworld.org/feed/innovation/",
-    "priority": 4
-  },
-  {
-    "name": "NPR World",
-    "category": "Świat / Ważne wydarzenia",
-    "url": "https://feeds.npr.org/1004/rss.xml",
-    "priority": 4
   },
   {
     "name": "The Guardian World",
@@ -81,6 +51,42 @@
     "name": "Al Jazeera",
     "category": "Świat / Geopolityka",
     "url": "https://www.aljazeera.com/xml/rss/all.xml",
+    "priority": 4
+  },
+  {
+    "name": "Deutsche Welle World",
+    "category": "Świat / Geopolityka / Europa",
+    "url": "https://rss.dw.com/rdf/rss-en-world",
+    "priority": 4
+  },
+  {
+    "name": "France 24 English",
+    "category": "Świat / Geopolityka",
+    "url": "https://www.france24.com/en/rss",
+    "priority": 4
+  },
+  {
+    "name": "NPR World",
+    "category": "Świat / Geopolityka",
+    "url": "https://feeds.npr.org/1004/rss.xml",
+    "priority": 4
+  },
+  {
+    "name": "UN News",
+    "category": "Świat / Geopolityka / Organizacje",
+    "url": "https://news.un.org/feed/subscribe/en/news/all/rss.xml",
+    "priority": 3
+  },
+  {
+    "name": "EU Commission Press Corner",
+    "category": "Świat / Geopolityka / Europa",
+    "url": "https://ec.europa.eu/commission/presscorner/api/rss?language=en",
+    "priority": 3
+  },
+  {
+    "name": "Rest of World Global",
+    "category": "Świat / Technologie / Biznes",
+    "url": "https://restofworld.org/feed/global/",
     "priority": 4
   },
   {
@@ -102,16 +108,46 @@
     "priority": 3
   },
   {
+    "name": "Deutsche Welle Business",
+    "category": "Świat / Biznes / Europa",
+    "url": "https://rss.dw.com/rdf/rss-en-bus",
+    "priority": 3
+  },
+  {
+    "name": "Rest of World Money",
+    "category": "Świat / Gospodarka cyfrowa",
+    "url": "https://restofworld.org/feed/money/",
+    "priority": 4
+  },
+  {
+    "name": "SEC Press Releases",
+    "category": "Świat / Biznes / Regulator",
+    "url": "https://www.sec.gov/news/pressreleases.rss",
+    "priority": 3
+  },
+  {
+    "name": "Federal Reserve Press Releases",
+    "category": "Świat / Biznes / Bank centralny",
+    "url": "https://www.federalreserve.gov/feeds/press_all.xml",
+    "priority": 4
+  },
+  {
+    "name": "ECB Press",
+    "category": "Świat / Biznes / Bank centralny",
+    "url": "https://www.ecb.europa.eu/rss/press.html",
+    "priority": 4
+  },
+  {
+    "name": "EIA Today in Energy",
+    "category": "Świat / Biznes / Energy",
+    "url": "https://www.eia.gov/rss/todayinenergy.xml",
+    "priority": 3
+  },
+  {
     "name": "Hacker News Frontpage",
     "category": "Software / IT",
     "url": "https://hnrss.org/frontpage",
     "priority": 5
-  },
-  {
-    "name": "Hacker News Best",
-    "category": "Software / IT",
-    "url": "https://hnrss.org/best",
-    "priority": 3
   },
   {
     "name": "Ars Technica",
@@ -123,12 +159,6 @@
     "name": "The Register",
     "category": "Software / IT",
     "url": "https://www.theregister.com/?lab_viewport=rss",
-    "priority": 4
-  },
-  {
-    "name": "VentureBeat AI",
-    "category": "AI / Biznes / Rynek",
-    "url": "https://venturebeat.com/category/ai/feed",
     "priority": 4
   },
   {
@@ -162,15 +192,428 @@
     "priority": 3
   },
   {
+    "name": "Cloudflare Blog",
+    "category": "Software / Infrastructure",
+    "url": "https://blog.cloudflare.com/rss/",
+    "priority": 4
+  },
+  {
+    "name": "Kubernetes Blog",
+    "category": "Software / Infrastructure",
+    "url": "https://kubernetes.io/feed.xml",
+    "priority": 3
+  },
+  {
+    "name": "AWS News Blog",
+    "category": "Software / Cloud",
+    "url": "https://aws.amazon.com/blogs/aws/feed/",
+    "priority": 3
+  },
+  {
+    "name": "Microsoft Azure Blog",
+    "category": "Software / Cloud",
+    "url": "https://azure.microsoft.com/en-us/blog/feed/",
+    "priority": 3
+  },
+  {
+    "name": "Rust Blog",
+    "category": "Software / Languages",
+    "url": "https://blog.rust-lang.org/feed.xml",
+    "priority": 3
+  },
+  {
+    "name": "Go Blog",
+    "category": "Software / Languages",
+    "url": "https://go.dev/blog/feed.atom",
+    "priority": 3
+  },
+  {
+    "name": "Node.js Blog",
+    "category": "Software / Languages",
+    "url": "https://nodejs.org/en/feed/blog.xml",
+    "priority": 3
+  },
+  {
+    "name": "OpenAI News",
+    "category": "AI / Labs",
+    "url": "https://openai.com/news/rss.xml",
+    "priority": 5
+  },
+  {
+    "name": "Google DeepMind Blog",
+    "category": "AI / Labs",
+    "url": "https://deepmind.google/blog/rss.xml",
+    "priority": 5
+  },
+  {
+    "name": "Google AI Blog",
+    "category": "AI / Labs",
+    "url": "https://blog.google/technology/ai/rss/",
+    "priority": 4
+  },
+  {
+    "name": "Google Research Blog",
+    "category": "AI / Research",
+    "url": "https://research.google/blog/rss/",
+    "priority": 4
+  },
+  {
     "name": "Hugging Face Blog",
     "category": "AI / Open Source",
     "url": "https://huggingface.co/blog/feed.xml",
-    "priority": 2
+    "priority": 3
+  },
+  {
+    "name": "NVIDIA Blog - AI",
+    "category": "AI / Hardware / Rynek",
+    "url": "https://blogs.nvidia.com/blog/category/deep-learning/feed/",
+    "priority": 4
+  },
+  {
+    "name": "Import AI",
+    "category": "AI / Policy / Research",
+    "url": "https://jack-clark.net/feed/",
+    "priority": 3
+  },
+  {
+    "name": "TechCrunch AI",
+    "category": "AI / Biznes / Rynek",
+    "url": "https://techcrunch.com/category/artificial-intelligence/feed/",
+    "priority": 3
+  },
+  {
+    "name": "MIT Technology Review AI",
+    "category": "AI / Research / Rynek",
+    "url": "https://www.technologyreview.com/topic/artificial-intelligence/feed",
+    "priority": 3
+  },
+  {
+    "name": "VentureBeat AI",
+    "category": "AI / Biznes / Rynek",
+    "url": "https://venturebeat.com/category/ai/feed",
+    "priority": 3
   },
   {
     "name": "BleepingComputer",
     "category": "Cybersecurity Global",
     "url": "https://www.bleepingcomputer.com/feed/",
     "priority": 1
+  },
+  {
+    "name": "The Hacker News",
+    "category": "Cybersecurity Global",
+    "url": "https://feeds.feedburner.com/TheHackersNews",
+    "priority": 2
+  },
+  {
+    "name": "KrebsOnSecurity",
+    "category": "Cybersecurity Global",
+    "url": "https://krebsonsecurity.com/feed/",
+    "priority": 2
+  },
+  {
+    "name": "CISA Cybersecurity Advisories",
+    "category": "Security / Official",
+    "url": "https://www.cisa.gov/cybersecurity-advisories/all.xml",
+    "priority": 1
+  },
+  {
+    "name": "CISA Current Activity",
+    "category": "Security / Official",
+    "url": "https://www.cisa.gov/uscert/ncas/current-activity.xml",
+    "priority": 1
+  },
+  {
+    "name": "Google Online Security Blog",
+    "category": "Security / Vendor Research",
+    "url": "https://security.googleblog.com/feeds/posts/default",
+    "priority": 2
+  },
+  {
+    "name": "Microsoft Security Blog",
+    "category": "Security / Vendor Research",
+    "url": "https://www.microsoft.com/en-us/security/blog/feed/",
+    "priority": 2
+  },
+  {
+    "name": "Unit 42",
+    "category": "Security / Threat Intelligence",
+    "url": "https://unit42.paloaltonetworks.com/feed/",
+    "priority": 2
+  },
+  {
+    "name": "Cisco Talos Blog",
+    "category": "Security / Threat Intelligence",
+    "url": "https://blog.talosintelligence.com/rss/",
+    "priority": 2
+  },
+  {
+    "name": "Google Project Zero",
+    "category": "Security / Vulnerability Research",
+    "url": "https://googleprojectzero.blogspot.com/feeds/posts/default",
+    "priority": 2
+  },
+  {
+    "name": "SANS ISC Diary",
+    "category": "Security / Incident Response",
+    "url": "https://isc.sans.edu/rssfeed_full.xml",
+    "priority": 2
+  },
+  {
+    "name": "NCSC UK Guidance",
+    "category": "Security / Official",
+    "url": "https://www.ncsc.gov.uk/api/1/services/v1/all-rss-feed.xml",
+    "priority": 2
+  },
+  {
+    "name": "SecurityWeek",
+    "category": "Cybersecurity Global",
+    "url": "https://www.securityweek.com/feed/",
+    "priority": 2
+  },
+  {
+    "name": "Hacker News Best",
+    "category": "Software / IT",
+    "url": "https://hnrss.org/best",
+    "priority": 3,
+    "enabled": false
+  },
+  {
+    "name": "Hacker News Newest",
+    "category": "Software / IT",
+    "url": "https://hnrss.org/newest",
+    "priority": 2,
+    "enabled": false
+  },
+  {
+    "name": "Lobsters",
+    "category": "Software / IT",
+    "url": "https://lobste.rs/rss",
+    "priority": 3,
+    "enabled": false
+  },
+  {
+    "name": "Simon Willison",
+    "category": "Software / AI Engineering",
+    "url": "https://simonwillison.net/atom/everything/",
+    "priority": 3,
+    "enabled": false
+  },
+  {
+    "name": "LWN.net",
+    "category": "Software / Linux",
+    "url": "https://lwn.net/headlines/rss",
+    "priority": 3,
+    "enabled": false
+  },
+  {
+    "name": "AWS What's New",
+    "category": "Software / Cloud",
+    "url": "https://aws.amazon.com/about-aws/whats-new/recent/feed/",
+    "priority": 2,
+    "enabled": false
+  },
+  {
+    "name": "Cloudflare Changelog",
+    "category": "Software / Infrastructure",
+    "url": "https://developers.cloudflare.com/changelog/rss.xml",
+    "priority": 2,
+    "enabled": false
+  },
+  {
+    "name": "Mozilla Hacks",
+    "category": "Software / Web",
+    "url": "https://hacks.mozilla.org/feed/",
+    "priority": 3,
+    "enabled": false
+  },
+  {
+    "name": "Docker Blog",
+    "category": "Software / Infrastructure",
+    "url": "https://www.docker.com/blog/feed/",
+    "priority": 3,
+    "enabled": false
+  },
+  {
+    "name": "HashiCorp Blog",
+    "category": "Software / Infrastructure",
+    "url": "https://www.hashicorp.com/blog/feed.xml",
+    "priority": 3,
+    "enabled": false
+  },
+  {
+    "name": "SEC EDGAR Current Filings",
+    "category": "Świat / Biznes / Markets",
+    "url": "https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&output=atom",
+    "priority": 2,
+    "enabled": false
+  },
+  {
+    "name": "SEC EDGAR Recent 10-K",
+    "category": "Świat / Biznes / Markets",
+    "url": "https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=10-k&owner=include&count=40&output=atom",
+    "priority": 2,
+    "enabled": false
+  },
+  {
+    "name": "SEC EDGAR Recent 8-K",
+    "category": "Świat / Biznes / Markets",
+    "url": "https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=8-k&owner=include&count=40&output=atom",
+    "priority": 2,
+    "enabled": false
+  },
+  {
+    "name": "Federal Reserve Speeches",
+    "category": "Świat / Biznes / Bank centralny",
+    "url": "https://www.federalreserve.gov/feeds/speeches.xml",
+    "priority": 2,
+    "enabled": false
+  },
+  {
+    "name": "Federal Reserve H.15 Rates",
+    "category": "Świat / Biznes / Markets",
+    "url": "https://www.federalreserve.gov/feeds/h15.xml",
+    "priority": 2,
+    "enabled": false
+  },
+  {
+    "name": "ECB Blog",
+    "category": "Świat / Biznes / Bank centralny",
+    "url": "https://www.ecb.europa.eu/rss/blog.html",
+    "priority": 2,
+    "enabled": false
+  },
+  {
+    "name": "ECB Publications",
+    "category": "Świat / Biznes / Bank centralny",
+    "url": "https://www.ecb.europa.eu/rss/pub.html",
+    "priority": 2,
+    "enabled": false
+  },
+  {
+    "name": "France 24 Africa",
+    "category": "Świat / Geopolityka / Afryka",
+    "url": "https://www.france24.com/en/africa/rss",
+    "priority": 2,
+    "enabled": false
+  },
+  {
+    "name": "Deutsche Welle Top Stories",
+    "category": "Świat / Geopolityka / Europa",
+    "url": "https://rss.dw.com/xml/rss-en-all",
+    "priority": 2,
+    "enabled": false
+  },
+  {
+    "name": "The Verge AI",
+    "category": "AI / Biznes / Rynek",
+    "url": "https://www.theverge.com/rss/ai-artificial-intelligence/index.xml",
+    "priority": 2,
+    "enabled": false
+  },
+  {
+    "name": "Cybersecurity Dive",
+    "category": "Cybersecurity Global",
+    "url": "https://www.cybersecuritydive.com/feeds/news/",
+    "priority": 2,
+    "enabled": false
+  },
+  {
+    "name": "Dark Reading",
+    "category": "Cybersecurity Global",
+    "url": "https://www.darkreading.com/rss.xml",
+    "priority": 2,
+    "enabled": false
+  },
+  {
+    "name": "Risky Business News",
+    "category": "Cybersecurity Global",
+    "url": "https://news.risky.biz/rss/",
+    "priority": 2,
+    "enabled": false
+  },
+  {
+    "name": "Schneier on Security",
+    "category": "Security / Analysis",
+    "url": "https://www.schneier.com/feed/atom/",
+    "priority": 2,
+    "enabled": false
+  },
+  {
+    "name": "CISA News",
+    "category": "Security / Official",
+    "url": "https://www.cisa.gov/news.xml",
+    "priority": 2,
+    "enabled": false
+  },
+  {
+    "name": "NCSC UK News",
+    "category": "Security / Official",
+    "url": "https://www.ncsc.gov.uk/api/1/services/v1/news-rss-feed.xml",
+    "priority": 2,
+    "enabled": false
+  },
+  {
+    "name": "AWS Health Status",
+    "category": "Software / Status",
+    "url": "https://status.aws.amazon.com/rss/all.rss",
+    "priority": 1,
+    "enabled": false
+  },
+  {
+    "name": "Google Cloud Service Health",
+    "category": "Software / Status",
+    "url": "https://status.cloud.google.com/en/feed.atom",
+    "priority": 1,
+    "enabled": false
+  },
+  {
+    "name": "Cloudflare Status",
+    "category": "Software / Status",
+    "url": "https://www.cloudflarestatus.com/history.rss",
+    "priority": 1,
+    "enabled": false
+  },
+  {
+    "name": "GitHub Status",
+    "category": "Software / Status",
+    "url": "https://www.githubstatus.com/history.rss",
+    "priority": 1,
+    "enabled": false
+  },
+  {
+    "name": "OpenAI Status",
+    "category": "Software / Status",
+    "url": "https://status.openai.com/history.rss",
+    "priority": 1,
+    "enabled": false
+  },
+  {
+    "name": "Anthropic Status",
+    "category": "Software / Status",
+    "url": "https://status.anthropic.com/history.rss",
+    "priority": 1,
+    "enabled": false
+  },
+  {
+    "name": "Vercel Status",
+    "category": "Software / Status",
+    "url": "https://www.vercel-status.com/history.rss",
+    "priority": 1,
+    "enabled": false
+  },
+  {
+    "name": "WHO News",
+    "category": "Świat / Geopolityka / Health",
+    "url": "https://www.who.int/rss-feeds/news-english.xml",
+    "priority": 2,
+    "enabled": false
+  },
+  {
+    "name": "CDC Newsroom",
+    "category": "Świat / Geopolityka / Health",
+    "url": "https://tools.cdc.gov/api/v2/resources/media/132608.rss",
+    "priority": 2,
+    "enabled": false
   }
 ]

@@ -299,9 +299,9 @@ export function NewsFeed({
         </section>
       ) : visibleItems.length ? (
         <section className="grid gap-3" aria-label="News feed">
-          {visibleItems.map((item) => (
+          {visibleItems.map((item, index) => (
             <NewsItemCard
-              key={item.id}
+              key={`${item.id}-${index}`}
               density={density}
               item={item}
               onFeedbackChange={updateFeedback}

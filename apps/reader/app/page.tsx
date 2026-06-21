@@ -4,6 +4,7 @@ import { LogOut, RotateCcw, Settings } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { DigestRunPanel } from "@/components/digest-run-panel";
 import { NewsFeed } from "@/components/news-feed";
+import { ThemeToggle } from "@/components/theme-toggle";
 import { retryDigestRun } from "@/lib/actions";
 import { requireCurrentReader } from "@/lib/auth";
 import { getDigestRunStatus } from "@/lib/digest-runs";
@@ -47,6 +48,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
           <p className="mt-1 truncate text-sm text-muted-foreground">{user.email}</p>
         </div>
         <div className="flex items-center gap-2">
+          <ThemeToggle compact />
           <Link
             className={buttonVariants({ variant: "outline", size: "icon-lg" })}
             href="/settings"
