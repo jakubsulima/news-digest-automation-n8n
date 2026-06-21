@@ -1,8 +1,7 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { Archive, Bookmark, Check, Eye, Loader2 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 
@@ -11,7 +10,7 @@ type NewsItemActionsProps = {
   isRead: boolean;
   isSaved: boolean;
   isArchived: boolean;
-  onArchivedChange?: (archived: boolean) => void;
+  onStateChange?: (state: ItemActionState) => void;
 };
 
 type ItemAction = "archived" | "read" | "saved";
@@ -31,15 +30,41 @@ function apiAction(action: ItemAction, enabled: boolean, itemId: string) {
   });
 }
 
-export function NewsItemActions({ itemId, isRead, isSaved, isArchived, onArchivedChange }: NewsItemActionsProps) {
-  const router = useRouter();
-  const [state, setState] = useState<ItemActionState>({
+export function NewsItemActions({
+  itemId,
+  isRead,
+  isSaved,
+  isArchived,
+  onStateChange,
+}: NewsItemActionsProps) {
+  const propState: ItemActionState = {
     archived: isArchived,
     read: isRead,
     saved: isSaved,
-  });
+  };
+  const [localState, setLocalState] = useState(propState);
   const [pendingAction, setPendingAction] = useState<ItemAction | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const state = onStateChange ? propState : localState;
+
+  useEffect(() => {
+    if (!onStateChange) {
+      setLocalState({
+        archived: isArchived,
+        read: isRead,
+        saved: isSaved,
+      });
+    }
+  }, [isArchived, isRead, isSaved, onStateChange]);
+
+  function applyState(nextState: ItemActionState) {
+    if (onStateChange) {
+      onStateChange(nextState);
+      return;
+    }
+
+    setLocalState(nextState);
+  }
 
   async function updateItemState(action: ItemAction) {
     if (pendingAction) {
@@ -51,11 +76,7 @@ export function NewsItemActions({ itemId, isRead, isSaved, isArchived, onArchive
 
     setError(null);
     setPendingAction(action);
-    setState({ ...state, [action]: enabled });
-
-    if (action === "archived") {
-      onArchivedChange?.(enabled);
-    }
+    applyState({ ...state, [action]: enabled });
 
     try {
       const response = await apiAction(action, enabled, itemId);
@@ -64,13 +85,8 @@ export function NewsItemActions({ itemId, isRead, isSaved, isArchived, onArchive
       if (!response.ok || !payload?.ok) {
         throw new Error(payload?.error || "Could not update item.");
       }
-
-      router.refresh();
     } catch (updateError) {
-      setState(previousState);
-      if (action === "archived") {
-        onArchivedChange?.(previousState.archived);
-      }
+      applyState(previousState);
       setError(updateError instanceof Error ? updateError.message : "Could not update item.");
     } finally {
       setPendingAction(null);

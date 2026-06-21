@@ -1,16 +1,26 @@
-import { Inbox, LogOut, RotateCcw } from "lucide-react";
+import Link from "next/link";
+import { LogOut, RotateCcw, Settings } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { DigestRunPanel } from "@/components/digest-run-panel";
-import { NewsItemCard } from "@/components/news-item-card";
+import { NewsFeed } from "@/components/news-feed";
 import { retryDigestRun } from "@/lib/actions";
 import { requireCurrentReader } from "@/lib/auth";
 import { getDigestRunStatus } from "@/lib/digest-runs";
+import { normalizeReaderFeedId } from "@/lib/feed-categories";
+import { normalizeReaderDensity, normalizeReaderViewId } from "@/lib/reader-feed-filters";
 import { getReaderNewsItems } from "@/lib/news";
 import { createSupabaseServerClient } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
+
+type HomePageProps = {
+  searchParams?: Promise<{
+    density?: string | string[];
+    feed?: string | string[];
+    view?: string | string[];
+  }>;
+};
 
 async function signOut() {
   "use server";
@@ -19,12 +29,13 @@ async function signOut() {
   await supabase.auth.signOut();
 }
 
-export default async function HomePage() {
+export default async function HomePage({ searchParams }: HomePageProps) {
+  const params = await searchParams;
+  const activeFeed = normalizeReaderFeedId(params?.feed);
+  const activeView = normalizeReaderViewId(params?.view);
+  const density = normalizeReaderDensity(params?.density);
   const user = await requireCurrentReader();
   const [items, digestRun] = await Promise.all([getReaderNewsItems(user.id), getDigestRunStatus()]);
-  const visibleItems = items.filter((item) => !item.archivedAt);
-  const unreadCount = visibleItems.filter((item) => !item.readAt).length;
-  const savedCount = visibleItems.filter((item) => item.savedAt).length;
 
   return (
     <main className="mx-auto flex w-full max-w-5xl flex-col gap-4 px-4 py-5 sm:px-6 sm:py-7">
@@ -35,56 +46,44 @@ export default async function HomePage() {
           </h1>
           <p className="mt-1 truncate text-sm text-muted-foreground">{user.email}</p>
         </div>
-        <form action={signOut}>
-          <Button variant="outline" size="icon-lg" type="submit" title="Sign out" aria-label="Sign out">
-            <LogOut aria-hidden="true" />
-          </Button>
-        </form>
+        <div className="flex items-center gap-2">
+          <Link
+            className={buttonVariants({ variant: "outline", size: "icon-lg" })}
+            href="/settings"
+            title="Settings"
+            aria-label="Settings"
+          >
+            <Settings aria-hidden="true" />
+          </Link>
+          <form action={signOut}>
+            <Button variant="outline" size="icon-lg" type="submit" title="Sign out" aria-label="Sign out">
+              <LogOut aria-hidden="true" />
+            </Button>
+          </form>
+        </div>
       </header>
 
-      <section className="grid gap-2 sm:grid-cols-3" aria-label="Feed stats">
-        {[
-          ["In feed", visibleItems.length],
-          ["Unread", unreadCount],
-          ["Saved", savedCount],
-        ].map(([label, value]) => (
-          <Card key={label} size="sm" className="bg-card/80">
-            <CardContent className="grid gap-1">
-              <span className="text-xl font-semibold tabular-nums">{value}</span>
-              <span className="text-xs font-medium text-muted-foreground">{label}</span>
-            </CardContent>
-          </Card>
-        ))}
-      </section>
-
-      <DigestRunPanel
-        initialRun={digestRun}
-        retrySlot={
-          digestRun?.status === "failed" ? (
-            <form action={retryDigestRun.bind(null, digestRun.id)}>
-              <Button type="submit" size="lg" title="Retry failed stage">
-                <RotateCcw aria-hidden="true" />
-                Retry failed stage
-              </Button>
-            </form>
-          ) : null
+      <NewsFeed
+        initialDensity={density}
+        initialFeed={activeFeed}
+        initialItems={items}
+        initialView={activeView}
+        digestSlot={
+          <DigestRunPanel
+            initialRun={digestRun}
+            retrySlot={
+              digestRun?.status === "failed" ? (
+                <form action={retryDigestRun.bind(null, digestRun.id)}>
+                  <Button type="submit" size="lg" title="Retry failed stage">
+                    <RotateCcw aria-hidden="true" />
+                    Retry failed stage
+                  </Button>
+                </form>
+              ) : null
+            }
+          />
         }
       />
-
-      {visibleItems.length ? (
-        <section className="grid gap-3" aria-label="News feed">
-          {visibleItems.map((item) => (
-            <NewsItemCard key={item.id} item={item} />
-          ))}
-        </section>
-      ) : (
-        <Card>
-          <CardContent className="flex items-center gap-3 text-muted-foreground">
-            <Inbox className="size-5" aria-hidden="true" />
-            <p className="text-sm">No items yet.</p>
-          </CardContent>
-        </Card>
-      )}
     </main>
   );
 }

@@ -2,25 +2,33 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { ChevronDown, ChevronUp, ExternalLink } from "lucide-react";
+import { BookOpenText, ChevronDown, ChevronUp, ExternalLink } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { NewsItemFeedbackActions } from "@/components/news-item-feedback-actions";
 import { NewsItemActions } from "@/components/news-item-actions";
 import type { NewsItemWithState } from "@/lib/news";
+import type { FeedbackSentiment } from "@/lib/reader-feedback";
 import { cn } from "@/lib/utils";
 
 const SUMMARY_MAX_CHARS = 260;
 const DISPLAY_TIME_ZONE = "Europe/Warsaw";
 
 type NewsItemCardProps = {
+  density?: "comfortable" | "compact";
   item: NewsItemWithState;
+  onFeedbackChange?: (itemId: string, feedback: FeedbackSentiment | null) => void;
+  onItemStateChange?: (
+    itemId: string,
+    state: Pick<NewsItemWithState, "archivedAt" | "readAt" | "savedAt">,
+  ) => void;
 };
 
 function formatDate(value: string | null) {
   if (!value) {
-    return "No date";
+    return "No publication date";
   }
 
   return new Intl.DateTimeFormat("en-US", {
@@ -44,39 +52,45 @@ function compactSummary(value: string) {
   return `${compacted}...`;
 }
 
-export function NewsItemCard({ item }: NewsItemCardProps) {
+export function NewsItemCard({
+  density = "comfortable",
+  item,
+  onFeedbackChange,
+  onItemStateChange,
+}: NewsItemCardProps) {
   const [expanded, setExpanded] = useState(false);
-  const [archived, setArchived] = useState(Boolean(item.archivedAt));
   const isRead = Boolean(item.readAt);
   const isSaved = Boolean(item.savedAt);
+  const isArchived = Boolean(item.archivedAt);
   const hasLongSummary = item.summary.length > SUMMARY_MAX_CHARS;
   const previewSummary = compactSummary(item.summary);
+  const compact = density === "compact";
 
-  if (archived) {
-    return null;
+  function toTimestamp(enabled: boolean, currentValue: string | null) {
+    return enabled ? currentValue ?? new Date().toISOString() : null;
   }
 
   return (
     <Card className={cn(isRead && "bg-card/70")}>
-      <CardHeader>
+      <CardHeader className={cn(compact && "gap-2 px-3 py-3")}>
         <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
           <Badge variant="secondary" className="bg-accent text-accent-foreground">
             {item.category}
           </Badge>
           <span>{item.source}</span>
-          <span>{formatDate(item.publishedAt || item.digestDate)}</span>
+          <span>{formatDate(item.publishedAt)}</span>
           {item.importanceScore === null ? null : <Badge variant="outline">{item.importanceScore}</Badge>}
         </div>
 
-        <CardTitle className="text-base leading-snug sm:text-lg">
-          <Link className="hover:underline" href={`/news/${item.id}`}>
+        <CardTitle className={cn("text-base leading-snug sm:text-lg", compact && "text-sm sm:text-base")}>
+          <a className="hover:underline" href={item.sourceUrl} target="_blank" rel="noreferrer">
             {item.title}
-          </Link>
+          </a>
         </CardTitle>
       </CardHeader>
-      <CardContent className="grid gap-4">
+      <CardContent className={cn("grid gap-4", compact && "gap-3 px-3 pb-3")}>
         <div className="grid gap-2">
-          <p className="text-sm leading-6 text-muted-foreground">
+          <p className={cn("text-sm leading-6 text-muted-foreground", compact && "leading-5")}>
             {expanded || !hasLongSummary ? item.summary : previewSummary}
           </p>
           {hasLongSummary ? (
@@ -98,9 +112,24 @@ export function NewsItemCard({ item }: NewsItemCardProps) {
             itemId={item.id}
             isRead={isRead}
             isSaved={isSaved}
-            isArchived={archived}
-            onArchivedChange={setArchived}
+            isArchived={isArchived}
+            onStateChange={(state) =>
+              onItemStateChange?.(item.id, {
+                archivedAt: toTimestamp(state.archived, item.archivedAt),
+                readAt: toTimestamp(state.read, item.readAt),
+                savedAt: toTimestamp(state.saved, item.savedAt),
+              })
+            }
           />
+          <NewsItemFeedbackActions
+            itemId={item.id}
+            feedback={item.feedback}
+            onFeedbackChange={(feedback) => onFeedbackChange?.(item.id, feedback)}
+          />
+          <Link className={buttonVariants({ variant: "default", size: "lg" })} href={`/news/${item.id}`}>
+            <BookOpenText aria-hidden="true" />
+            Fast read
+          </Link>
           <a
             className={buttonVariants({ variant: "outline", size: "lg" })}
             href={item.sourceUrl}

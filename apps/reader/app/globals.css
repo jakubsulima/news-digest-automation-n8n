@@ -125,6 +125,7 @@
 
   html {
     @apply min-h-full bg-background font-sans;
+    scrollbar-gutter: stable;
   }
 
   body {

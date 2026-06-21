@@ -1,5 +1,6 @@
 import "server-only";
 
+import { getWarsawDate } from "./date-utils";
 import type { Database } from "./database.types";
 import { createSupabaseAdminClient } from "./supabase";
 
@@ -13,7 +14,7 @@ const COMPLETED_RUN_STATUSES = ["succeeded", "failed", "cancelled"] as const;
 const DEFAULT_DIGEST_RUN_RETENTION_LIMIT = 100;
 const DIGEST_RUN_PRUNE_BATCH_SIZE = 500;
 
-export const DIGEST_STAGE_NAMES: PipelineStageRunRow["stage_name"][] = [
+const DIGEST_STAGE_NAMES: PipelineStageRunRow["stage_name"][] = [
   "source_fetch",
   "article_normalization",
   "story_clustering",
@@ -23,21 +24,9 @@ export const DIGEST_STAGE_NAMES: PipelineStageRunRow["stage_name"][] = [
   "finalization",
 ];
 
-export type DigestRunOverview = DigestRunRow & {
+type DigestRunOverview = DigestRunRow & {
   stages: PipelineStageRunRow[];
 };
-
-function getWarsawDate(value = new Date()) {
-  const parts = new Intl.DateTimeFormat("en", {
-    day: "2-digit",
-    month: "2-digit",
-    timeZone: "Europe/Warsaw",
-    year: "numeric",
-  }).formatToParts(value);
-  const byType = new Map(parts.map((part) => [part.type, part.value]));
-
-  return `${byType.get("year")}-${byType.get("month")}-${byType.get("day")}`;
-}
 
 function stageRowsForRun(digestRunId: string): PipelineStageRunInsert[] {
   return DIGEST_STAGE_NAMES.map((stageName) => ({
@@ -110,7 +99,7 @@ export async function getActiveDigestRun(): Promise<DigestRunOverview | null> {
   return hydrateRun(data);
 }
 
-export async function getLatestDigestRun(): Promise<DigestRunOverview | null> {
+async function getLatestDigestRun(): Promise<DigestRunOverview | null> {
   const supabase = createSupabaseAdminClient();
   const { data, error } = await supabase
     .from("digest_runs")

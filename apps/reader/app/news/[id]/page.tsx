@@ -5,11 +5,13 @@ import { notFound } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { NewsItemFeedbackActions } from "@/components/news-item-feedback-actions";
 import { NewsItemActions } from "@/components/news-item-actions";
 import { requireCurrentReader } from "@/lib/auth";
 import { getReaderNewsItem } from "@/lib/news";
 
 export const dynamic = "force-dynamic";
+const DISPLAY_TIME_ZONE = "Europe/Warsaw";
 
 type NewsDetailPageProps = {
   params: Promise<{
@@ -19,12 +21,13 @@ type NewsDetailPageProps = {
 
 function formatDate(value: string | null) {
   if (!value) {
-    return "No date";
+    return "No publication date";
   }
 
   return new Intl.DateTimeFormat("en", {
     dateStyle: "medium",
     timeStyle: value.includes("T") ? "short" : undefined,
+    timeZone: DISPLAY_TIME_ZONE,
   }).format(new Date(value));
 }
 
@@ -54,6 +57,7 @@ export default async function NewsDetailPage({ params }: NewsDetailPageProps) {
         </Link>
         <div className="flex items-center gap-2">
           <NewsItemActions itemId={item.id} isRead={isRead} isSaved={isSaved} isArchived={isArchived} />
+          <NewsItemFeedbackActions itemId={item.id} feedback={item.feedback} />
         </div>
       </header>
 
@@ -64,11 +68,15 @@ export default async function NewsDetailPage({ params }: NewsDetailPageProps) {
               {item.category}
             </Badge>
             <span>{item.source}</span>
-            <span>{formatDate(item.publishedAt || item.digestDate)}</span>
+            <span>{formatDate(item.publishedAt)}</span>
             {item.importanceScore === null ? null : <Badge variant="outline">{item.importanceScore}</Badge>}
           </div>
 
-          <CardTitle className="text-xl leading-tight sm:text-2xl">{item.title}</CardTitle>
+          <CardTitle className="text-xl leading-tight sm:text-2xl">
+            <a className="hover:underline" href={item.sourceUrl} target="_blank" rel="noreferrer">
+              {item.title}
+            </a>
+          </CardTitle>
         </CardHeader>
         <CardContent className="grid gap-5">
           <p className="text-sm leading-6 text-muted-foreground sm:text-base">{item.summary}</p>

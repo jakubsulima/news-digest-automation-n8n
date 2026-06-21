@@ -4,7 +4,7 @@ import type { Database } from "../../database.types";
 import { createSupabaseAdminClient } from "../../supabase";
 import { normalizeUrl } from "../source-item-intake";
 import type { StageRunner } from "../types";
-import { chunk, chunkByEncodedLength, jsonString, throwDatabaseError } from "../utils";
+import { chunk, chunkByEncodedLength, jsonNumber, jsonString, throwDatabaseError } from "../utils";
 import {
   SUPABASE_FILTER_BATCH_MAX_COUNT,
   SUPABASE_FILTER_BATCH_MAX_ENCODED_LENGTH,
@@ -31,10 +31,11 @@ function sourceItemToArticle(item: SourceItemRow, now: string): ArticleInsert | 
     canonical_url: canonicalUrl,
     category: item.category,
     first_seen_at: item.published_at || now,
-    last_seen_at: now,
+    last_seen_at: item.published_at || now,
     metadata: {
       lastDigestRunId: item.digest_run_id,
       lastSourceItemId: item.id,
+      sourcePriority: jsonNumber(item.raw_payload, "sourcePriority"),
       sourceUrl: item.source_url,
     },
     raw_summary: jsonString(item.raw_payload, "summary"),

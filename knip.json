@@ -1,0 +1,20 @@
+{
+  "$schema": "https://unpkg.com/knip@5/schema.json",
+  "workspaces": {
+    ".": {
+      "entry": ["package.json"],
+      "project": ["package.json", "pnpm-workspace.yaml", "vercel.json", "README.md"],
+      "ignoreBinaries": ["dev", "lint"]
+    },
+    "apps/reader": {
+      "entry": [
+        "app/**/{layout,page,route,loading,not-found,error,global-error,template}.{ts,tsx}",
+        "scripts/*.mjs"
+      ],
+      "project": [
+        "**/*.{js,jsx,mjs,cjs,ts,tsx,mts,cts,json}",
+        "app/globals.css"
+      ]
+    }
+  }
+}

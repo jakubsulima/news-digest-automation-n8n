@@ -16,6 +16,9 @@ services:
       INGEST_SECRET: ${INGEST_SECRET:-}
       CRON_SECRET: ${CRON_SECRET:-}
       NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-http://127.0.0.1:3000}
+      NVIDIA_API_KEY: ${NVIDIA_API_KEY:-}
+      NVIDIA_API_URL: ${NVIDIA_API_URL:-}
+      NVIDIA_MODEL: ${NVIDIA_MODEL:-}
     read_only: true
     tmpfs:
       - /tmp:size=64m,mode=1777
