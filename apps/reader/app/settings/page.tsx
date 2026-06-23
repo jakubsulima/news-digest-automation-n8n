@@ -5,7 +5,9 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { FeedTargetSliders } from "@/components/feed-target-sliders";
 import { Input } from "@/components/ui/input";
+import { KeywordGroupManager } from "@/components/keyword-group-manager";
 import { Label } from "@/components/ui/label";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { saveReaderDigestSettings, saveReaderSource, saveReaderSourcePreset } from "@/lib/actions";
@@ -13,7 +15,6 @@ import { hasNvidiaSummaryConfig } from "@/lib/ai-summary";
 import { requireCurrentReader } from "@/lib/auth";
 import {
   getReaderDigestSettings,
-  type DigestFeedTargets,
   type ReaderDigestSettings,
 } from "@/lib/digest-settings";
 import { READER_FEEDS, normalizeReaderFeedId, readerFeedForCategory, type ReaderFeedId } from "@/lib/feed-categories";
@@ -35,6 +36,9 @@ const STATUS_COPY = {
 const SUCCESS_STATUSES = new Set(["saved", "source-preset-saved", "source-saved"]);
 const PRESET_CARD_CLASS =
   "h-auto min-h-20 w-full flex-col items-start gap-1 whitespace-normal px-3 py-2 text-left";
+const SECTION_CARD_CLASS = "rounded-none bg-transparent py-0 ring-0";
+const SECTION_HEADER_CLASS = "px-0";
+const SECTION_CONTENT_CLASS = "px-0";
 
 const DIGEST_PRESETS = [
   {
@@ -74,7 +78,71 @@ const DIGEST_PRESETS = [
   },
 ] as const;
 
+const KEYWORD_GROUPS = {
+  avoid: [
+    {
+      id: "celebrity",
+      label: "Celebrity noise",
+      description: "Entertainment and personality-driven stories.",
+      keywords: ["celebrity", "influencer", "royal family", "red carpet", "box office", "gossip"],
+    },
+    {
+      id: "sports",
+      label: "Sports",
+      description: "Scores, teams, athletes, and leagues.",
+      keywords: ["sports", "football", "soccer", "nba", "nfl", "tennis", "olympics"],
+    },
+    {
+      id: "crypto-price",
+      label: "Crypto price chatter",
+      description: "Token-price and market-hype coverage.",
+      keywords: ["bitcoin price", "crypto rally", "memecoin", "token", "airdrop", "nft"],
+    },
+    {
+      id: "soft-launches",
+      label: "Minor launches",
+      description: "Low-signal product announcements.",
+      keywords: ["launches", "teases", "rumor", "leak", "unboxing", "preview"],
+    },
+  ],
+  prefer: [
+    {
+      id: "ai-infra",
+      label: "AI infrastructure",
+      description: "Chips, data centers, models, and AI platforms.",
+      keywords: ["ai", "nvidia", "gpu", "semiconductor", "data center", "model", "inference"],
+    },
+    {
+      id: "markets-policy",
+      label: "Markets + policy",
+      description: "Rates, central banks, energy, and regulators.",
+      keywords: ["markets", "inflation", "central bank", "fed", "ecb", "energy", "regulation"],
+    },
+    {
+      id: "security-incidents",
+      label: "Security incidents",
+      description: "Breaches, vulnerabilities, ransomware, and advisories.",
+      keywords: ["security", "breach", "ransomware", "vulnerability", "cve", "exploit", "incident"],
+    },
+    {
+      id: "engineering",
+      label: "Engineering",
+      description: "Developer tooling, cloud, open source, and platforms.",
+      keywords: ["software", "developer", "open source", "cloud", "kubernetes", "database", "api"],
+    },
+    {
+      id: "geopolitics",
+      label: "Geopolitics",
+      description: "Conflict, trade, sanctions, and international institutions.",
+      keywords: ["china", "russia", "ukraine", "trade", "sanctions", "nato", "election"],
+    },
+  ],
+} as const;
+
 type DigestPresetId = (typeof DIGEST_PRESETS)[number]["id"];
+type KeywordGroupKind = keyof typeof KEYWORD_GROUPS;
+type KeywordGroupId = (typeof KEYWORD_GROUPS)[KeywordGroupKind][number]["id"];
+type ActiveKeywordGroups = Record<KeywordGroupKind, KeywordGroupId[]>;
 type SourceGroup = {
   enabledCount: number;
   id: Exclude<ReaderFeedId, "all">;
@@ -84,16 +152,26 @@ type SourceGroup = {
 
 type SettingsPageProps = {
   searchParams?: Promise<{
+    avoidKeywordGroup?: string | string[];
     preset?: string | string[];
+    preferKeywordGroup?: string | string[];
     sourceFeed?: string | string[];
     status?: string | string[];
   }>;
 };
 
 const DIGEST_PRESET_IDS = new Set<DigestPresetId>(DIGEST_PRESETS.map((preset) => preset.id));
+const KEYWORD_GROUP_IDS = {
+  avoid: new Set(KEYWORD_GROUPS.avoid.map((group) => group.id)),
+  prefer: new Set(KEYWORD_GROUPS.prefer.map((group) => group.id)),
+} satisfies Record<KeywordGroupKind, Set<string>>;
 
 function firstSearchValue(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] : value;
+}
+
+function allSearchValues(value: string | string[] | undefined) {
+  return Array.isArray(value) ? value : value ? [value] : [];
 }
 
 function isSuccessStatus(status: string | undefined) {
@@ -107,10 +185,14 @@ function normalizeDigestPresetId(value: string | string[] | undefined): DigestPr
 }
 
 function settingsHref({
+  avoidKeywordGroups = [],
   preset,
+  preferKeywordGroups = [],
   sourceFeed,
 }: {
+  avoidKeywordGroups?: readonly KeywordGroupId[];
   preset?: DigestPresetId | null;
+  preferKeywordGroups?: readonly KeywordGroupId[];
   sourceFeed?: ReaderFeedId;
 }) {
   const params = new URLSearchParams();
@@ -121,6 +203,14 @@ function settingsHref({
 
   if (sourceFeed && sourceFeed !== "all") {
     params.set("sourceFeed", sourceFeed);
+  }
+
+  for (const groupId of preferKeywordGroups) {
+    params.append("preferKeywordGroup", groupId);
+  }
+
+  for (const groupId of avoidKeywordGroups) {
+    params.append("avoidKeywordGroup", groupId);
   }
 
   const query = params.toString();
@@ -141,8 +231,25 @@ function applyDigestPreset(settings: ReaderDigestSettings, presetId: DigestPrese
   };
 }
 
-function keywordValue(keywords: string[]) {
-  return keywords.join(", ");
+function normalizeKeywordGroupIds(kind: KeywordGroupKind, value: string | string[] | undefined): KeywordGroupId[] {
+  const seen = new Set<KeywordGroupId>();
+  const validIds: ReadonlySet<string> = KEYWORD_GROUP_IDS[kind];
+
+  for (const groupId of allSearchValues(value)) {
+    if (validIds.has(groupId)) {
+      seen.add(groupId as KeywordGroupId);
+    }
+  }
+
+  return [...seen];
+}
+
+function activeKeywordGroupsFromSettings(kind: KeywordGroupKind, keywords: readonly string[]): KeywordGroupId[] {
+  const keywordSet = new Set(keywords.map((keyword) => keyword.trim().toLowerCase()).filter(Boolean));
+
+  return KEYWORD_GROUPS[kind]
+    .filter((group) => group.keywords.some((keyword) => keywordSet.has(keyword)))
+    .map((group) => group.id);
 }
 
 function groupedSources(sources: ReaderSource[]): SourceGroup[] {
@@ -209,40 +316,6 @@ function NumberField({
   );
 }
 
-function FeedTargetFields({ feedTargets }: { feedTargets: DigestFeedTargets }) {
-  return (
-    <div className="grid gap-3 sm:grid-cols-5">
-      <NumberField name="feedTargetGeopolitics" label="Geopolitics" min={0} max={50} defaultValue={feedTargets.geopolitics} />
-      <NumberField name="feedTargetBusiness" label="Business" min={0} max={50} defaultValue={feedTargets.business} />
-      <NumberField name="feedTargetAi" label="AI" min={0} max={50} defaultValue={feedTargets.ai} />
-      <NumberField name="feedTargetSoftware" label="Software" min={0} max={50} defaultValue={feedTargets.software} />
-      <NumberField name="feedTargetSecurity" label="Security" min={0} max={50} defaultValue={feedTargets.security} />
-    </div>
-  );
-}
-
-function TextAreaField({
-  defaultValue,
-  label,
-  name,
-}: {
-  defaultValue: string;
-  label: string;
-  name: string;
-}) {
-  return (
-    <div className="grid gap-2">
-      <Label htmlFor={name}>{label}</Label>
-      <textarea
-        id={name}
-        name={name}
-        className="min-h-20 w-full rounded-lg border border-input bg-transparent px-2.5 py-2 text-sm outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
-        defaultValue={defaultValue}
-      />
-    </div>
-  );
-}
-
 function SourceFields({ source }: { source?: ReaderSource }) {
   const sourceFieldId = source?.id ?? "new";
 
@@ -300,9 +373,11 @@ function SourceFields({ source }: { source?: ReaderSource }) {
 
 function DigestPresetLinks({
   activePreset,
+  activeKeywordGroups,
   activeSourceFeed,
 }: {
   activePreset: DigestPresetId | null;
+  activeKeywordGroups: ActiveKeywordGroups;
   activeSourceFeed: ReaderFeedId;
 }) {
   return (
@@ -317,7 +392,12 @@ function DigestPresetLinks({
               buttonVariants({ variant: active ? "default" : "outline" }),
               PRESET_CARD_CLASS,
             )}
-            href={settingsHref({ preset: preset.id, sourceFeed: activeSourceFeed })}
+            href={settingsHref({
+              avoidKeywordGroups: activeKeywordGroups.avoid,
+              preferKeywordGroups: activeKeywordGroups.prefer,
+              preset: preset.id,
+              sourceFeed: activeSourceFeed,
+            })}
           >
             <span className="font-semibold">{preset.label}</span>
             <span className={cn("text-xs font-normal", active ? "text-primary-foreground/80" : "text-muted-foreground")}>
@@ -353,15 +433,17 @@ function SourcePresetControls({ activeSourceFeed }: { activeSourceFeed: ReaderFe
 
 function SourceTabs({
   activeFeed,
+  activeKeywordGroups,
   activePreset,
   groups,
 }: {
   activeFeed: ReaderFeedId;
+  activeKeywordGroups: ActiveKeywordGroups;
   activePreset: DigestPresetId | null;
   groups: SourceGroup[];
 }) {
   return (
-    <nav className="flex gap-1 overflow-x-auto rounded-lg border bg-muted/30 p-1" aria-label="Source groups">
+    <nav className="grid grid-cols-2 gap-1 rounded-lg border bg-muted/30 p-1 sm:flex sm:flex-wrap" aria-label="Source groups">
       {READER_FEEDS.map((feed) => {
         const active = feed.id === activeFeed;
         const count = sourceTabCount(groups, feed.id);
@@ -370,13 +452,18 @@ function SourceTabs({
           <Link
             key={feed.id}
             className={cn(
-              "inline-flex h-8 shrink-0 items-center gap-2 rounded-md px-2.5 text-sm font-medium transition-colors",
+              "inline-flex h-9 min-w-0 items-center justify-between gap-2 rounded-md px-2.5 text-sm font-medium transition-colors sm:h-8 sm:w-auto sm:justify-start",
               active ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:bg-card/70 hover:text-foreground",
             )}
-            href={settingsHref({ preset: activePreset, sourceFeed: feed.id })}
+            href={settingsHref({
+              avoidKeywordGroups: activeKeywordGroups.avoid,
+              preferKeywordGroups: activeKeywordGroups.prefer,
+              preset: activePreset,
+              sourceFeed: feed.id,
+            })}
           >
-            {feed.label}
-            <span className="rounded-full border px-1.5 py-0.5 text-[0.7rem] leading-none">
+            <span className="truncate">{feed.label}</span>
+            <span className="shrink-0 rounded-full border px-1.5 py-0.5 text-[0.7rem] leading-none">
               {count.enabled}/{count.sources}
             </span>
           </Link>
@@ -423,8 +510,20 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
   const rawSearchParams = await searchParams;
   const activeSourceFeed = normalizeReaderFeedId(rawSearchParams?.sourceFeed);
   const activePreset = normalizeDigestPresetId(rawSearchParams?.preset);
+  const queryKeywordGroups: ActiveKeywordGroups = {
+    avoid: normalizeKeywordGroupIds("avoid", rawSearchParams?.avoidKeywordGroup),
+    prefer: normalizeKeywordGroupIds("prefer", rawSearchParams?.preferKeywordGroup),
+  };
   const [savedSettings, sources] = await Promise.all([getReaderDigestSettings(user.id), getReaderSources()]);
   const settings = applyDigestPreset(savedSettings, activePreset);
+  const activeKeywordGroups: ActiveKeywordGroups = {
+    avoid: allSearchValues(rawSearchParams?.avoidKeywordGroup).length
+      ? queryKeywordGroups.avoid
+      : activeKeywordGroupsFromSettings("avoid", settings.excludedKeywords),
+    prefer: allSearchValues(rawSearchParams?.preferKeywordGroup).length
+      ? queryKeywordGroups.prefer
+      : activeKeywordGroupsFromSettings("prefer", settings.preferredKeywords),
+  };
   const sourceGroups = groupedSources(sources);
   const shownSourceGroups = visibleSourceGroups(sourceGroups, activeSourceFeed);
   const sourceCounts = sourceTabCount(sourceGroups, "all");
@@ -457,19 +556,23 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.45fr)] xl:items-start">
         <div className="grid gap-4">
-          <Card>
-            <CardHeader>
+          <Card className={SECTION_CARD_CLASS}>
+            <CardHeader className={SECTION_HEADER_CLASS}>
               <CardTitle>Appearance</CardTitle>
               <CardDescription>Theme applies across the reader.</CardDescription>
             </CardHeader>
-            <CardContent>
+            <CardContent className={SECTION_CONTENT_CLASS}>
               <ThemeToggle />
             </CardContent>
           </Card>
 
-          <form key={`digest-${activePreset ?? "saved"}`} action={saveReaderDigestSettings} className="grid gap-4">
-            <Card>
-              <CardHeader>
+          <form
+            key={`digest-${activePreset ?? "saved"}-${activeKeywordGroups.prefer.join(".")}-${activeKeywordGroups.avoid.join(".")}`}
+            action={saveReaderDigestSettings}
+            className="grid gap-4"
+          >
+            <Card className={SECTION_CARD_CLASS}>
+              <CardHeader className={SECTION_HEADER_CLASS}>
                 <div className="flex items-center justify-between gap-3">
                   <div>
                     <CardTitle>Digest presets</CardTitle>
@@ -478,17 +581,21 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
                   {activePreset ? <Badge variant="secondary">preset pending</Badge> : null}
                 </div>
               </CardHeader>
-              <CardContent>
-                <DigestPresetLinks activePreset={activePreset} activeSourceFeed={activeSourceFeed} />
+              <CardContent className={SECTION_CONTENT_CLASS}>
+                <DigestPresetLinks
+                  activeKeywordGroups={activeKeywordGroups}
+                  activePreset={activePreset}
+                  activeSourceFeed={activeSourceFeed}
+                />
               </CardContent>
             </Card>
 
-            <Card>
-              <CardHeader>
+            <Card className={SECTION_CARD_CLASS}>
+              <CardHeader className={SECTION_HEADER_CLASS}>
                 <CardTitle>Output limits</CardTitle>
                 <CardDescription>Control digest size and the minimum score needed to publish an item.</CardDescription>
               </CardHeader>
-              <CardContent className="grid gap-4">
+              <CardContent className={cn(SECTION_CONTENT_CLASS, "grid gap-4")}>
                 <div className="grid gap-4 sm:grid-cols-2">
                   <NumberField name="publishTopN" label="Articles per digest" min={5} max={100} defaultValue={settings.publishTopN} />
                   <NumberField
@@ -511,43 +618,50 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
               </CardContent>
             </Card>
 
-            <Card>
-              <CardHeader>
+            <Card className={SECTION_CARD_CLASS}>
+              <CardHeader className={SECTION_HEADER_CLASS}>
                 <CardTitle>Category targets</CardTitle>
                 <CardDescription>Set how many stories each feed contributes before final ranking.</CardDescription>
               </CardHeader>
-              <CardContent>
-                <FeedTargetFields feedTargets={settings.feedTargets} />
+              <CardContent className={SECTION_CONTENT_CLASS}>
+                <FeedTargetSliders feedTargets={settings.feedTargets} />
               </CardContent>
             </Card>
 
-            <Card>
-              <CardHeader>
-                <CardTitle>Reading filters</CardTitle>
-                <CardDescription>Tune fast-read summaries and keyword preferences.</CardDescription>
+            <Card className={SECTION_CARD_CLASS}>
+              <CardHeader className={SECTION_HEADER_CLASS}>
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <CardTitle>Reading filters</CardTitle>
+                    <CardDescription>Choose topics to like or dislike.</CardDescription>
+                  </div>
+                </div>
               </CardHeader>
-              <CardContent className="grid gap-4">
-                <NumberField name="summaryMaxChars" label="Fast-read length" min={180} max={5000} defaultValue={settings.summaryMaxChars} />
-                <TextAreaField
-                  name="preferredKeywords"
-                  label="Prefer keywords"
-                  defaultValue={keywordValue(settings.preferredKeywords)}
+              <CardContent className={cn(SECTION_CONTENT_CLASS, "grid gap-4")}>
+                <KeywordGroupManager
+                  activeAvoidGroupIds={activeKeywordGroups.avoid}
+                  activePreferGroupIds={activeKeywordGroups.prefer}
+                  avoidGroups={KEYWORD_GROUPS.avoid}
+                  preferGroups={KEYWORD_GROUPS.prefer}
                 />
-                <TextAreaField
-                  name="excludedKeywords"
-                  label="Avoid keywords"
-                  defaultValue={keywordValue(settings.excludedKeywords)}
-                />
-                <label className="flex flex-wrap items-center gap-2 text-sm font-medium">
-                  <input
-                    className="size-4 accent-primary"
-                    type="checkbox"
-                    name="useAiSummaries"
-                    defaultChecked={settings.useAiSummaries}
-                  />
-                  NVIDIA short summaries
-                  <Badge variant={hasNvidiaKey ? "secondary" : "outline"}>{hasNvidiaKey ? "key set" : "key missing"}</Badge>
-                </label>
+                <details className="rounded-lg border bg-muted/20">
+                  <summary className="cursor-pointer list-none px-3 py-2 text-sm font-semibold [&::-webkit-details-marker]:hidden">
+                    Advanced reading options
+                  </summary>
+                  <div className="grid gap-4 border-t p-3">
+                    <NumberField name="summaryMaxChars" label="Fast-read length" min={180} max={5000} defaultValue={settings.summaryMaxChars} />
+                    <label className="flex flex-wrap items-center gap-2 text-sm font-medium">
+                      <input
+                        className="size-4 accent-primary"
+                        type="checkbox"
+                        name="useAiSummaries"
+                        defaultChecked={settings.useAiSummaries}
+                      />
+                      NVIDIA short summaries
+                      <Badge variant={hasNvidiaKey ? "secondary" : "outline"}>{hasNvidiaKey ? "key set" : "key missing"}</Badge>
+                    </label>
+                  </div>
+                </details>
               </CardContent>
             </Card>
 
@@ -560,8 +674,8 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
           </form>
         </div>
 
-        <Card>
-          <CardHeader>
+        <Card className={SECTION_CARD_CLASS}>
+          <CardHeader className={SECTION_HEADER_CLASS}>
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <CardTitle>Sources</CardTitle>
@@ -572,7 +686,7 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
               <Badge variant="outline">{activeSourceFeed === "all" ? "All groups" : READER_FEEDS.find((feed) => feed.id === activeSourceFeed)?.label}</Badge>
             </div>
           </CardHeader>
-          <CardContent className="grid gap-4">
+          <CardContent className={cn(SECTION_CONTENT_CLASS, "grid gap-4")}>
             <section className="grid gap-2">
               <div>
                 <h2 className="text-sm font-semibold">Source presets</h2>
@@ -586,7 +700,12 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
                 <h2 className="text-sm font-semibold">Source groups</h2>
                 <p className="mt-1 text-xs text-muted-foreground">Filter the list by feed category.</p>
               </div>
-              <SourceTabs activeFeed={activeSourceFeed} activePreset={activePreset} groups={sourceGroups} />
+              <SourceTabs
+                activeFeed={activeSourceFeed}
+                activeKeywordGroups={activeKeywordGroups}
+                activePreset={activePreset}
+                groups={sourceGroups}
+              />
             </section>
 
             <section className="grid gap-2">

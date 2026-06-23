@@ -2,7 +2,7 @@ import "server-only";
 
 import type { Database } from "./database.types";
 import { createSupabaseAdminClient } from "./supabase";
-import { plainTextFromHtml } from "./text";
+import { cleanArticleSummary, plainTextFromHtml } from "./text";
 import { isReaderFeedbackSchemaError, type FeedbackSentiment } from "./reader-feedback";
 
 export type NewsItemWithState = {
@@ -48,12 +48,14 @@ function newsItemWithState(
   state: ReaderItemStateRow | null | undefined,
   feedback: FeedbackSentiment | null,
 ): NewsItemWithState {
+  const title = plainTextFromHtml(item.title);
+
   return {
     id: item.id,
     externalId: item.external_id,
     digestDate: item.digest_date,
-    title: plainTextFromHtml(item.title),
-    summary: plainTextFromHtml(item.summary),
+    title,
+    summary: cleanArticleSummary(item.summary, title) || title,
     source: item.source,
     sourceUrl: item.source_url,
     category: item.category,

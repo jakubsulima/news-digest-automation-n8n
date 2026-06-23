@@ -7,6 +7,13 @@ const ENTITY_BY_NAME: Record<string, string> = {
   apos: "'",
 };
 
+const FEED_METADATA_PATTERNS = [
+  /\bArticle URL:\s+\S+/gi,
+  /\bComments URL:\s+\S+/gi,
+  /\bPoints:\s+\d+/gi,
+  /#\s*Comments:\s+\d+/gi,
+];
+
 function decodeCodePoint(value: number) {
   try {
     return Number.isFinite(value) ? String.fromCodePoint(value) : "";
@@ -42,4 +49,24 @@ export function plainTextFromHtml(value: string) {
   }
 
   return text.replace(/\s+/g, " ").trim();
+}
+
+function normalizedPlainText(value: string) {
+  return plainTextFromHtml(value).toLocaleLowerCase("en-US");
+}
+
+export function cleanArticleSummary(summary: string, title = "") {
+  let text = plainTextFromHtml(summary);
+
+  for (const pattern of FEED_METADATA_PATTERNS) {
+    text = text.replace(pattern, " ");
+  }
+
+  text = text.replace(/\s+/g, " ").trim();
+
+  if (title && normalizedPlainText(text) === normalizedPlainText(title)) {
+    return "";
+  }
+
+  return text;
 }
