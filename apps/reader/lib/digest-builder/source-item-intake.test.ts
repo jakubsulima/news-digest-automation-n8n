@@ -69,6 +69,27 @@ describe("parseSourceFeed", () => {
     });
   });
 
+  it("strips Hacker News metadata-only summaries", () => {
+    const items = parseSourceFeed(
+      `<rss><channel><item>
+        <title>Data centers become the face of AI backlash</title>
+        <link>https://www.axios.com/2026/06/22/ai-data-center-backlash-poll</link>
+        <description><![CDATA[
+          <p><a href="https://www.axios.com/2026/06/22/ai-data-center-backlash-poll">Data centers become the face of AI backlash</a></p>
+          <p>Article URL: <a href="https://www.axios.com/2026/06/22/ai-data-center-backlash-poll">https://www.axios.com/2026/06/22/ai-data-center-backlash-poll</a></p>
+          <p>Comments URL: <a href="https://news.ycombinator.com/item?id=48627730">https://news.ycombinator.com/item?id=48627730</a></p>
+          <p>Points: 1</p>
+          <p># Comments: 0</p>
+        ]]></description>
+      </item></channel></rss>`,
+      { ...source, name: "Hacker News", url: "https://hnrss.org/newest" },
+      "run-hn",
+    );
+
+    expect(items).toHaveLength(1);
+    expect(rawPayload(items[0]).summary).toBe("");
+  });
+
   it("uses null for invalid dates", () => {
     const items = parseSourceFeed(
       `<rss><channel><item>

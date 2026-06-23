@@ -5,7 +5,7 @@ import { getDigestRunById } from "../../digest-runs";
 import { getDigestSettingsForRun } from "../../digest-settings";
 import { shortenSummaryWithNvidia } from "../../ai-summary";
 import { createSupabaseAdminClient } from "../../supabase";
-import { plainTextFromHtml } from "../../text";
+import { cleanArticleSummary, plainTextFromHtml } from "../../text";
 import { SUPABASE_WRITE_BATCH_SIZE } from "../constants";
 import type { StageRunner } from "../types";
 import { chunk, compactText, jsonString } from "../utils";
@@ -28,7 +28,8 @@ async function compactPublishedSummary({
   title: string;
   useAiSummaries: boolean;
 }) {
-  const fallback = compactText(plainTextFromHtml(summary), maxChars);
+  const cleanSummary = cleanArticleSummary(summary, title) || plainTextFromHtml(title);
+  const fallback = compactText(cleanSummary, maxChars);
 
   if (!useAiSummaries || fallback.length <= maxChars * 0.75) {
     return fallback;
@@ -36,7 +37,7 @@ async function compactPublishedSummary({
 
   const aiSummary = await shortenSummaryWithNvidia({
     maxChars,
-    summary: plainTextFromHtml(summary),
+    summary: cleanSummary,
     title,
   }).catch(() => null);
 

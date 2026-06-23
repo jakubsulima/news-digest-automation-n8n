@@ -1,6 +1,6 @@
 import type { Database } from "../database.types";
 import { getWarsawDate } from "../date-utils";
-import { decodeHtmlEntities, plainTextFromHtml } from "../text";
+import { cleanArticleSummary, decodeHtmlEntities, plainTextFromHtml } from "../text";
 import { FEED_FETCH_TIMEOUT_MS, USER_AGENT } from "./constants";
 
 type SourceItemInsert = Database["public"]["Tables"]["source_items"]["Insert"];
@@ -143,11 +143,12 @@ function parseSourceFeedWithStats(
     parsedItemCount += 1;
     const title = tagText(itemXml, "title");
     const link = tagText(itemXml, "link") || tagAttribute(itemXml, "link", "href");
-    const summary =
+    const rawSummary =
       tagText(itemXml, "description") ||
       tagText(itemXml, "summary") ||
       tagText(itemXml, "content") ||
       tagText(itemXml, "content:encoded");
+    const summary = cleanArticleSummary(rawSummary, title);
     const publishedAt =
       parsePublishedAt(tagText(itemXml, "pubDate")) ||
       parsePublishedAt(tagText(itemXml, "published")) ||
