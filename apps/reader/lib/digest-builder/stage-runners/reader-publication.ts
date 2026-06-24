@@ -1,9 +1,9 @@
 import "server-only";
 
-import type { Database } from "../../database.types";
+import type { Database, Json } from "../../database.types";
 import { getDigestRunById } from "../../digest-runs";
 import { getDigestSettingsForRun } from "../../digest-settings";
-import { shortenSummaryWithNvidia } from "../../ai-summary";
+import { previewArticleWithNvidia, shortenSummaryWithNvidia, type NvidiaArticlePreview } from "../../ai-summary";
 import { createSupabaseAdminClient } from "../../supabase";
 import { cleanArticleSummary, plainTextFromHtml } from "../../text";
 import { SUPABASE_WRITE_BATCH_SIZE } from "../constants";
@@ -13,8 +13,20 @@ import { chunk, compactText, jsonString } from "../utils";
 type NewsItemInsert = Database["public"]["Tables"]["news_items"]["Insert"];
 type StorySnapshotRow = Database["public"]["Tables"]["story_snapshots"]["Row"];
 
+function jsonRecord(value: Json): Record<string, Json | undefined> {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
+
 function publishedSummary(snapshot: StorySnapshotRow) {
   return jsonString(snapshot.metadata, "summary") || jsonString(snapshot.metadata, "title") || "No summary available.";
+}
+
+function previewSummary(preview: NvidiaArticlePreview) {
+  return [
+    `What happened: ${preview.whatHappened}`,
+    `Why it matters: ${preview.whyItMatters}`,
+    `Click if: ${preview.clickIf}`,
+  ].join("\n");
 }
 
 async function compactPublishedSummary({
@@ -94,12 +106,24 @@ export const runReaderPublicationStage: StageRunner = async ({ digestRunId }) =>
   for (const snapshot of snapshots || []) {
     const canonicalUrl = jsonString(snapshot.metadata, "canonicalUrl");
     const title = jsonString(snapshot.metadata, "title") || canonicalUrl;
-    const summary = await compactPublishedSummary({
-      maxChars: settings.summaryMaxChars,
-      summary: publishedSummary(snapshot),
-      title,
-      useAiSummaries: settings.useAiSummaries,
-    });
+    const metadata = jsonRecord(snapshot.metadata);
+    const scoreComponents = metadata.scoreComponents;
+    const sourceSummary = publishedSummary(snapshot);
+    const cleanSummary = cleanArticleSummary(sourceSummary, title) || plainTextFromHtml(title);
+    const preview = settings.useAiSummaries
+      ? await previewArticleWithNvidia({
+          summary: cleanSummary,
+          title,
+        })
+      : null;
+    const summary = preview
+      ? previewSummary(preview)
+      : await compactPublishedSummary({
+          maxChars: settings.summaryMaxChars,
+          summary: sourceSummary,
+          title,
+          useAiSummaries: settings.useAiSummaries,
+        });
 
     rows.push({
       category: jsonString(snapshot.metadata, "category") || "general",
@@ -109,7 +133,19 @@ export const runReaderPublicationStage: StageRunner = async ({ digestRunId }) =>
       published_at: jsonString(snapshot.metadata, "publishedAt") || null,
       raw_payload: {
         digestRunId,
+        practicalBucket: jsonString(snapshot.metadata, "practicalBucket") || "ignore",
+        recommendedAction: jsonString(snapshot.metadata, "recommendedAction"),
+        score: {
+          components:
+            scoreComponents && typeof scoreComponents === "object" && !Array.isArray(scoreComponents)
+              ? scoreComponents
+              : {},
+          editorial: snapshot.editorial_score,
+          importance: Math.max(0, Math.min(100, Math.round(snapshot.editorial_score))),
+        },
+        ...(preview ? { preview } : {}),
         storyClusterId: snapshot.story_cluster_id,
+        whyInteresting: jsonString(snapshot.metadata, "whyInteresting"),
       },
       source: jsonString(snapshot.metadata, "source") || "Unknown",
       source_url: canonicalUrl,

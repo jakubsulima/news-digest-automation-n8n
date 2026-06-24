@@ -4,8 +4,12 @@ import { Archive, Bookmark, Check, Eye, Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
 type NewsItemActionsProps = {
+  buttonClassName?: string;
+  buttonSize?: "icon-sm" | "icon-lg";
+  className?: string;
   itemId: string;
   isRead: boolean;
   isSaved: boolean;
@@ -31,6 +35,9 @@ function apiAction(action: ItemAction, enabled: boolean, itemId: string) {
 }
 
 export function NewsItemActions({
+  buttonClassName,
+  buttonSize = "icon-lg",
+  className,
   itemId,
   isRead,
   isSaved,
@@ -94,10 +101,11 @@ export function NewsItemActions({
   }
 
   return (
-    <>
+    <div className={cn("flex items-center gap-1.5", className)}>
       <Button
         variant="outline"
-        size="icon-lg"
+        size={buttonSize}
+        className={buttonClassName}
         type="button"
         title="Toggle read"
         aria-label="Toggle read"
@@ -114,7 +122,8 @@ export function NewsItemActions({
       </Button>
       <Button
         variant="outline"
-        size="icon-lg"
+        size={buttonSize}
+        className={buttonClassName}
         type="button"
         title="Toggle saved"
         aria-label="Toggle saved"
@@ -129,7 +138,8 @@ export function NewsItemActions({
       </Button>
       <Button
         variant="outline"
-        size="icon-lg"
+        size={buttonSize}
+        className={buttonClassName}
         type="button"
         title="Archive"
         aria-label="Archive"
@@ -143,6 +153,6 @@ export function NewsItemActions({
         )}
       </Button>
       {error ? <span className="text-xs text-destructive">{error}</span> : null}
-    </>
+    </div>
   );
 }

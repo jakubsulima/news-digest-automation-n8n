@@ -5,10 +5,15 @@ import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import type { FeedbackSentiment } from "@/lib/reader-feedback";
+import { cn } from "@/lib/utils";
 
 type NewsItemFeedbackActionsProps = {
+  buttonClassName?: string;
+  buttonSize?: "sm" | "icon-sm" | "icon-lg" | "lg";
+  className?: string;
   itemId: string;
   feedback: FeedbackSentiment | null;
+  showLabels?: boolean;
   onFeedbackChange?: (feedback: FeedbackSentiment | null) => void;
 };
 
@@ -22,7 +27,15 @@ async function apiFeedback(itemId: string, sentiment: FeedbackSentiment | null) 
   });
 }
 
-export function NewsItemFeedbackActions({ itemId, feedback, onFeedbackChange }: NewsItemFeedbackActionsProps) {
+export function NewsItemFeedbackActions({
+  buttonClassName,
+  buttonSize = "icon-lg",
+  className,
+  itemId,
+  feedback,
+  showLabels = false,
+  onFeedbackChange,
+}: NewsItemFeedbackActionsProps) {
   const [localFeedback, setLocalFeedback] = useState(feedback);
   const [pendingFeedback, setPendingFeedback] = useState<FeedbackSentiment | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -71,10 +84,11 @@ export function NewsItemFeedbackActions({ itemId, feedback, onFeedbackChange }: 
   }
 
   return (
-    <>
+    <div className={cn("flex items-center gap-1.5", className)}>
       <Button
         variant={activeFeedback === "more" ? "secondary" : "outline"}
-        size="icon-lg"
+        size={buttonSize}
+        className={buttonClassName}
         type="button"
         title="More like this"
         aria-label="More like this"
@@ -82,10 +96,12 @@ export function NewsItemFeedbackActions({ itemId, feedback, onFeedbackChange }: 
         onClick={() => void updateFeedback("more")}
       >
         {pendingFeedback === "more" ? <Loader2 className="animate-spin" aria-hidden="true" /> : <ThumbsUp aria-hidden="true" />}
+        {showLabels ? <span>More</span> : null}
       </Button>
       <Button
         variant={activeFeedback === "less" ? "destructive" : "outline"}
-        size="icon-lg"
+        size={buttonSize}
+        className={buttonClassName}
         type="button"
         title="Less like this"
         aria-label="Less like this"
@@ -97,8 +113,9 @@ export function NewsItemFeedbackActions({ itemId, feedback, onFeedbackChange }: 
         ) : (
           <ThumbsDown aria-hidden="true" />
         )}
+        {showLabels ? <span>Less</span> : null}
       </Button>
       {error ? <span className="text-xs text-destructive">{error}</span> : null}
-    </>
+    </div>
   );
 }

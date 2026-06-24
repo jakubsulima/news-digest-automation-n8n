@@ -7,8 +7,10 @@ import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { NewsItemFeedbackActions } from "@/components/news-item-feedback-actions";
 import { NewsItemActions } from "@/components/news-item-actions";
+import { NewsPreviewCard } from "@/components/news-preview-card";
 import { requireCurrentReader } from "@/lib/auth";
 import { getReaderNewsItem } from "@/lib/news";
+import { formatPracticalBucket, formatScoreComponentLabel } from "@/lib/news-display";
 
 export const dynamic = "force-dynamic";
 const DISPLAY_TIME_ZONE = "Europe/Warsaw";
@@ -43,6 +45,7 @@ export default async function NewsDetailPage({ params }: NewsDetailPageProps) {
   const isRead = Boolean(item.readAt);
   const isSaved = Boolean(item.savedAt);
   const isArchived = Boolean(item.archivedAt);
+  const scoreComponents = Object.entries(item.scoreComponents);
 
   return (
     <main className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-4 py-5 sm:px-6 sm:py-7">
@@ -67,6 +70,7 @@ export default async function NewsDetailPage({ params }: NewsDetailPageProps) {
             <Badge variant="secondary" className="bg-accent text-accent-foreground">
               {item.category}
             </Badge>
+            {item.practicalBucket ? <Badge variant="outline">{formatPracticalBucket(item.practicalBucket)}</Badge> : null}
             <span>{item.source}</span>
             <span>{formatDate(item.publishedAt)}</span>
             {item.importanceScore === null ? null : <Badge variant="outline">{item.importanceScore}</Badge>}
@@ -79,7 +83,25 @@ export default async function NewsDetailPage({ params }: NewsDetailPageProps) {
           </CardTitle>
         </CardHeader>
         <CardContent className="grid gap-5">
-          <p className="text-sm leading-6 text-muted-foreground sm:text-base">{item.summary}</p>
+          <NewsPreviewCard preview={item.preview} summary={item.summary} />
+          {!item.preview && (item.whyInteresting || item.recommendedAction) ? (
+            <section className="grid gap-2 rounded-md border border-border p-3 text-sm leading-6 text-muted-foreground">
+              {item.whyInteresting ? <p>{item.whyInteresting}</p> : null}
+              {item.recommendedAction ? <p>{item.recommendedAction}</p> : null}
+            </section>
+          ) : null}
+          {scoreComponents.length ? (
+            <section className="grid gap-2">
+              <h2 className="text-sm font-semibold">Score components</h2>
+              <div className="flex flex-wrap gap-2">
+                {scoreComponents.map(([key, value]) => (
+                  <Badge key={key} variant="outline">
+                    {formatScoreComponentLabel(key)}: {String(value)}
+                  </Badge>
+                ))}
+              </div>
+            </section>
+          ) : null}
 
           <a
             className={buttonVariants({ variant: "outline", size: "lg" })}

@@ -1,9 +1,16 @@
 import "server-only";
 
-import type { Database } from "./database.types";
+import type { Database, Json } from "./database.types";
 import { createSupabaseAdminClient } from "./supabase";
 import { cleanArticleSummary, plainTextFromHtml } from "./text";
 import { isReaderFeedbackSchemaError, type FeedbackSentiment } from "./reader-feedback";
+
+export type NewsItemPreview = {
+  clickIf: string;
+  practicalBucket: string;
+  whatHappened: string;
+  whyItMatters: string;
+};
 
 export type NewsItemWithState = {
   id: string;
@@ -15,11 +22,16 @@ export type NewsItemWithState = {
   sourceUrl: string;
   category: string;
   importanceScore: number | null;
+  practicalBucket: string | null;
+  preview: NewsItemPreview | null;
   publishedAt: string | null;
+  recommendedAction: string | null;
   readAt: string | null;
   savedAt: string | null;
   archivedAt: string | null;
+  scoreComponents: Record<string, string | number | boolean>;
   feedback: FeedbackSentiment | null;
+  whyInteresting: string | null;
 };
 
 type NewsItemRow = Pick<
@@ -34,6 +46,7 @@ type NewsItemRow = Pick<
   | "category"
   | "importance_score"
   | "published_at"
+  | "raw_payload"
 >;
 type ReaderItemStateRow = Pick<
   Database["public"]["Tables"]["reader_item_states"]["Row"],
@@ -41,7 +54,48 @@ type ReaderItemStateRow = Pick<
 >;
 
 const NEWS_ITEM_COLUMNS =
-  "id, external_id, digest_date, title, summary, source, source_url, category, importance_score, published_at";
+  "id, external_id, digest_date, title, summary, source, source_url, category, importance_score, published_at, raw_payload";
+
+function jsonRecord(value: Json | undefined): Record<string, Json | undefined> {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
+
+function jsonString(value: Json | undefined) {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function scoreComponentsFromPayload(rawPayload: Json): Record<string, string | number | boolean> {
+  const score = jsonRecord(rawPayload).score;
+  const components = jsonRecord(score).components;
+  const componentRecord = jsonRecord(components);
+
+  return Object.fromEntries(
+    Object.entries(componentRecord).filter(
+      (entry): entry is [string, string | number | boolean] =>
+        typeof entry[1] === "string" || typeof entry[1] === "number" || typeof entry[1] === "boolean",
+    ),
+  );
+}
+
+function previewFromPayload(rawPayload: Json): NewsItemPreview | null {
+  const payload = jsonRecord(rawPayload);
+  const preview = jsonRecord(payload.preview);
+  const whatHappened = jsonString(preview.whatHappened);
+  const whyItMatters = jsonString(preview.whyItMatters);
+  const clickIf = jsonString(preview.clickIf);
+  const practicalBucket = jsonString(preview.practicalBucket) || jsonString(payload.practicalBucket);
+
+  if (!whatHappened || !whyItMatters || !clickIf || !practicalBucket) {
+    return null;
+  }
+
+  return {
+    clickIf,
+    practicalBucket,
+    whatHappened,
+    whyItMatters,
+  };
+}
 
 function newsItemWithState(
   item: NewsItemRow,
@@ -49,6 +103,8 @@ function newsItemWithState(
   feedback: FeedbackSentiment | null,
 ): NewsItemWithState {
   const title = plainTextFromHtml(item.title);
+  const rawPayload = jsonRecord(item.raw_payload);
+  const preview = previewFromPayload(item.raw_payload);
 
   return {
     id: item.id,
@@ -60,11 +116,16 @@ function newsItemWithState(
     sourceUrl: item.source_url,
     category: item.category,
     importanceScore: item.importance_score,
+    practicalBucket: preview?.practicalBucket ?? jsonString(rawPayload.practicalBucket),
+    preview,
     publishedAt: item.published_at,
+    recommendedAction: jsonString(rawPayload.recommendedAction),
     readAt: state?.read_at ?? null,
     savedAt: state?.saved_at ?? null,
     archivedAt: state?.archived_at ?? null,
+    scoreComponents: scoreComponentsFromPayload(item.raw_payload),
     feedback,
+    whyInteresting: jsonString(rawPayload.whyInteresting),
   };
 }
 
