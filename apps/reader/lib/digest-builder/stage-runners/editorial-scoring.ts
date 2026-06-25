@@ -1,11 +1,18 @@
 import "server-only";
 
-import type { Database } from "../../database.types";
+import type { Database, Json } from "../../database.types";
 import { getDigestSettingsForRun, type ReaderDigestSettings } from "../../digest-settings";
 import { readerFeedForCategory, type ReaderFeedId } from "../../feed-categories";
 import { feedbackScoreAdjustment, getFeedbackProfileForUser } from "../../reader-feedback";
 import { createSupabaseAdminClient } from "../../supabase";
-import { IMPORTANT_KEYWORDS, SCOPE_KEYWORDS, SUPABASE_WRITE_BATCH_SIZE } from "../constants";
+import {
+  ACTIONABILITY_KEYWORDS,
+  BUILD_RELEVANCE_KEYWORDS,
+  HIGH_PRIORITY_ENTITIES,
+  IMPORTANT_KEYWORDS,
+  SCOPE_KEYWORDS,
+  SUPABASE_WRITE_BATCH_SIZE,
+} from "../constants";
 import type { StageRunner } from "../types";
 import { chunk, jsonNumber, jsonString } from "../utils";
 
@@ -14,6 +21,18 @@ type StorySnapshotRow = Database["public"]["Tables"]["story_snapshots"]["Row"];
 type ContentFeed = Exclude<ReaderFeedId, "all">;
 
 const FEED_SELECTION_ORDER: ContentFeed[] = ["geopolitics", "business", "ai", "software", "security"];
+
+type PracticalBucket =
+  | "build_opportunity"
+  | "product_trend"
+  | "market_risk"
+  | "security_risk"
+  | "regulatory_risk"
+  | "competitive_intelligence"
+  | "investment_signal"
+  | "geopolitical_risk"
+  | "infrastructure_outage"
+  | "ignore";
 
 const MAJOR_SECURITY_KEYWORDS = [
   "active exploit",
@@ -30,6 +49,103 @@ const MAJOR_SECURITY_KEYWORDS = [
   "supply chain",
   "zero-day",
   "0-day",
+];
+
+const DEVELOPER_SECURITY_KEYWORDS = [
+  "api",
+  "cloud",
+  "cloudflare",
+  "cve",
+  "developer",
+  "github",
+  "infrastructure",
+  "kubernetes",
+  "npm",
+  "open source",
+  "package",
+  "patch",
+  "python",
+  "registry",
+  "sdk",
+  "software supply chain",
+  "vulnerability",
+];
+
+const GEOPOLITICS_BUSINESS_SECURITY_KEYWORDS = [
+  "sanction",
+  "sanctions",
+  "export control",
+  "export controls",
+  "war",
+  "taiwan",
+  "china",
+  "russia",
+  "ukraine",
+  "energy",
+  "chip",
+  "chips",
+  "semiconductor",
+  "nato",
+  "tariff",
+  "tariffs",
+];
+
+const BUCKET_KEYWORDS: Record<PracticalBucket, string[]> = {
+  build_opportunity: [
+    "agent",
+    "agents",
+    "api",
+    "sdk",
+    "developer",
+    "devtool",
+    "devtools",
+    "github",
+    "open source",
+    "integration",
+    "framework",
+    "workflow",
+  ],
+  product_trend: ["launch", "release", "rollout", "preview", "beta", "model", "llm", "ai", "feature"],
+  market_risk: ["fed", "ecb", "rate", "rates", "inflation", "recession", "selloff", "market", "markets", "yield"],
+  security_risk: [
+    "breach",
+    "cve",
+    "exploit",
+    "ransomware",
+    "security",
+    "vulnerability",
+    "zero-day",
+    "0-day",
+    "data leak",
+  ],
+  regulatory_risk: ["antitrust", "ban", "compliance", "export control", "export controls", "regulation", "sanction"],
+  competitive_intelligence: [
+    "acquisition",
+    "anthropic",
+    "competitor",
+    "deepmind",
+    "microsoft",
+    "openai",
+    "partnership",
+    "pricing",
+    "startup",
+  ],
+  investment_signal: ["earnings", "funding", "ipo", "revenue", "valuation", "venture", "guidance", "capex"],
+  geopolitical_risk: ["china", "nato", "russia", "taiwan", "ukraine", "war", "sanction", "tariff", "energy"],
+  infrastructure_outage: ["cloud outage", "dns", "incident", "latency", "outage", "region down", "service disruption"],
+  ignore: [],
+};
+
+const PRACTICAL_BUCKET_PRIORITY: Exclude<PracticalBucket, "ignore">[] = [
+  "infrastructure_outage",
+  "security_risk",
+  "regulatory_risk",
+  "geopolitical_risk",
+  "market_risk",
+  "investment_signal",
+  "build_opportunity",
+  "competitive_intelligence",
+  "product_trend",
 ];
 
 async function loadRunSnapshots(digestRunId: string) {
@@ -68,13 +184,42 @@ function textIncludesAny(text: string, keywords: string[]) {
   return keywords.some((keyword) => lower.includes(keyword));
 }
 
+function keywordHits(text: string, keywords: string[]) {
+  const lower = text.toLowerCase();
+
+  return keywords.filter((keyword) => lower.includes(keyword));
+}
+
+function jsonRecord(value: Json): Record<string, Json | undefined> {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
+
 function securityStoryIsMajor(snapshot: StorySnapshotRow, text: string) {
   return snapshot.duplicate_count >= 3 || textIncludesAny(text, MAJOR_SECURITY_KEYWORDS);
 }
 
-function feedScoreAdjustment(feed: ContentFeed, isMajorSecurity: boolean) {
+function securityStoryIsDeveloperRelevant(text: string) {
+  return textIncludesAny(text, [...DEVELOPER_SECURITY_KEYWORDS, ...BUILD_RELEVANCE_KEYWORDS]);
+}
+
+function geopoliticsStoryAffectsBusinessSecurityChipsEnergy(text: string) {
+  return textIncludesAny(text, GEOPOLITICS_BUSINESS_SECURITY_KEYWORDS);
+}
+
+function actionabilityScoreForText(text: string) {
+  const hits = keywordHits(text, ACTIONABILITY_KEYWORDS).length;
+  const entityHits = keywordHits(text, HIGH_PRIORITY_ENTITIES).length;
+  const buildHits = keywordHits(text, BUILD_RELEVANCE_KEYWORDS).length;
+
+  return Math.max(1, Math.min(10, 2 + hits + Math.min(3, entityHits) + Math.min(2, buildHits)));
+}
+
+function feedScoreAdjustment(
+  feed: ContentFeed,
+  options: { geopoliticsIsRelevant: boolean; isDeveloperSecurity: boolean; isMajorSecurity: boolean },
+) {
   if (feed === "geopolitics") {
-    return 18;
+    return options.geopoliticsIsRelevant ? 10 : -12;
   }
 
   if (feed === "business") {
@@ -82,10 +227,66 @@ function feedScoreAdjustment(feed: ContentFeed, isMajorSecurity: boolean) {
   }
 
   if (feed === "security") {
-    return isMajorSecurity ? 2 : -100;
+    if (options.isMajorSecurity) {
+      return 16;
+    }
+
+    return options.isDeveloperSecurity ? 5 : -25;
   }
 
   return 0;
+}
+
+function classifyPracticalBucket(text: string): PracticalBucket {
+  const lower = text.toLowerCase();
+
+  for (const bucket of PRACTICAL_BUCKET_PRIORITY) {
+    if (keywordHits(lower, BUCKET_KEYWORDS[bucket]).length > 0) {
+      return bucket;
+    }
+  }
+
+  return textIncludesAny(lower, SCOPE_KEYWORDS) ? "product_trend" : "ignore";
+}
+
+function humanBucket(bucket: PracticalBucket) {
+  return bucket.replace(/_/g, " ");
+}
+
+function recommendedActionForBucket(bucket: PracticalBucket) {
+  switch (bucket) {
+    case "build_opportunity":
+      return "Check whether this creates a product, automation, or integration opportunity.";
+    case "product_trend":
+      return "Track adoption and compare against current AI/product roadmap assumptions.";
+    case "market_risk":
+      return "Watch second-order effects on tech valuations, budgets, and customer spend.";
+    case "security_risk":
+      return "Review exposure, patches, dependencies, and vendor advisories.";
+    case "regulatory_risk":
+      return "Assess impact on go-to-market, vendor access, chips, data, or compliance.";
+    case "competitive_intelligence":
+      return "Compare positioning, pricing, distribution, and partnership implications.";
+    case "investment_signal":
+      return "Use as a signal for capital flows, startup demand, or public-market sentiment.";
+    case "geopolitical_risk":
+      return "Monitor business impact on supply chains, chips, energy, sanctions, or security.";
+    case "infrastructure_outage":
+      return "Check dependency status pages and incident reports if this touches your stack.";
+    case "ignore":
+      return "No action recommended unless the story becomes more directly relevant.";
+  }
+}
+
+function whyInterestingForText(text: string, bucket: PracticalBucket) {
+  const hits = keywordHits(text, [
+    ...HIGH_PRIORITY_ENTITIES,
+    ...BUILD_RELEVANCE_KEYWORDS,
+    ...ACTIONABILITY_KEYWORDS,
+  ]).slice(0, 4);
+  const hitText = hits.length ? ` Signals: ${hits.join(", ")}.` : "";
+
+  return `Relevant as ${humanBucket(bucket)} for AI, developer tools, security, cloud, markets, or tech policy.${hitText}`;
 }
 
 function scoreSnapshot(snapshot: StorySnapshotRow, settings: ReaderDigestSettings) {
@@ -105,6 +306,7 @@ function scoreSnapshot(snapshot: StorySnapshotRow, settings: ReaderDigestSetting
   );
   const confirmationScore = Math.min(10, snapshot.duplicate_count >= 5 ? 10 : snapshot.duplicate_count * 3);
   const scopeFitScore = textIncludesAny(text, [...SCOPE_KEYWORDS, ...settings.preferredKeywords]) ? 9 : 4;
+  const actionabilityScore = actionabilityScoreForText(text);
   const publishedTimestamp = Date.parse(publishedAt);
   const ageHours = Number.isNaN(publishedTimestamp) ? 72 : (Date.now() - publishedTimestamp) / 3_600_000;
   const urgencyScore = ageHours <= 6 ? 10 : ageHours <= 24 ? 8 : ageHours <= 72 ? 5 : 3;
@@ -114,11 +316,13 @@ function scoreSnapshot(snapshot: StorySnapshotRow, settings: ReaderDigestSetting
       noveltyScore * 1.6 +
       confirmationScore * 1.4 +
       scopeFitScore * 2.4 +
+      actionabilityScore * 1.7 +
       urgencyScore * 1.2 +
       sourcePriority * 1.5,
   );
 
   return {
+    actionabilityScore,
     confirmationScore,
     editorialScore,
     impactScore,
@@ -145,16 +349,28 @@ export const runEditorialScoringStage: StageRunner = async ({ digestRunId }) => 
       const feed = readerFeedForCategory(category);
       const text = `${title} ${summary} ${category}`;
       const isMajorSecurity = feed === "security" ? securityStoryIsMajor(snapshot, text) : false;
+      const isDeveloperSecurity = feed === "security" ? securityStoryIsDeveloperRelevant(text) : false;
+      const geopoliticsIsRelevant =
+        feed === "geopolitics" ? geopoliticsStoryAffectsBusinessSecurityChipsEnergy(text) : false;
       const excludedKeywordPenalty = textIncludesAny(text, settings.excludedKeywords) ? 80 : 0;
       const feedbackAdjustment = feedbackScoreAdjustment(feedbackProfile, { category, source, text });
+      const practicalBucket = classifyPracticalBucket(text);
+      const feedAdjustment = feedScoreAdjustment(feed, {
+        geopoliticsIsRelevant,
+        isDeveloperSecurity,
+        isMajorSecurity,
+      });
 
       return {
         feedbackAdjustment,
         feed,
+        feedAdjustment,
+        geopoliticsIsRelevant,
+        isDeveloperSecurity,
         isMajorSecurity,
+        practicalBucket,
         scores,
-        selectionScore:
-          scores.editorialScore + feedScoreAdjustment(feed, isMajorSecurity) + feedbackAdjustment - excludedKeywordPenalty,
+        selectionScore: scores.editorialScore + feedAdjustment + feedbackAdjustment - excludedKeywordPenalty,
         snapshot,
       };
     })
@@ -164,7 +380,12 @@ export const runEditorialScoringStage: StageRunner = async ({ digestRunId }) => 
       return false;
     }
 
-    return item.feed !== "security" || !settings.requireMajorSecurity || item.isMajorSecurity;
+    return (
+      item.feed !== "security" ||
+      !settings.requireMajorSecurity ||
+      item.isMajorSecurity ||
+      item.isDeveloperSecurity
+    );
   });
   const selectedIds = new Set<string>();
   const selectedCounts: Record<ContentFeed, number> = {
@@ -205,16 +426,58 @@ export const runEditorialScoringStage: StageRunner = async ({ digestRunId }) => 
   }
 
   const supabase = createSupabaseAdminClient();
-  const scoredSnapshots: StorySnapshotInsert[] = scored.map(({ scores, snapshot }) => ({
-    ...snapshot,
-    confirmation_score: scores.confirmationScore,
-    editorial_score: scores.editorialScore,
-    impact_score: scores.impactScore,
-    is_selected: selectedIds.has(snapshot.id),
-    novelty_score: scores.noveltyScore,
-    scope_fit_score: scores.scopeFitScore,
-    urgency_score: scores.urgencyScore,
-  }));
+  const scoredSnapshots: StorySnapshotInsert[] = scored.map(
+    ({
+      feedbackAdjustment,
+      feed,
+      feedAdjustment,
+      geopoliticsIsRelevant,
+      isDeveloperSecurity,
+      isMajorSecurity,
+      practicalBucket,
+      scores,
+      selectionScore,
+      snapshot,
+    }) => ({
+      ...snapshot,
+      confirmation_score: scores.confirmationScore,
+      editorial_score: scores.editorialScore,
+      impact_score: scores.impactScore,
+      is_selected: selectedIds.has(snapshot.id),
+      metadata: {
+        ...jsonRecord(snapshot.metadata),
+        isDeveloperSecurity,
+        isMajorSecurity,
+        practicalBucket,
+        recommendedAction: recommendedActionForBucket(practicalBucket),
+        scoreComponents: {
+          actionability: scores.actionabilityScore,
+          confirmation: scores.confirmationScore,
+          editorial: scores.editorialScore,
+          feedbackAdjustment,
+          feed,
+          feedAdjustment,
+          geopoliticsIsRelevant,
+          impact: scores.impactScore,
+          novelty: scores.noveltyScore,
+          scopeFit: scores.scopeFitScore,
+          selection: selectionScore,
+          sourcePriority: Math.max(0, Math.min(5, jsonNumber(snapshot.metadata, "sourcePriority"))),
+          urgency: scores.urgencyScore,
+        },
+        whyInteresting: whyInterestingForText(
+          `${jsonString(snapshot.metadata, "title")} ${jsonString(snapshot.metadata, "summary")} ${jsonString(
+            snapshot.metadata,
+            "category",
+          )}`,
+          practicalBucket,
+        ),
+      },
+      novelty_score: scores.noveltyScore,
+      scope_fit_score: scores.scopeFitScore,
+      urgency_score: scores.urgencyScore,
+    }),
+  );
 
   for (const snapshotBatch of chunk(scoredSnapshots, SUPABASE_WRITE_BATCH_SIZE)) {
     const { error } = await supabase.from("story_snapshots").upsert(snapshotBatch, {
@@ -237,7 +500,7 @@ export const runEditorialScoringStage: StageRunner = async ({ digestRunId }) => 
       },
       feedbackAdjustedCount: scored.filter((item) => item.feedbackAdjustment !== 0).length,
       skippedNonMajorSecurityCount: settings.requireMajorSecurity
-        ? scored.filter((item) => item.feed === "security" && !item.isMajorSecurity).length
+        ? scored.filter((item) => item.feed === "security" && !item.isMajorSecurity && !item.isDeveloperSecurity).length
         : 0,
       storyCount: snapshots.length,
     },

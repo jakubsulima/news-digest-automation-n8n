@@ -12,13 +12,18 @@ function item(overrides: Partial<NewsItemWithState> = {}): NewsItemWithState {
     feedback: null,
     id: "item-1",
     importanceScore: 50,
+    practicalBucket: null,
+    preview: null,
     publishedAt: "2026-06-20T10:00:00.000Z",
+    recommendedAction: null,
     readAt: null,
     savedAt: null,
+    scoreComponents: {},
     source: "Example",
     sourceUrl: "https://example.com",
     summary: "Summary",
     title: "Title",
+    whyInteresting: null,
     ...overrides,
   };
 }

@@ -9,7 +9,7 @@ import { retryDigestRun } from "@/lib/actions";
 import { requireCurrentReader } from "@/lib/auth";
 import { getDigestRunStatus } from "@/lib/digest-runs";
 import { normalizeReaderFeedId } from "@/lib/feed-categories";
-import { normalizeReaderDensity, normalizeReaderViewId } from "@/lib/reader-feed-filters";
+import { normalizeReaderViewId } from "@/lib/reader-feed-filters";
 import { getReaderNewsItems } from "@/lib/news";
 import { createSupabaseServerClient } from "@/lib/supabase";
 
@@ -17,7 +17,6 @@ export const dynamic = "force-dynamic";
 
 type HomePageProps = {
   searchParams?: Promise<{
-    density?: string | string[];
     feed?: string | string[];
     view?: string | string[];
   }>;
@@ -34,7 +33,6 @@ export default async function HomePage({ searchParams }: HomePageProps) {
   const params = await searchParams;
   const activeFeed = normalizeReaderFeedId(params?.feed);
   const activeView = normalizeReaderViewId(params?.view);
-  const density = normalizeReaderDensity(params?.density);
   const user = await requireCurrentReader();
   const [items, digestRun] = await Promise.all([getReaderNewsItems(user.id), getDigestRunStatus()]);
 
@@ -66,7 +64,6 @@ export default async function HomePage({ searchParams }: HomePageProps) {
       </header>
 
       <NewsFeed
-        initialDensity={density}
         initialFeed={activeFeed}
         initialItems={items}
         initialView={activeView}

@@ -1,6 +1,6 @@
 "use client";
 
-import { CheckCheck, EyeOff, Inbox, Rows3 } from "lucide-react";
+import { CheckCheck, ChevronDown, EyeOff, Inbox } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { NewsCardSkeleton } from "@/components/news-card-skeleton";
@@ -12,32 +12,20 @@ import {
   filterReaderItems,
   itemMatchesReaderView,
   READER_VIEWS,
-  type ReaderDensity,
   type ReaderViewId,
 } from "@/lib/reader-feed-filters";
 import type { NewsItemWithState } from "@/lib/news";
 import type { FeedbackSentiment } from "@/lib/reader-feedback";
+import { cn } from "@/lib/utils";
 
 type NewsFeedProps = {
   digestSlot: ReactNode;
-  initialDensity: ReaderDensity;
   initialFeed: ReaderFeedId;
   initialItems: NewsItemWithState[];
   initialView: ReaderViewId;
 };
 
 const FEED_SWITCH_SKELETON_MS = 120;
-
-function FeedStat({ label, value }: { label: string; value: number }) {
-  return (
-    <Card size="sm" className="bg-card/80 transition-colors duration-200">
-      <CardContent className="grid gap-1">
-        <span className="text-xl font-semibold tabular-nums">{value}</span>
-        <span className="text-xs font-medium text-muted-foreground">{label}</span>
-      </CardContent>
-    </Card>
-  );
-}
 
 async function apiBatchRead(itemIds: string[]) {
   return fetch("/api/news-items/state", {
@@ -51,14 +39,13 @@ async function apiBatchRead(itemIds: string[]) {
 
 export function NewsFeed({
   digestSlot,
-  initialDensity,
   initialFeed,
   initialItems,
   initialView,
 }: NewsFeedProps) {
   const [activeFeed, setActiveFeed] = useState(initialFeed);
   const [activeView, setActiveView] = useState(initialView);
-  const [density, setDensity] = useState(initialDensity);
+  const [openFilter, setOpenFilter] = useState<"feed" | "view" | null>(null);
   const [items, setItems] = useState(initialItems);
   const [isSwitchingFeed, setIsSwitchingFeed] = useState(false);
   const [isMarkingRead, setIsMarkingRead] = useState(false);
@@ -68,9 +55,8 @@ export function NewsFeed({
   useEffect(() => {
     setActiveFeed(initialFeed);
     setActiveView(initialView);
-    setDensity(initialDensity);
     setItems(initialItems);
-  }, [initialDensity, initialFeed, initialItems, initialView]);
+  }, [initialFeed, initialItems, initialView]);
 
   const visibleItems = useMemo(() => filterReaderItems(items, activeFeed, activeView), [activeFeed, activeView, items]);
   const feedCounts = useMemo(() => {
@@ -89,8 +75,6 @@ export function NewsFeed({
 
     return new Map(READER_VIEWS.map((view) => [view.id, feedItems.filter((item) => itemMatchesReaderView(item, view.id)).length]));
   }, [activeFeed, items]);
-  const unreadCount = visibleItems.filter((item) => !item.readAt).length;
-  const savedCount = visibleItems.filter((item) => item.savedAt).length;
   const visibleUnreadItems = visibleItems.filter((item) => !item.readAt);
 
   useEffect(() => {
@@ -113,7 +97,7 @@ export function NewsFeed({
     }, FEED_SWITCH_SKELETON_MS);
   }
 
-  function writeUrl(nextFeed: ReaderFeedId, nextView: ReaderViewId, nextDensity: ReaderDensity) {
+  function writeUrl(nextFeed: ReaderFeedId, nextView: ReaderViewId) {
     const params = new URLSearchParams();
 
     if (nextFeed !== "all") {
@@ -122,39 +106,33 @@ export function NewsFeed({
     if (nextView !== "all") {
       params.set("view", nextView);
     }
-    if (nextDensity === "compact") {
-      params.set("density", nextDensity);
-    }
 
     const query = params.toString();
     window.history.replaceState(null, "", query ? `/?${query}` : "/");
   }
 
   function selectFeed(feedId: ReaderFeedId) {
+    setOpenFilter(null);
+
     if (feedId === activeFeed) {
       return;
     }
 
     setActiveFeed(feedId);
     scheduleSkeleton();
-    writeUrl(feedId, activeView, density);
+    writeUrl(feedId, activeView);
   }
 
   function selectView(viewId: ReaderViewId) {
+    setOpenFilter(null);
+
     if (viewId === activeView) {
       return;
     }
 
     setActiveView(viewId);
     scheduleSkeleton();
-    writeUrl(activeFeed, viewId, density);
-  }
-
-  function toggleDensity() {
-    const nextDensity = density === "compact" ? "comfortable" : "compact";
-
-    setDensity(nextDensity);
-    writeUrl(activeFeed, activeView, nextDensity);
+    writeUrl(activeFeed, viewId);
   }
 
   function toggleHideRead() {
@@ -162,7 +140,7 @@ export function NewsFeed({
 
     setActiveView(nextView);
     scheduleSkeleton();
-    writeUrl(activeFeed, nextView, density);
+    writeUrl(activeFeed, nextView);
   }
 
   function updateItemState(
@@ -210,99 +188,129 @@ export function NewsFeed({
   }
 
   const skeletonCount = Math.min(Math.max(visibleItems.length, 1), 3);
+  const activeFeedOption = READER_FEEDS.find((feed) => feed.id === activeFeed) ?? READER_FEEDS[0];
+  const activeViewOption = READER_VIEWS.find((view) => view.id === activeView) ?? READER_VIEWS[0];
 
   return (
     <>
-      <section className="grid gap-2 sm:grid-cols-3" aria-label="Feed stats">
-        <FeedStat label="In feed" value={visibleItems.length} />
-        <FeedStat label="Unread" value={unreadCount} />
-        <FeedStat label="Saved" value={savedCount} />
-      </section>
-
-      <nav className="flex flex-wrap gap-2" aria-label="Category feeds">
-        {READER_FEEDS.map((feed) => {
-          const isActive = feed.id === activeFeed;
-
-          return (
-            <Button
-              key={feed.id}
-              variant={isActive ? "default" : "outline"}
-              size="lg"
-              type="button"
-              className={!isActive ? "text-muted-foreground" : undefined}
-              aria-current={isActive ? "page" : undefined}
-              onClick={() => selectFeed(feed.id)}
-            >
-              <span>{feed.label}</span>
-              <span className="tabular-nums opacity-80">{feedCounts.get(feed.id) || 0}</span>
-            </Button>
-          );
-        })}
-      </nav>
-
-      <section className="grid gap-3 border-y py-3" aria-label="Reading controls">
-        <div className="flex flex-wrap gap-2">
-          {READER_VIEWS.map((view) => {
-            const isActive = view.id === activeView;
-
-            return (
-              <Button
-                key={view.id}
-                variant={isActive ? "default" : "outline"}
-                size="lg"
-                type="button"
-                className={!isActive ? "text-muted-foreground" : undefined}
-                aria-current={isActive ? "page" : undefined}
-                onClick={() => selectView(view.id)}
-              >
-                <span>{view.label}</span>
-                <span className="tabular-nums opacity-80">{viewCounts.get(view.id) || 0}</span>
-              </Button>
-            );
-          })}
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            size="lg"
-            disabled={isMarkingRead || !visibleUnreadItems.length}
-            onClick={() => void markVisibleAsRead()}
-          >
-            <CheckCheck aria-hidden="true" />
-            Mark visible read
-          </Button>
-          <Button
-            type="button"
-            variant={activeView === "unread" ? "secondary" : "outline"}
-            size="lg"
-            onClick={toggleHideRead}
-          >
-            <EyeOff aria-hidden="true" />
-            Hide read
-          </Button>
-          <Button type="button" variant={density === "compact" ? "secondary" : "outline"} size="lg" onClick={toggleDensity}>
-            <Rows3 aria-hidden="true" />
-            Compact
-          </Button>
-          {batchError ? <span className="text-xs text-destructive">{batchError}</span> : null}
-        </div>
-      </section>
-
       {digestSlot}
 
+      <section className="grid gap-2 border-y py-2" aria-label="Reading controls">
+        <div className="grid grid-cols-2 gap-1.5">
+          <Button
+            type="button"
+            variant={openFilter === "feed" ? "secondary" : "outline"}
+            size="sm"
+            className="h-8 min-w-0 justify-between gap-2 px-2.5"
+            aria-expanded={openFilter === "feed"}
+            onClick={() => setOpenFilter((current) => (current === "feed" ? null : "feed"))}
+          >
+            <span className="truncate">{activeFeedOption.label}</span>
+            <span className="flex items-center gap-1 tabular-nums opacity-80">
+              {feedCounts.get(activeFeed) || 0}
+              <ChevronDown className={cn("size-3 transition-transform", openFilter === "feed" && "rotate-180")} aria-hidden="true" />
+            </span>
+          </Button>
+          <Button
+            type="button"
+            variant={openFilter === "view" ? "secondary" : "outline"}
+            size="sm"
+            className="h-8 min-w-0 justify-between gap-2 px-2.5"
+            aria-expanded={openFilter === "view"}
+            onClick={() => setOpenFilter((current) => (current === "view" ? null : "view"))}
+          >
+            <span className="truncate">{activeViewOption.label}</span>
+            <span className="flex items-center gap-1 tabular-nums opacity-80">
+              {viewCounts.get(activeView) || 0}
+              <ChevronDown className={cn("size-3 transition-transform", openFilter === "view" && "rotate-180")} aria-hidden="true" />
+            </span>
+          </Button>
+        </div>
+
+        {openFilter === "feed" ? (
+          <nav className="grid grid-cols-2 gap-1.5 rounded-lg bg-muted/20 p-1" aria-label="Category feeds">
+            {READER_FEEDS.map((feed) => {
+              const isActive = feed.id === activeFeed;
+
+              return (
+                <Button
+                  key={feed.id}
+                  variant={isActive ? "default" : "ghost"}
+                  size="sm"
+                  type="button"
+                  className={cn("h-7 min-w-0 justify-between gap-2 px-2", !isActive && "text-muted-foreground")}
+                  aria-current={isActive ? "page" : undefined}
+                  onClick={() => selectFeed(feed.id)}
+                >
+                  <span className="truncate">{feed.label}</span>
+                  <span className="tabular-nums opacity-75">{feedCounts.get(feed.id) || 0}</span>
+                </Button>
+              );
+            })}
+          </nav>
+        ) : null}
+
+        {openFilter === "view" ? (
+          <div className="grid grid-cols-2 gap-1.5 rounded-lg bg-muted/20 p-1" aria-label="Item filters">
+            {READER_VIEWS.map((view) => {
+              const isActive = view.id === activeView;
+
+              return (
+                <Button
+                  key={view.id}
+                  variant={isActive ? "default" : "ghost"}
+                  size="sm"
+                  type="button"
+                  className={cn("h-7 min-w-0 justify-between gap-2 px-2", !isActive && "text-muted-foreground")}
+                  aria-current={isActive ? "page" : undefined}
+                  onClick={() => selectView(view.id)}
+                >
+                  <span className="truncate">{view.label}</span>
+                  <span className="tabular-nums opacity-80">{viewCounts.get(view.id) || 0}</span>
+                </Button>
+              );
+            })}
+          </div>
+        ) : null}
+
+        <div className="flex flex-wrap items-center gap-1.5">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-7"
+              disabled={isMarkingRead || !visibleUnreadItems.length}
+              onClick={() => void markVisibleAsRead()}
+            >
+              <CheckCheck aria-hidden="true" />
+              Mark read
+            </Button>
+            <Button
+              type="button"
+              variant={activeView === "unread" ? "secondary" : "outline"}
+              size="sm"
+              className="h-7"
+              onClick={toggleHideRead}
+            >
+              <EyeOff aria-hidden="true" />
+              Hide read
+            </Button>
+        </div>
+        {batchError ? <span className="text-xs text-destructive">{batchError}</span> : null}
+      </section>
+
       {isSwitchingFeed ? (
-        <section className="grid gap-3" aria-label="Loading selected feed">
+        <section className="grid gap-2" aria-label="Loading selected feed">
           {Array.from({ length: skeletonCount }).map((_, index) => (
             <NewsCardSkeleton key={index} />
           ))}
         </section>
       ) : visibleItems.length ? (
-        <section className="grid gap-3" aria-label="News feed">
+        <section className="grid gap-2" aria-label="News feed">
           {visibleItems.map((item, index) => (
             <NewsItemCard
               key={`${item.id}-${index}`}
-              density={density}
+              density="compact"
               item={item}
               onFeedbackChange={updateFeedback}
               onItemStateChange={updateItemState}
