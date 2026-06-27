@@ -1,6 +1,6 @@
 import { after, NextResponse } from "next/server";
 
-import { advanceDigestRun } from "@/lib/digest-stage-executor";
+import { advanceDigestRun, advanceDigestRunUntilIdle } from "@/lib/digest-stage-executor";
 import { getActiveDigestRun } from "@/lib/digest-runs";
 import { getCurrentOperator } from "@/lib/operator";
 
@@ -30,6 +30,20 @@ async function advanceActiveRun() {
   return advanceDigestRun(run.id);
 }
 
+async function advanceActiveRunUntilIdle() {
+  const run = await getActiveDigestRun();
+
+  if (!run) {
+    return {
+      advancedStage: null,
+      message: "No active digest run.",
+      status: "idle",
+    };
+  }
+
+  return advanceDigestRunUntilIdle(run.id);
+}
+
 export async function GET(request: Request) {
   const cronSecret = process.env.CRON_SECRET;
   const authorization = request.headers.get("authorization") || "";
@@ -56,7 +70,7 @@ export async function POST() {
 
   after(async () => {
     try {
-      await advanceActiveRun();
+      await advanceActiveRunUntilIdle();
     } catch (error) {
       logBackgroundAdvanceError(error);
     }
