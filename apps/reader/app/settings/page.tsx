@@ -398,6 +398,7 @@ function DigestPresetLinks({
               preset: preset.id,
               sourceFeed: activeSourceFeed,
             })}
+            scroll={false}
           >
             <span className="font-semibold">{preset.label}</span>
             <span className={cn("text-xs font-normal", active ? "text-primary-foreground/80" : "text-muted-foreground")}>
@@ -461,6 +462,7 @@ function SourceTabs({
               preset: activePreset,
               sourceFeed: feed.id,
             })}
+            scroll={false}
           >
             <span className="truncate">{feed.label}</span>
             <span className="shrink-0 rounded-full border px-1.5 py-0.5 text-[0.7rem] leading-none">
