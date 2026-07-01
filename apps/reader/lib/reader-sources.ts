@@ -52,6 +52,7 @@ const sourceInputSchema = z.object({
   priority: z.coerce.number().int().min(1).max(5),
   enabled: z.boolean(),
 });
+const sourceCountSchema = z.coerce.number().int().min(0).max(500);
 
 export const SOURCE_PRESETS = [
   {
@@ -248,6 +249,24 @@ export function readerSourceFromFormData(formData: FormData): ReaderSourceInput 
   });
 }
 
+export function readerSourcesFromFormData(formData: FormData): ReaderSourceInput[] {
+  const sourceCount = sourceCountSchema.parse(formData.get("sourceCount") ?? 0);
+
+  return Array.from({ length: sourceCount }, (_, index) => {
+    const fieldPrefix = `sources.${index}`;
+    const id = String(formData.get(`${fieldPrefix}.id`) || "").trim();
+
+    return sourceInputSchema.parse({
+      category: formData.get(`${fieldPrefix}.category`),
+      enabled: formData.get(`${fieldPrefix}.enabled`) === "on",
+      id: id || undefined,
+      name: formData.get(`${fieldPrefix}.name`),
+      priority: formData.get(`${fieldPrefix}.priority`),
+      url: formData.get(`${fieldPrefix}.url`),
+    });
+  });
+}
+
 export async function upsertReaderSource(source: ReaderSourceInput) {
   const supabase = createSupabaseAdminClient();
 
@@ -279,6 +298,12 @@ export async function upsertReaderSource(source: ReaderSourceInput) {
 
   if (error) {
     throw error;
+  }
+}
+
+export async function upsertReaderSources(sources: ReaderSourceInput[]) {
+  for (const source of sources) {
+    await upsertReaderSource(source);
   }
 }
 

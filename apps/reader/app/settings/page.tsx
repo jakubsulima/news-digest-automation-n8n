@@ -1,4 +1,4 @@
-import { ArrowLeft, Plus, Save, SlidersHorizontal } from "lucide-react";
+import { ArrowLeft, ChevronLeft, ChevronRight, Plus, Save, SlidersHorizontal } from "lucide-react";
 import Link from "next/link";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -9,8 +9,9 @@ import { FeedTargetSliders } from "@/components/feed-target-sliders";
 import { Input } from "@/components/ui/input";
 import { KeywordGroupManager } from "@/components/keyword-group-manager";
 import { Label } from "@/components/ui/label";
+import { SourceEnabledToggle } from "@/components/source-enabled-toggle";
 import { ThemeToggle } from "@/components/theme-toggle";
-import { saveReaderDigestSettings, saveReaderSource, saveReaderSourcePreset } from "@/lib/actions";
+import { saveReaderDigestSettings, saveReaderSource, saveReaderSourcePreset, saveReaderSources } from "@/lib/actions";
 import { hasNvidiaSummaryConfig } from "@/lib/ai-summary";
 import { requireCurrentReader } from "@/lib/auth";
 import {
@@ -31,9 +32,10 @@ const STATUS_COPY = {
   "source-preset-saved": "Source preset applied.",
   "source-save-failed": "Source could not be saved. Check the server log for the database error.",
   "source-saved": "Source saved.",
+  "sources-saved": "Sources saved.",
 } as const;
 
-const SUCCESS_STATUSES = new Set(["saved", "source-preset-saved", "source-saved"]);
+const SUCCESS_STATUSES = new Set(["saved", "source-preset-saved", "source-saved", "sources-saved"]);
 const PRESET_CARD_CLASS =
   "h-auto min-h-20 w-full flex-col items-start gap-1 whitespace-normal px-3 py-2 text-left";
 const SECTION_CARD_CLASS = "rounded-none bg-transparent py-0 ring-0";
@@ -149,12 +151,19 @@ type SourceGroup = {
   label: string;
   sources: ReaderSource[];
 };
+type SourceFeedId = Exclude<ReaderFeedId, "all">;
+type SourceFeed = {
+  id: SourceFeedId;
+  label: string;
+};
+type SettingsTabId = "general" | "advanced" | "sources";
 
 type SettingsPageProps = {
   searchParams?: Promise<{
     avoidKeywordGroup?: string | string[];
     preset?: string | string[];
     preferKeywordGroup?: string | string[];
+    settingsTab?: string | string[];
     sourceFeed?: string | string[];
     status?: string | string[];
   }>;
@@ -165,6 +174,13 @@ const KEYWORD_GROUP_IDS = {
   avoid: new Set(KEYWORD_GROUPS.avoid.map((group) => group.id)),
   prefer: new Set(KEYWORD_GROUPS.prefer.map((group) => group.id)),
 } satisfies Record<KeywordGroupKind, Set<string>>;
+const SOURCE_FEEDS = READER_FEEDS.filter((feed) => feed.id !== "all") as readonly SourceFeed[];
+const SETTINGS_TABS = [
+  { id: "general", label: "General" },
+  { id: "advanced", label: "Advanced" },
+  { id: "sources", label: "Sources" },
+] as const;
+const SETTINGS_TAB_IDS = new Set<SettingsTabId>(SETTINGS_TABS.map((tab) => tab.id));
 
 function firstSearchValue(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] : value;
@@ -184,18 +200,36 @@ function normalizeDigestPresetId(value: string | string[] | undefined): DigestPr
   return presetId && DIGEST_PRESET_IDS.has(presetId as DigestPresetId) ? (presetId as DigestPresetId) : null;
 }
 
+function normalizeSettingsTabId(value: string | string[] | undefined): SettingsTabId {
+  const tabId = firstSearchValue(value);
+
+  return tabId && SETTINGS_TAB_IDS.has(tabId as SettingsTabId) ? (tabId as SettingsTabId) : "general";
+}
+
+function normalizeSettingsSourceFeed(value: string | string[] | undefined): SourceFeedId {
+  const feedId = normalizeReaderFeedId(value);
+
+  return feedId === "all" ? "geopolitics" : feedId;
+}
+
 function settingsHref({
   avoidKeywordGroups = [],
   preset,
   preferKeywordGroups = [],
   sourceFeed,
+  settingsTab,
 }: {
   avoidKeywordGroups?: readonly KeywordGroupId[];
   preset?: DigestPresetId | null;
   preferKeywordGroups?: readonly KeywordGroupId[];
+  settingsTab?: SettingsTabId;
   sourceFeed?: ReaderFeedId;
 }) {
   const params = new URLSearchParams();
+
+  if (settingsTab && settingsTab !== "general") {
+    params.set("settingsTab", settingsTab);
+  }
 
   if (preset) {
     params.set("preset", preset);
@@ -252,6 +286,24 @@ function activeKeywordGroupsFromSettings(kind: KeywordGroupKind, keywords: reado
     .map((group) => group.id);
 }
 
+function keywordsFromActiveGroups(kind: KeywordGroupKind, groupIds: readonly KeywordGroupId[]) {
+  const activeGroupIds = new Set(groupIds);
+  const seen = new Set<string>();
+
+  return KEYWORD_GROUPS[kind]
+    .filter((group) => activeGroupIds.has(group.id))
+    .flatMap((group) => group.keywords)
+    .map((keyword) => keyword.trim().toLowerCase())
+    .filter((keyword) => {
+      if (!keyword || seen.has(keyword)) {
+        return false;
+      }
+
+      seen.add(keyword);
+      return true;
+    });
+}
+
 function groupedSources(sources: ReaderSource[]): SourceGroup[] {
   const groups = new Map<Exclude<ReaderFeedId, "all">, ReaderSource[]>();
 
@@ -297,37 +349,85 @@ function sourceTabCount(groups: SourceGroup[], feedId: ReaderFeedId) {
 
 function NumberField({
   defaultValue,
+  id,
   label,
   max,
   min,
   name,
 }: {
   defaultValue: number;
+  id?: string;
   label: string;
   max: number;
   min: number;
   name: string;
 }) {
+  const inputId = id ?? name;
+
   return (
     <div className="grid gap-2">
-      <Label htmlFor={name}>{label}</Label>
-      <Input id={name} name={name} type="number" min={min} max={max} defaultValue={defaultValue} />
+      <Label htmlFor={inputId}>{label}</Label>
+      <Input id={inputId} name={name} type="number" min={min} max={max} defaultValue={defaultValue} />
     </div>
   );
 }
 
-function SourceFields({ source }: { source?: ReaderSource }) {
+function HiddenDigestAdvancedFields({ settings }: { settings: ReaderDigestSettings }) {
+  return (
+    <>
+      <input type="hidden" name="summaryMaxChars" value={settings.summaryMaxChars} />
+      <input type="hidden" name="useAiSummaries" value={settings.useAiSummaries ? "on" : "off"} />
+    </>
+  );
+}
+
+function HiddenDigestGeneralFields({
+  activeKeywordGroups,
+  settings,
+}: {
+  activeKeywordGroups: ActiveKeywordGroups;
+  settings: ReaderDigestSettings;
+}) {
+  return (
+    <>
+      <input type="hidden" name="publishTopN" value={settings.publishTopN} />
+      <input type="hidden" name="minimumImportanceScore" value={settings.minimumImportanceScore} />
+      <input type="hidden" name="requireMajorSecurity" value={settings.requireMajorSecurity ? "on" : "off"} />
+      <input type="hidden" name="feedTargetGeopolitics" value={settings.feedTargets.geopolitics} />
+      <input type="hidden" name="feedTargetBusiness" value={settings.feedTargets.business} />
+      <input type="hidden" name="feedTargetAi" value={settings.feedTargets.ai} />
+      <input type="hidden" name="feedTargetSoftware" value={settings.feedTargets.software} />
+      <input type="hidden" name="feedTargetSecurity" value={settings.feedTargets.security} />
+      <input type="hidden" name="preferredKeywords" value={keywordsFromActiveGroups("prefer", activeKeywordGroups.prefer).join(", ")} />
+      <input type="hidden" name="excludedKeywords" value={keywordsFromActiveGroups("avoid", activeKeywordGroups.avoid).join(", ")} />
+    </>
+  );
+}
+
+function sourceFieldName(fieldName: string, fieldNamePrefix?: string) {
+  return fieldNamePrefix ? `${fieldNamePrefix}.${fieldName}` : fieldName;
+}
+
+function SourceFields({
+  fieldNamePrefix,
+  showEnabled = true,
+  source,
+}: {
+  fieldNamePrefix?: string;
+  showEnabled?: boolean;
+  source?: ReaderSource;
+}) {
   const sourceFieldId = source?.id ?? "new";
 
   return (
     <>
-      {source ? <input type="hidden" name="id" value={source.id} /> : null}
+      {source ? <input type="hidden" name={sourceFieldName("id", fieldNamePrefix)} value={source.id} /> : null}
       <div className="grid gap-3 lg:grid-cols-[1fr_1.2fr]">
         <div className="grid gap-2">
           <Label htmlFor={`source-name-${sourceFieldId}`}>Name</Label>
           <Input
             id={`source-name-${sourceFieldId}`}
-            name="name"
+            name={sourceFieldName("name", fieldNamePrefix)}
             defaultValue={source?.name}
             required
             maxLength={200}
@@ -337,7 +437,7 @@ function SourceFields({ source }: { source?: ReaderSource }) {
           <Label htmlFor={`source-url-${sourceFieldId}`}>Feed URL</Label>
           <Input
             id={`source-url-${sourceFieldId}`}
-            name="url"
+            name={sourceFieldName("url", fieldNamePrefix)}
             type="url"
             defaultValue={source?.url}
             required
@@ -350,22 +450,31 @@ function SourceFields({ source }: { source?: ReaderSource }) {
           <Label htmlFor={`source-category-${sourceFieldId}`}>Category</Label>
           <Input
             id={`source-category-${sourceFieldId}`}
-            name="category"
+            name={sourceFieldName("category", fieldNamePrefix)}
             defaultValue={source?.category}
             required
             maxLength={200}
           />
         </div>
-        <NumberField name="priority" label="Priority" min={1} max={5} defaultValue={source?.priority ?? 3} />
-        <label className="flex h-8 items-center gap-2 text-sm font-medium">
-          <input
-            className="size-4 accent-primary"
-            type="checkbox"
-            name="enabled"
-            defaultChecked={source?.enabled ?? true}
-          />
-          Enabled
-        </label>
+        <NumberField
+          id={`source-priority-${sourceFieldId}`}
+          name={sourceFieldName("priority", fieldNamePrefix)}
+          label="Priority"
+          min={1}
+          max={5}
+          defaultValue={source?.priority ?? 3}
+        />
+        {showEnabled ? (
+          <label className="flex h-8 items-center gap-2 text-sm font-medium">
+            <input
+              className="size-4 accent-primary"
+              type="checkbox"
+              name={sourceFieldName("enabled", fieldNamePrefix)}
+              defaultChecked={source?.enabled ?? true}
+            />
+            Enabled
+          </label>
+        ) : null}
       </div>
     </>
   );
@@ -411,13 +520,14 @@ function DigestPresetLinks({
   );
 }
 
-function SourcePresetControls({ activeSourceFeed }: { activeSourceFeed: ReaderFeedId }) {
+function SourcePresetControls({ activeSourceFeed }: { activeSourceFeed: SourceFeedId }) {
   return (
     <div className="grid gap-2 lg:grid-cols-5">
       {SOURCE_PRESETS.map((preset) => (
         <form key={preset.id} action={saveReaderSourcePreset}>
           <input type="hidden" name="sourcePreset" value={preset.id} />
           <input type="hidden" name="sourceFeed" value={activeSourceFeed} />
+          <input type="hidden" name="settingsTab" value="sources" />
           <Button
             type="submit"
             variant="outline"
@@ -438,36 +548,96 @@ function SourceTabs({
   activePreset,
   groups,
 }: {
-  activeFeed: ReaderFeedId;
+  activeFeed: SourceFeedId;
   activeKeywordGroups: ActiveKeywordGroups;
   activePreset: DigestPresetId | null;
   groups: SourceGroup[];
 }) {
+  const activeIndex = Math.max(
+    0,
+    SOURCE_FEEDS.findIndex((feed) => feed.id === activeFeed),
+  );
+  const activeSourceFeed = SOURCE_FEEDS[activeIndex] ?? SOURCE_FEEDS[0];
+  const previousSourceFeed = SOURCE_FEEDS[(activeIndex - 1 + SOURCE_FEEDS.length) % SOURCE_FEEDS.length];
+  const nextSourceFeed = SOURCE_FEEDS[(activeIndex + 1) % SOURCE_FEEDS.length];
+  const count = sourceTabCount(groups, activeSourceFeed.id);
+  const sharedHrefParams = {
+    avoidKeywordGroups: activeKeywordGroups.avoid,
+    preferKeywordGroups: activeKeywordGroups.prefer,
+    preset: activePreset,
+    settingsTab: "sources" as const,
+  };
+
   return (
-    <nav className="grid grid-cols-2 gap-1 rounded-lg border bg-muted/30 p-1 sm:flex sm:flex-wrap" aria-label="Source groups">
-      {READER_FEEDS.map((feed) => {
-        const active = feed.id === activeFeed;
-        const count = sourceTabCount(groups, feed.id);
+    <nav className="flex items-center gap-2 rounded-lg border bg-muted/30 p-2" aria-label="Source groups">
+      <Link
+        className={buttonVariants({ variant: "outline", size: "icon-lg" })}
+        href={settingsHref({
+          ...sharedHrefParams,
+          sourceFeed: previousSourceFeed.id,
+        })}
+        scroll={false}
+        title={`Show ${previousSourceFeed.label}`}
+        aria-label={`Show ${previousSourceFeed.label}`}
+      >
+        <ChevronLeft aria-hidden="true" />
+      </Link>
+      <div className="grid min-w-0 flex-1 justify-items-center gap-1 px-2 text-center">
+        <span className="text-xs font-medium uppercase tracking-normal text-muted-foreground">Current category</span>
+        <span className="truncate text-base font-semibold leading-tight">{activeSourceFeed.label}</span>
+        <Badge variant="outline">
+          {count.enabled}/{count.sources} enabled
+        </Badge>
+      </div>
+      <Link
+        className={buttonVariants({ variant: "outline", size: "icon-lg" })}
+        href={settingsHref({
+          ...sharedHrefParams,
+          sourceFeed: nextSourceFeed.id,
+        })}
+        scroll={false}
+        title={`Show ${nextSourceFeed.label}`}
+        aria-label={`Show ${nextSourceFeed.label}`}
+      >
+        <ChevronRight aria-hidden="true" />
+      </Link>
+    </nav>
+  );
+}
+
+function SettingsTabs({
+  activeKeywordGroups,
+  activePreset,
+  activeSourceFeed,
+  activeTab,
+}: {
+  activeKeywordGroups: ActiveKeywordGroups;
+  activePreset: DigestPresetId | null;
+  activeSourceFeed: SourceFeedId;
+  activeTab: SettingsTabId;
+}) {
+  return (
+    <nav className="grid grid-cols-3 gap-1 rounded-lg border bg-muted/30 p-1" aria-label="Settings sections">
+      {SETTINGS_TABS.map((tab) => {
+        const active = tab.id === activeTab;
 
         return (
           <Link
-            key={feed.id}
+            key={tab.id}
             className={cn(
-              "inline-flex h-9 min-w-0 items-center justify-between gap-2 rounded-md px-2.5 text-sm font-medium transition-colors sm:h-8 sm:w-auto sm:justify-start",
+              "inline-flex h-10 min-w-0 items-center justify-center rounded-md px-2 text-sm font-medium transition-colors",
               active ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:bg-card/70 hover:text-foreground",
             )}
             href={settingsHref({
               avoidKeywordGroups: activeKeywordGroups.avoid,
               preferKeywordGroups: activeKeywordGroups.prefer,
               preset: activePreset,
-              sourceFeed: feed.id,
+              settingsTab: tab.id,
+              sourceFeed: activeSourceFeed,
             })}
             scroll={false}
           >
-            <span className="truncate">{feed.label}</span>
-            <span className="shrink-0 rounded-full border px-1.5 py-0.5 text-[0.7rem] leading-none">
-              {count.enabled}/{count.sources}
-            </span>
+            <span className="truncate">{tab.label}</span>
           </Link>
         );
       })}
@@ -475,42 +645,34 @@ function SourceTabs({
   );
 }
 
-function SourceEditor({ activeSourceFeed, source }: { activeSourceFeed: ReaderFeedId; source: ReaderSource }) {
+function SourceEditor({ fieldNamePrefix, source }: { fieldNamePrefix: string; source: ReaderSource }) {
   return (
-    <form action={saveReaderSource}>
-      <input type="hidden" name="sourceFeed" value={activeSourceFeed} />
-      <details className="group rounded-lg border bg-card">
-        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2 [&::-webkit-details-marker]:hidden">
-          <div className="min-w-0">
-            <h3 className="truncate text-sm font-semibold">{source.name}</h3>
-            <p className="truncate text-xs text-muted-foreground">{source.category}</p>
-          </div>
-          <div className="flex shrink-0 items-center gap-2">
-            <Badge variant={source.enabled ? "secondary" : "outline"}>{source.enabled ? "on" : "off"}</Badge>
-            <Badge variant="outline">P{source.priority}</Badge>
-            <span className="text-xs text-muted-foreground group-open:hidden">Edit</span>
-            <span className="hidden text-xs text-muted-foreground group-open:inline">Close</span>
-          </div>
-        </summary>
-        <div className="grid gap-3 border-t p-3">
-          <p className="truncate text-xs text-muted-foreground">{source.url}</p>
-          <SourceFields source={source} />
-          <div className="flex justify-end">
-            <Button type="submit" variant="outline" size="lg">
-              <Save aria-hidden="true" />
-              Save source
-            </Button>
-          </div>
+    <details className="group rounded-lg border bg-card">
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2 [&::-webkit-details-marker]:hidden">
+        <div className="min-w-0">
+          <h3 className="truncate text-sm font-semibold">{source.name}</h3>
+          <p className="truncate text-xs text-muted-foreground">{source.category}</p>
         </div>
-      </details>
-    </form>
+        <div className="flex shrink-0 items-center gap-2">
+          <SourceEnabledToggle defaultEnabled={source.enabled} name={sourceFieldName("enabled", fieldNamePrefix)} />
+          <Badge variant="outline">P{source.priority}</Badge>
+          <span className="text-xs text-muted-foreground group-open:hidden">Edit</span>
+          <span className="hidden text-xs text-muted-foreground group-open:inline">Close</span>
+        </div>
+      </summary>
+      <div className="grid gap-3 border-t p-3">
+        <p className="truncate text-xs text-muted-foreground">{source.url}</p>
+        <SourceFields fieldNamePrefix={fieldNamePrefix} showEnabled={false} source={source} />
+      </div>
+    </details>
   );
 }
 
 export default async function SettingsPage({ searchParams }: SettingsPageProps) {
   const user = await requireCurrentReader();
   const rawSearchParams = await searchParams;
-  const activeSourceFeed = normalizeReaderFeedId(rawSearchParams?.sourceFeed);
+  const activeSettingsTab = normalizeSettingsTabId(rawSearchParams?.settingsTab);
+  const activeSourceFeed = normalizeSettingsSourceFeed(rawSearchParams?.sourceFeed);
   const activePreset = normalizeDigestPresetId(rawSearchParams?.preset);
   const queryKeywordGroups: ActiveKeywordGroups = {
     avoid: normalizeKeywordGroupIds("avoid", rawSearchParams?.avoidKeywordGroup),
@@ -528,10 +690,12 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
   };
   const sourceGroups = groupedSources(sources);
   const shownSourceGroups = visibleSourceGroups(sourceGroups, activeSourceFeed);
+  const shownSourceCount = shownSourceGroups.reduce((total, group) => total + group.sources.length, 0);
   const sourceCounts = sourceTabCount(sourceGroups, "all");
   const hasNvidiaKey = hasNvidiaSummaryConfig();
   const rawStatus = firstSearchValue(rawSearchParams?.status);
   const statusCopy = rawStatus && rawStatus in STATUS_COPY ? STATUS_COPY[rawStatus as keyof typeof STATUS_COPY] : null;
+  let sourceFieldIndex = 0;
 
   return (
     <main className="mx-auto flex w-full max-w-6xl flex-col gap-4 px-4 py-5 sm:px-6 sm:py-7">
@@ -556,7 +720,14 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
         </Alert>
       ) : null}
 
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.45fr)] xl:items-start">
+      <SettingsTabs
+        activeKeywordGroups={activeKeywordGroups}
+        activePreset={activePreset}
+        activeSourceFeed={activeSourceFeed}
+        activeTab={activeSettingsTab}
+      />
+
+      {activeSettingsTab === "general" ? (
         <div className="grid gap-4">
           <Card className={SECTION_CARD_CLASS}>
             <CardHeader className={SECTION_HEADER_CLASS}>
@@ -569,10 +740,13 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
           </Card>
 
           <form
-            key={`digest-${activePreset ?? "saved"}-${activeKeywordGroups.prefer.join(".")}-${activeKeywordGroups.avoid.join(".")}`}
+            key={`digest-general-${activePreset ?? "saved"}-${activeKeywordGroups.prefer.join(".")}-${activeKeywordGroups.avoid.join(".")}`}
             action={saveReaderDigestSettings}
             className="grid gap-4"
           >
+            <input type="hidden" name="settingsTab" value="general" />
+            <HiddenDigestAdvancedFields settings={settings} />
+
             <Card className={SECTION_CARD_CLASS}>
               <CardHeader className={SECTION_HEADER_CLASS}>
                 <div className="flex items-center justify-between gap-3">
@@ -632,12 +806,8 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
 
             <Card className={SECTION_CARD_CLASS}>
               <CardHeader className={SECTION_HEADER_CLASS}>
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <CardTitle>Reading filters</CardTitle>
-                    <CardDescription>Choose topics to like or dislike.</CardDescription>
-                  </div>
-                </div>
+                <CardTitle>Reading filters</CardTitle>
+                <CardDescription>Choose topics to like or dislike.</CardDescription>
               </CardHeader>
               <CardContent className={cn(SECTION_CONTENT_CLASS, "grid gap-4")}>
                 <KeywordGroupManager
@@ -646,24 +816,6 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
                   avoidGroups={KEYWORD_GROUPS.avoid}
                   preferGroups={KEYWORD_GROUPS.prefer}
                 />
-                <details className="rounded-lg border bg-muted/20">
-                  <summary className="cursor-pointer list-none px-3 py-2 text-sm font-semibold [&::-webkit-details-marker]:hidden">
-                    Advanced reading options
-                  </summary>
-                  <div className="grid gap-4 border-t p-3">
-                    <NumberField name="summaryMaxChars" label="Fast-read length" min={180} max={5000} defaultValue={settings.summaryMaxChars} />
-                    <label className="flex flex-wrap items-center gap-2 text-sm font-medium">
-                      <input
-                        className="size-4 accent-primary"
-                        type="checkbox"
-                        name="useAiSummaries"
-                        defaultChecked={settings.useAiSummaries}
-                      />
-                      NVIDIA short summaries
-                      <Badge variant={hasNvidiaKey ? "secondary" : "outline"}>{hasNvidiaKey ? "key set" : "key missing"}</Badge>
-                    </label>
-                  </div>
-                </details>
               </CardContent>
             </Card>
 
@@ -675,7 +827,43 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
             </div>
           </form>
         </div>
+      ) : null}
 
+      {activeSettingsTab === "advanced" ? (
+        <form action={saveReaderDigestSettings} className="grid gap-4">
+          <input type="hidden" name="settingsTab" value="advanced" />
+          <HiddenDigestGeneralFields activeKeywordGroups={activeKeywordGroups} settings={settings} />
+
+          <Card className={SECTION_CARD_CLASS}>
+            <CardHeader className={SECTION_HEADER_CLASS}>
+              <CardTitle>Advanced settings</CardTitle>
+              <CardDescription>Fine tune summary length and AI-generated short summaries.</CardDescription>
+            </CardHeader>
+            <CardContent className={cn(SECTION_CONTENT_CLASS, "grid gap-4")}>
+              <NumberField name="summaryMaxChars" label="Fast-read length" min={180} max={5000} defaultValue={settings.summaryMaxChars} />
+              <label className="flex flex-wrap items-center gap-2 text-sm font-medium">
+                <input
+                  className="size-4 accent-primary"
+                  type="checkbox"
+                  name="useAiSummaries"
+                  defaultChecked={settings.useAiSummaries}
+                />
+                NVIDIA short summaries
+                <Badge variant={hasNvidiaKey ? "secondary" : "outline"}>{hasNvidiaKey ? "key set" : "key missing"}</Badge>
+              </label>
+            </CardContent>
+          </Card>
+
+          <div className="flex justify-end">
+            <Button type="submit" size="lg">
+              <Save aria-hidden="true" />
+              Save advanced settings
+            </Button>
+          </div>
+        </form>
+      ) : null}
+
+      {activeSettingsTab === "sources" ? (
         <Card className={SECTION_CARD_CLASS}>
           <CardHeader className={SECTION_HEADER_CLASS}>
             <div className="flex flex-wrap items-center justify-between gap-3">
@@ -685,7 +873,7 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
                   {sourceCounts.enabled} enabled from {sourceCounts.sources} validated feeds
                 </p>
               </div>
-              <Badge variant="outline">{activeSourceFeed === "all" ? "All groups" : READER_FEEDS.find((feed) => feed.id === activeSourceFeed)?.label}</Badge>
+              <Badge variant="outline">{SOURCE_FEEDS.find((feed) => feed.id === activeSourceFeed)?.label}</Badge>
             </div>
           </CardHeader>
           <CardContent className={cn(SECTION_CONTENT_CLASS, "grid gap-4")}>
@@ -700,7 +888,7 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
             <section className="grid gap-2">
               <div>
                 <h2 className="text-sm font-semibold">Source groups</h2>
-                <p className="mt-1 text-xs text-muted-foreground">Filter the list by feed category.</p>
+                <p className="mt-1 text-xs text-muted-foreground">Move between feed categories.</p>
               </div>
               <SourceTabs
                 activeFeed={activeSourceFeed}
@@ -719,6 +907,7 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
                 </summary>
                 <form action={saveReaderSource} className="grid gap-3 border-t p-3">
                   <input type="hidden" name="sourceFeed" value={activeSourceFeed} />
+                  <input type="hidden" name="settingsTab" value="sources" />
                   <SourceFields />
                   <div className="flex justify-end">
                     <Button type="submit" size="lg">
@@ -730,34 +919,49 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
               </details>
             </section>
 
-            <section className="grid gap-3">
-              <div>
-                <h2 className="text-sm font-semibold">Source list</h2>
-                <p className="mt-1 text-xs text-muted-foreground">Open a row to edit its URL, category, priority, or enabled state.</p>
-              </div>
-              <div className="grid gap-5">
-                {shownSourceGroups.map((group) =>
-                  group.sources.length ? (
-                    <section key={group.id} className="grid gap-2">
-                      {activeSourceFeed === "all" ? (
+            <form action={saveReaderSources} className="grid gap-3">
+              <input type="hidden" name="sourceFeed" value={activeSourceFeed} />
+              <input type="hidden" name="settingsTab" value="sources" />
+              <input type="hidden" name="sourceCount" value={shownSourceCount} />
+              <section className="grid gap-3">
+                <div className="flex flex-wrap items-end justify-between gap-3">
+                  <div>
+                    <h2 className="text-sm font-semibold">Source list</h2>
+                    <p className="mt-1 text-xs text-muted-foreground">Open rows to edit URLs, categories, priorities, or enabled states.</p>
+                  </div>
+                </div>
+                <div className="grid gap-5">
+                  {shownSourceGroups.map((group) =>
+                    group.sources.length ? (
+                      <section key={group.id} className="grid gap-2">
                         <div className="flex items-center justify-between gap-3">
                           <h2 className="text-sm font-semibold">{group.label}</h2>
                           <Badge variant="outline">
                             {group.enabledCount}/{group.sources.length}
                           </Badge>
                         </div>
-                      ) : null}
 
-                      <div className="grid gap-2">
-                        {group.sources.map((source) => (
-                          <SourceEditor key={source.id} activeSourceFeed={activeSourceFeed} source={source} />
-                        ))}
-                      </div>
-                    </section>
-                  ) : null,
-                )}
+                        <div className="grid gap-2">
+                          {group.sources.map((source) => {
+                            const fieldNamePrefix = `sources.${sourceFieldIndex}`;
+                            sourceFieldIndex += 1;
+
+                            return <SourceEditor key={source.id} fieldNamePrefix={fieldNamePrefix} source={source} />;
+                          })}
+                        </div>
+                      </section>
+                    ) : null,
+                  )}
+                </div>
+              </section>
+
+              <div className="flex justify-end">
+                <Button type="submit" size="lg" disabled={!shownSourceCount}>
+                  <Save aria-hidden="true" />
+                  Save sources
+                </Button>
               </div>
-            </section>
+            </form>
 
             <div className="flex items-center gap-2 rounded-lg border bg-muted/20 px-3 py-2 text-sm text-muted-foreground">
               <SlidersHorizontal className="size-4 shrink-0" aria-hidden="true" />
@@ -765,7 +969,7 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
             </div>
           </CardContent>
         </Card>
-      </div>
+      ) : null}
     </main>
   );
 }

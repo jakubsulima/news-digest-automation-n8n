@@ -94,4 +94,41 @@ describe("reader sources", () => {
     });
     expect(sources.some((source) => source.enabled === false)).toBe(false);
   });
+
+  it("parses a batch of source edits from indexed form fields", async () => {
+    const { readerSourcesFromFormData } = await import("./reader-sources");
+    const formData = new FormData();
+
+    formData.set("sourceCount", "2");
+    formData.set("sources.0.id", "11111111-1111-4111-8111-111111111111");
+    formData.set("sources.0.name", "Enabled Source");
+    formData.set("sources.0.category", "Software / IT");
+    formData.set("sources.0.url", "https://example.com/enabled.xml");
+    formData.set("sources.0.priority", "5");
+    formData.set("sources.0.enabled", "on");
+    formData.set("sources.1.id", "22222222-2222-4222-8222-222222222222");
+    formData.set("sources.1.name", "Disabled Source");
+    formData.set("sources.1.category", "Security");
+    formData.set("sources.1.url", "https://example.com/disabled.xml");
+    formData.set("sources.1.priority", "2");
+
+    expect(readerSourcesFromFormData(formData)).toEqual([
+      {
+        category: "Software / IT",
+        enabled: true,
+        id: "11111111-1111-4111-8111-111111111111",
+        name: "Enabled Source",
+        priority: 5,
+        url: "https://example.com/enabled.xml",
+      },
+      {
+        category: "Security",
+        enabled: false,
+        id: "22222222-2222-4222-8222-222222222222",
+        name: "Disabled Source",
+        priority: 2,
+        url: "https://example.com/disabled.xml",
+      },
+    ]);
+  });
 });
