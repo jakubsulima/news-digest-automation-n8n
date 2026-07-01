@@ -17,14 +17,18 @@ import {
   isReaderSourceValidationError,
   isReaderSourcesSchemaError,
   readerSourceFromFormData,
+  readerSourcesFromFormData,
   sourcePresetFromFormData,
   upsertReaderSource,
+  upsertReaderSources,
 } from "./reader-sources";
 
 function sourceSettingsRedirect(status: string, formData: FormData) {
   const sourceFeed = String(formData.get("sourceFeed") || "all");
+  const settingsTab = String(formData.get("settingsTab") || "sources");
+  const params = new URLSearchParams({ status, sourceFeed, settingsTab });
 
-  redirect(`/settings?status=${status}&sourceFeed=${encodeURIComponent(sourceFeed)}`);
+  redirect(`/settings?${params.toString()}`);
 }
 
 export async function retryDigestRun(digestRunId: string) {
@@ -46,7 +50,10 @@ export async function saveReaderDigestSettings(formData: FormData) {
     status = isDigestSettingsSchemaError(error) ? "migration-required" : "save-failed";
   }
 
-  redirect(`/settings?status=${status}`);
+  const settingsTab = String(formData.get("settingsTab") || "general");
+  const params = new URLSearchParams({ status, settingsTab });
+
+  redirect(`/settings?${params.toString()}`);
 }
 
 export async function saveReaderSource(formData: FormData) {
@@ -59,6 +66,25 @@ export async function saveReaderSource(formData: FormData) {
     revalidatePath("/settings");
   } catch (error) {
     console.error("Failed to save reader source:", errorMessage(error));
+    status =
+      isReaderSourcesSchemaError(error) || isReaderSourceValidationError(error)
+        ? "source-invalid"
+        : "source-save-failed";
+  }
+
+  sourceSettingsRedirect(status, formData);
+}
+
+export async function saveReaderSources(formData: FormData) {
+  await requireCurrentOperator();
+  let status = "sources-saved";
+
+  try {
+    await upsertReaderSources(readerSourcesFromFormData(formData));
+    revalidatePath("/");
+    revalidatePath("/settings");
+  } catch (error) {
+    console.error("Failed to save reader sources:", errorMessage(error));
     status =
       isReaderSourcesSchemaError(error) || isReaderSourceValidationError(error)
         ? "source-invalid"
