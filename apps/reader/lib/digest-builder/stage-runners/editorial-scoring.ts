@@ -5,6 +5,7 @@ import { getDigestSettingsForRun, type ReaderDigestSettings } from "../../digest
 import { readerFeedForCategory, type ReaderFeedId } from "../../feed-categories";
 import { feedbackScoreAdjustment, getFeedbackProfileForUser } from "../../reader-feedback";
 import { createSupabaseAdminClient } from "../../supabase";
+import { buildDedupeProfile, duplicateDecision } from "../dedupe";
 import {
   ACTIONABILITY_KEYWORDS,
   BUILD_RELEVANCE_KEYWORDS,
@@ -278,15 +279,60 @@ function recommendedActionForBucket(bucket: PracticalBucket) {
   }
 }
 
-function whyInterestingForText(text: string, bucket: PracticalBucket) {
-  const hits = keywordHits(text, [
-    ...HIGH_PRIORITY_ENTITIES,
-    ...BUILD_RELEVANCE_KEYWORDS,
-    ...ACTIONABILITY_KEYWORDS,
-  ]).slice(0, 4);
-  const hitText = hits.length ? ` Signals: ${hits.join(", ")}.` : "";
+function uniqueHits(hits: string[]) {
+  return Array.from(new Set(hits.map((hit) => hit.trim()).filter(Boolean)));
+}
 
-  return `Relevant as ${humanBucket(bucket)} for AI, developer tools, security, cloud, markets, or tech policy.${hitText}`;
+export function selectionReasonForStory({
+  bucket,
+  feed,
+  feedbackAdjustment,
+  feedAdjustment,
+  geopoliticsIsRelevant,
+  isDeveloperSecurity,
+  isMajorSecurity,
+  scores,
+  text,
+}: {
+  bucket: PracticalBucket;
+  feed: ContentFeed;
+  feedbackAdjustment: number;
+  feedAdjustment: number;
+  geopoliticsIsRelevant: boolean;
+  isDeveloperSecurity: boolean;
+  isMajorSecurity: boolean;
+  scores: ReturnType<typeof scoreSnapshot>;
+  text: string;
+}) {
+  const hits = uniqueHits(
+    keywordHits(text, [
+      ...HIGH_PRIORITY_ENTITIES,
+      ...BUILD_RELEVANCE_KEYWORDS,
+      ...ACTIONABILITY_KEYWORDS,
+    ]),
+  ).slice(0, 5);
+  const strongScores = [
+    { label: "scope fit", value: scores.scopeFitScore },
+    { label: "actionability", value: scores.actionabilityScore },
+    { label: "impact", value: scores.impactScore },
+    { label: "urgency", value: scores.urgencyScore },
+    { label: "confirmation", value: scores.confirmationScore },
+  ]
+    .filter((score) => score.value >= 7)
+    .sort((left, right) => right.value - left.value)
+    .slice(0, 3)
+    .map((score) => `${score.label} ${score.value}/10`);
+  const reasons = [
+    hits.length ? `matched ${hits.join(", ")}` : null,
+    strongScores.length ? `scored high on ${strongScores.join(", ")}` : null,
+    feedAdjustment > 0 ? `fits the ${feed} feed target` : null,
+    feedbackAdjustment > 0 ? "matches previous positive feedback" : null,
+    isMajorSecurity ? "major security signal" : null,
+    !isMajorSecurity && isDeveloperSecurity ? "developer-relevant security signal" : null,
+    geopoliticsIsRelevant ? "geopolitics with business, chips, energy, or security impact" : null,
+  ].filter(Boolean);
+
+  return `Selected as ${humanBucket(bucket)}${reasons.length ? `: ${reasons.join("; ")}` : ""}.`;
 }
 
 function scoreSnapshot(snapshot: StorySnapshotRow, settings: ReaderDigestSettings) {
@@ -345,6 +391,7 @@ export const runEditorialScoringStage: StageRunner = async ({ digestRunId }) => 
       const title = jsonString(snapshot.metadata, "title");
       const summary = jsonString(snapshot.metadata, "summary");
       const category = jsonString(snapshot.metadata, "category");
+      const publishedAt = jsonString(snapshot.metadata, "publishedAt");
       const source = jsonString(snapshot.metadata, "source");
       const feed = readerFeedForCategory(category);
       const text = `${title} ${summary} ${category}`;
@@ -360,8 +407,18 @@ export const runEditorialScoringStage: StageRunner = async ({ digestRunId }) => 
         isDeveloperSecurity,
         isMajorSecurity,
       });
+      const dedupeProfile = buildDedupeProfile({
+        canonicalUrl: jsonString(snapshot.metadata, "canonicalUrl"),
+        category,
+        id: snapshot.id,
+        publishedAt,
+        source,
+        summary,
+        title,
+      });
 
       return {
+        dedupeProfile,
         feedbackAdjustment,
         feed,
         feedAdjustment,
@@ -388,6 +445,8 @@ export const runEditorialScoringStage: StageRunner = async ({ digestRunId }) => 
     );
   });
   const selectedIds = new Set<string>();
+  const selectedItems: typeof scored = [];
+  const suppressedDuplicates = new Map<string, { duplicateOfSnapshotId: string; reason: string; score: number }>();
   const selectedCounts: Record<ContentFeed, number> = {
     geopolitics: 0,
     business: 0,
@@ -401,7 +460,21 @@ export const runEditorialScoringStage: StageRunner = async ({ digestRunId }) => 
       return;
     }
 
+    for (const selected of selectedItems) {
+      const decision = duplicateDecision(item.dedupeProfile, selected.dedupeProfile);
+
+      if (decision.duplicate) {
+        suppressedDuplicates.set(item.snapshot.id, {
+          duplicateOfSnapshotId: selected.snapshot.id,
+          reason: decision.reason,
+          score: Number(decision.score.toFixed(3)),
+        });
+        return;
+      }
+    }
+
     selectedIds.add(item.snapshot.id);
+    selectedItems.push(item);
     selectedCounts[item.feed] += 1;
   }
 
@@ -428,6 +501,7 @@ export const runEditorialScoringStage: StageRunner = async ({ digestRunId }) => 
   const supabase = createSupabaseAdminClient();
   const scoredSnapshots: StorySnapshotInsert[] = scored.map(
     ({
+      dedupeProfile: _dedupeProfile,
       feedbackAdjustment,
       feed,
       feedAdjustment,
@@ -438,45 +512,57 @@ export const runEditorialScoringStage: StageRunner = async ({ digestRunId }) => 
       scores,
       selectionScore,
       snapshot,
-    }) => ({
-      ...snapshot,
-      confirmation_score: scores.confirmationScore,
-      editorial_score: scores.editorialScore,
-      impact_score: scores.impactScore,
-      is_selected: selectedIds.has(snapshot.id),
-      metadata: {
-        ...jsonRecord(snapshot.metadata),
-        isDeveloperSecurity,
-        isMajorSecurity,
-        practicalBucket,
-        recommendedAction: recommendedActionForBucket(practicalBucket),
-        scoreComponents: {
-          actionability: scores.actionabilityScore,
-          confirmation: scores.confirmationScore,
-          editorial: scores.editorialScore,
-          feedbackAdjustment,
-          feed,
-          feedAdjustment,
-          geopoliticsIsRelevant,
-          impact: scores.impactScore,
-          novelty: scores.noveltyScore,
-          scopeFit: scores.scopeFitScore,
-          selection: selectionScore,
-          sourcePriority: Math.max(0, Math.min(5, jsonNumber(snapshot.metadata, "sourcePriority"))),
-          urgency: scores.urgencyScore,
-        },
-        whyInteresting: whyInterestingForText(
-          `${jsonString(snapshot.metadata, "title")} ${jsonString(snapshot.metadata, "summary")} ${jsonString(
-            snapshot.metadata,
-            "category",
-          )}`,
+    }) => {
+      const duplicateSuppression = suppressedDuplicates.get(snapshot.id);
+
+      return {
+        ...snapshot,
+        confirmation_score: scores.confirmationScore,
+        editorial_score: scores.editorialScore,
+        impact_score: scores.impactScore,
+        is_selected: selectedIds.has(snapshot.id),
+        metadata: {
+          ...jsonRecord(snapshot.metadata),
+          ...(duplicateSuppression ? { duplicateSuppression } : {}),
+          isDeveloperSecurity,
+          isMajorSecurity,
           practicalBucket,
-        ),
-      },
-      novelty_score: scores.noveltyScore,
-      scope_fit_score: scores.scopeFitScore,
-      urgency_score: scores.urgencyScore,
-    }),
+          recommendedAction: recommendedActionForBucket(practicalBucket),
+          scoreComponents: {
+            actionability: scores.actionabilityScore,
+            confirmation: scores.confirmationScore,
+            editorial: scores.editorialScore,
+            feedbackAdjustment,
+            feed,
+            feedAdjustment,
+            geopoliticsIsRelevant,
+            impact: scores.impactScore,
+            novelty: scores.noveltyScore,
+            scopeFit: scores.scopeFitScore,
+            selection: selectionScore,
+            sourcePriority: Math.max(0, Math.min(5, jsonNumber(snapshot.metadata, "sourcePriority"))),
+            urgency: scores.urgencyScore,
+          },
+          whyInteresting: selectionReasonForStory({
+            bucket: practicalBucket,
+            feed,
+            feedbackAdjustment,
+            feedAdjustment,
+            geopoliticsIsRelevant,
+            isDeveloperSecurity,
+            isMajorSecurity,
+            scores,
+            text: `${jsonString(snapshot.metadata, "title")} ${jsonString(
+              snapshot.metadata,
+              "summary",
+            )} ${jsonString(snapshot.metadata, "category")}`,
+          }),
+        },
+        novelty_score: scores.noveltyScore,
+        scope_fit_score: scores.scopeFitScore,
+        urgency_score: scores.urgencyScore,
+      };
+    },
   );
 
   for (const snapshotBatch of chunk(scoredSnapshots, SUPABASE_WRITE_BATCH_SIZE)) {
@@ -493,6 +579,7 @@ export const runEditorialScoringStage: StageRunner = async ({ digestRunId }) => 
     metrics: {
       selectedCount: selectedIds.size,
       selectedFeedCounts: selectedCounts,
+      suppressedDuplicateCount: suppressedDuplicates.size,
       settings: {
         minimumImportanceScore: settings.minimumImportanceScore,
         publishTopN: settings.publishTopN,
