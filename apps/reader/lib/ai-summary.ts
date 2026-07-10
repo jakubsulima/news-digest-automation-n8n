@@ -17,6 +17,20 @@ export type NvidiaArticlePreview = {
   whyItMatters: string;
 };
 
+type DigestBriefArticle = {
+  source: string;
+  summary: string;
+  title: string;
+};
+
+type NvidiaDigestBrief = {
+  highlights: Array<{
+    articleIndex: number;
+    whyItMatters: string;
+  }>;
+  summary: string;
+};
+
 const DEFAULT_NVIDIA_API_URL = "https://api.nvcf.nvidia.com/v2/nim/v1/generate";
 const DEFAULT_NVIDIA_MODEL = "meta/llama-3.1-8b-instruct";
 
@@ -77,6 +91,121 @@ export async function shortenSummaryWithNvidia({
 
 function requiredString(value: unknown) {
   return typeof value === "string" && value.trim() ? plainTextFromHtml(value).trim() : null;
+}
+
+function requiredArticleIndex(value: unknown, articleCount: number) {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 && value < articleCount ? value : null;
+}
+
+export function fallbackDigestBrief(articles: DigestBriefArticle[]): NvidiaDigestBrief {
+  const highlights = articles.slice(0, 5).map((article, articleIndex) => ({
+    articleIndex,
+    whyItMatters: `Ważny sygnał ze źródła ${article.source}.`,
+  }));
+  const subject = articles.length === 1 ? "jedną wybraną wiadomość" : `${articles.length} wybranych wiadomości`;
+
+  return {
+    highlights,
+    summary: `Dzisiejszy digest obejmuje ${subject}. Najważniejsze tematy i ich znaczenie znajdują się poniżej.`,
+  };
+}
+
+function parseDigestBriefJson(content: string, articleCount: number): NvidiaDigestBrief | null {
+  try {
+    const parsed = JSON.parse(content.trim()) as unknown;
+
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return null;
+    }
+
+    const brief = parsed as Record<string, unknown>;
+    const summary = requiredString(brief.summary);
+
+    if (!summary || !Array.isArray(brief.highlights)) {
+      return null;
+    }
+
+    const seen = new Set<number>();
+    const highlights = brief.highlights
+      .map((value) => {
+        if (!value || typeof value !== "object" || Array.isArray(value)) {
+          return null;
+        }
+
+        const highlight = value as Record<string, unknown>;
+        const articleIndex = requiredArticleIndex(highlight.articleIndex, articleCount);
+        const whyItMatters = requiredString(highlight.whyItMatters);
+
+        if (articleIndex === null || !whyItMatters || seen.has(articleIndex)) {
+          return null;
+        }
+
+        seen.add(articleIndex);
+        return { articleIndex, whyItMatters };
+      })
+      .filter((highlight): highlight is NvidiaDigestBrief["highlights"][number] => Boolean(highlight))
+      .slice(0, 5);
+
+    return highlights.length ? { highlights, summary } : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function digestBriefWithNvidia({ articles }: { articles: DigestBriefArticle[] }): Promise<NvidiaDigestBrief> {
+  const fallback = fallbackDigestBrief(articles);
+  const apiKey = process.env.NVIDIA_API_KEY;
+
+  if (!apiKey || !articles.length) {
+    return fallback;
+  }
+
+  const sourceMaterial = articles
+    .slice(0, 10)
+    .map(
+      (article, index) =>
+        `[${index}] Tytuł: ${article.title}\nŹródło: ${article.source}\nStreszczenie: ${article.summary.slice(0, 700)}`,
+    )
+    .join("\n\n");
+
+  try {
+    const response = await fetch(process.env.NVIDIA_API_URL || DEFAULT_NVIDIA_API_URL, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        max_tokens: 500,
+        messages: [
+          {
+            role: "system",
+            content:
+              "Tworzysz poranny briefing dla prywatnego czytnika newsów. Używaj wyłącznie faktów z dostarczonych artykułów, nie dopowiadaj faktów ani liczb. Zwróć wyłącznie poprawny JSON, bez markdownu.",
+          },
+          {
+            role: "user",
+            content: `Na podstawie materiału przygotuj po polsku zwięzłe podsumowanie dnia oraz maksymalnie 5 najważniejszych wiadomości. Dla każdej podaj indeks artykułu i krótko wyjaśnij znaczenie. Zwróć dokładnie ten kształt JSON:\n{"summary":"","highlights":[{"articleIndex":0,"whyItMatters":""}]}\n\nMateriały:\n${sourceMaterial}`,
+          },
+        ],
+        model: process.env.NVIDIA_MODEL || DEFAULT_NVIDIA_MODEL,
+        stream: false,
+        temperature: 0.1,
+        top_p: 0.7,
+      }),
+    });
+
+    if (!response.ok) {
+      return fallback;
+    }
+
+    const payload = (await response.json().catch(() => null)) as NvidiaChatResponse | null;
+    const content = payload?.choices?.[0]?.message?.content;
+
+    return content ? parseDigestBriefJson(content, Math.min(articles.length, 10)) || fallback : fallback;
+  } catch {
+    return fallback;
+  }
 }
 
 function parseStrictPreviewJson(content: string): NvidiaArticlePreview | null {

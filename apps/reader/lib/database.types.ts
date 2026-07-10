@@ -126,6 +126,36 @@ export type Database = {
         };
         Relationships: [];
       };
+      digest_summaries: {
+        Row: {
+          id: string;
+          digest_run_id: string;
+          digest_date: string;
+          summary: string;
+          highlights: Json;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          digest_run_id: string;
+          digest_date: string;
+          summary: string;
+          highlights?: Json;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          digest_run_id?: string;
+          digest_date?: string;
+          summary?: string;
+          highlights?: Json;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
       news_items: {
         Row: {
           id: string;

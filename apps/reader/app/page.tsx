@@ -3,11 +3,13 @@ import { LogOut, RotateCcw, Settings } from "lucide-react";
 
 import { Button, buttonVariants } from "@/components/ui/button";
 import { DigestRunPanel } from "@/components/digest-run-panel";
+import { DigestBriefCard } from "@/components/digest-brief";
 import { NewsFeed } from "@/components/news-feed";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { retryDigestRun } from "@/lib/actions";
 import { requireCurrentReader } from "@/lib/auth";
 import { getDigestRunStatus } from "@/lib/digest-runs";
+import { fallbackDigestBriefFromNews, getLatestDigestBrief } from "@/lib/digest-brief";
 import { normalizeReaderFeedId } from "@/lib/feed-categories";
 import { normalizeReaderViewId } from "@/lib/reader-feed-filters";
 import { getReaderNewsItems } from "@/lib/news";
@@ -34,7 +36,12 @@ export default async function HomePage({ searchParams }: HomePageProps) {
   const activeFeed = normalizeReaderFeedId(params?.feed);
   const activeView = normalizeReaderViewId(params?.view);
   const user = await requireCurrentReader();
-  const [items, digestRun] = await Promise.all([getReaderNewsItems(user.id), getDigestRunStatus()]);
+  const [items, digestRun, digestBrief] = await Promise.all([
+    getReaderNewsItems(user.id),
+    getDigestRunStatus(),
+    getLatestDigestBrief(),
+  ]);
+  const brief = digestBrief || fallbackDigestBriefFromNews(items);
 
   return (
     <main className="mx-auto flex w-full max-w-5xl flex-col gap-4 px-4 py-5 sm:px-6 sm:py-7">
@@ -64,6 +71,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
       </header>
 
       <NewsFeed
+        briefingSlot={brief ? <DigestBriefCard brief={brief} /> : null}
         initialFeed={activeFeed}
         initialItems={items}
         initialView={activeView}

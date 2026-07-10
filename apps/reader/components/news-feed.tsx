@@ -19,6 +19,7 @@ import type { FeedbackSentiment } from "@/lib/reader-feedback";
 import { cn } from "@/lib/utils";
 
 type NewsFeedProps = {
+  briefingSlot?: ReactNode;
   digestSlot: ReactNode;
   initialFeed: ReaderFeedId;
   initialItems: NewsItemWithState[];
@@ -38,6 +39,7 @@ async function apiBatchRead(itemIds: string[]) {
 }
 
 export function NewsFeed({
+  briefingSlot,
   digestSlot,
   initialFeed,
   initialItems,
@@ -193,6 +195,7 @@ export function NewsFeed({
 
   return (
     <>
+      {briefingSlot}
       {digestSlot}
 
       <section className="grid gap-2 border-y py-2" aria-label="Reading controls">
