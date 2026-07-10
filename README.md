@@ -63,6 +63,10 @@ infra/supabase/migrations/001_reader_schema.sql
 infra/supabase/migrations/003_harden_reader_functions.sql
 infra/supabase/migrations/004_move_reader_allowlist_private.sql
 infra/supabase/migrations/005_hosted_pipeline_schema.sql
+infra/supabase/migrations/006_reader_digest_settings.sql
+infra/supabase/migrations/007_reader_sources_and_feedback.sql
+infra/supabase/migrations/008_expand_reader_source_catalog.sql
+infra/supabase/migrations/009_add_digest_summaries.sql
 ```
 
 Then insert your reader email into `private.allowed_reader_emails` and create a Supabase Auth user for that email.

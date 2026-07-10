@@ -1,9 +1,15 @@
 import "server-only";
 
 import type { Database, Json } from "../../database.types";
+import { isDigestBriefSchemaError } from "../../digest-brief";
 import { getDigestRunById } from "../../digest-runs";
 import { getDigestSettingsForRun } from "../../digest-settings";
-import { previewArticleWithNvidia, shortenSummaryWithNvidia, type NvidiaArticlePreview } from "../../ai-summary";
+import {
+  digestBriefWithNvidia,
+  previewArticleWithNvidia,
+  shortenSummaryWithNvidia,
+  type NvidiaArticlePreview,
+} from "../../ai-summary";
 import { createSupabaseAdminClient } from "../../supabase";
 import { cleanArticleSummary, plainTextFromHtml } from "../../text";
 import { SUPABASE_WRITE_BATCH_SIZE } from "../constants";
@@ -11,6 +17,7 @@ import type { StageRunner } from "../types";
 import { chunk, compactText, jsonString } from "../utils";
 
 type NewsItemInsert = Database["public"]["Tables"]["news_items"]["Insert"];
+type DigestSummaryInsert = Database["public"]["Tables"]["digest_summaries"]["Insert"];
 type StorySnapshotRow = Database["public"]["Tables"]["story_snapshots"]["Row"];
 
 function jsonRecord(value: Json): Record<string, Json | undefined> {
@@ -164,11 +171,63 @@ export const runReaderPublicationStage: StageRunner = async ({ digestRunId }) =>
     }
   }
 
+  const brief = await digestBriefWithNvidia({
+    articles: rows.map((row) => ({
+      source: row.source,
+      summary: row.summary,
+      title: row.title,
+    })),
+  });
+  const publishedItems = rows.length
+    ? await supabase
+        .from("news_items")
+        .select("id, external_id, source, title")
+        .in(
+          "external_id",
+          rows.map((row) => row.external_id),
+        )
+    : { data: [], error: null };
+
+  if (publishedItems.error) {
+    throw publishedItems.error;
+  }
+
+  const publishedItemsByExternalId = new Map((publishedItems.data || []).map((item) => [item.external_id, item]));
+  const highlights = brief.highlights.flatMap((highlight) => {
+    const row = rows[highlight.articleIndex];
+    const item = row ? publishedItemsByExternalId.get(row.external_id) : null;
+
+    return item
+      ? [
+          {
+            newsItemId: item.id,
+            source: item.source,
+            title: item.title,
+            whyItMatters: highlight.whyItMatters,
+          },
+        ]
+      : [];
+  });
+  const digestSummary: DigestSummaryInsert = {
+    digest_date: run.report_date,
+    digest_run_id: digestRunId,
+    highlights,
+    summary: brief.summary,
+  };
+  const { error: digestSummaryError } = await supabase.from("digest_summaries").upsert(digestSummary, {
+    onConflict: "digest_run_id",
+  });
+
+  if (digestSummaryError && !isDigestBriefSchemaError(digestSummaryError)) {
+    throw digestSummaryError;
+  }
+
   const deletedStaleCount = await deleteStaleNewsItems(rows.map((row) => row.external_id));
 
   return {
     metrics: {
       deletedStaleCount,
+      digestBriefHighlightCount: highlights.length,
       publishedCount: rows.length,
       settings: {
         publishTopN: settings.publishTopN,
