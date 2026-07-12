@@ -19,6 +19,7 @@ import {
   type ReaderDigestSettings,
 } from "@/lib/digest-settings";
 import { READER_FEEDS, normalizeReaderFeedId, readerFeedForCategory, type ReaderFeedId } from "@/lib/feed-categories";
+import { getReaderFeedInsights } from "@/lib/feed-events";
 import { getReaderSources, SOURCE_PRESETS, type ReaderSource } from "@/lib/reader-sources";
 import { cn } from "@/lib/utils";
 
@@ -678,7 +679,11 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
     avoid: normalizeKeywordGroupIds("avoid", rawSearchParams?.avoidKeywordGroup),
     prefer: normalizeKeywordGroupIds("prefer", rawSearchParams?.preferKeywordGroup),
   };
-  const [savedSettings, sources] = await Promise.all([getReaderDigestSettings(user.id), getReaderSources()]);
+  const [savedSettings, sources, insights] = await Promise.all([
+    getReaderDigestSettings(user.id),
+    getReaderSources(),
+    getReaderFeedInsights(user.id),
+  ]);
   const settings = applyDigestPreset(savedSettings, activePreset);
   const activeKeywordGroups: ActiveKeywordGroups = {
     avoid: allSearchValues(rawSearchParams?.avoidKeywordGroup).length
@@ -736,6 +741,35 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
             </CardHeader>
             <CardContent className={SECTION_CONTENT_CLASS}>
               <ThemeToggle />
+            </CardContent>
+          </Card>
+
+          <Card className={SECTION_CARD_CLASS}>
+            <CardHeader className={SECTION_HEADER_CLASS}>
+              <CardTitle>Feed insights</CardTitle>
+              <CardDescription>Private engagement signals from the last 180 days.</CardDescription>
+            </CardHeader>
+            <CardContent className={cn(SECTION_CONTENT_CLASS, "grid gap-3")}>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+                {[
+                  ["Impressions", String(insights.impressions)],
+                  ["Open rate", `${Math.round(insights.openRate * 100)}%`],
+                  ["Save rate", `${Math.round(insights.saveRate * 100)}%`],
+                  ["Feedback rate", `${Math.round(insights.feedbackRate * 100)}%`],
+                  ["Unread after 24h", String(insights.unreadAfter24Hours)],
+                ].map(([label, value]) => (
+                  <div key={label} className="rounded-md border p-3">
+                    <p className="text-xs text-muted-foreground">{label}</p>
+                    <p className="mt-1 text-xl font-semibold tabular-nums">{value}</p>
+                  </div>
+                ))}
+              </div>
+              {insights.ignoredTopics.length || insights.ignoredSources.length ? (
+                <div className="grid gap-2 text-sm sm:grid-cols-2">
+                  <div><p className="font-medium">Often reduced topics</p><p className="text-muted-foreground">{insights.ignoredTopics.map((item) => `${item.label} (${item.value})`).join(", ") || "None yet"}</p></div>
+                  <div><p className="font-medium">Often reduced sources</p><p className="text-muted-foreground">{insights.ignoredSources.map((item) => `${item.label} (${item.value})`).join(", ") || "None yet"}</p></div>
+                </div>
+              ) : null}
             </CardContent>
           </Card>
 

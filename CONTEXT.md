@@ -41,4 +41,4 @@ The Supabase record of runs, stages, source items, articles, story clusters, sna
 - Only one digest run may be active at a time.
 - A Run Trigger starts a run; the Stage Executor advances it.
 - Source Items are per-run evidence before they become Pipeline Memory.
-- Reader Items are latest-only; Pipeline Memory and run history are retained.
+- Reader Items are durable story-cluster projections retained for 90 days; saved items, Pipeline Memory, and run history are retained longer.

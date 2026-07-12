@@ -45,8 +45,8 @@ export function jsonString(value: Json, key: string) {
   return typeof item === "string" ? item.trim() : "";
 }
 
-export function jsonStringArray(value: Json, key: string) {
-  const item = jsonObject(value)[key];
+export function jsonStringArray(value: Json, key?: string) {
+  const item = key ? jsonObject(value)[key] : value;
 
   return Array.isArray(item) ? item.filter((entry): entry is string => typeof entry === "string") : [];
 }

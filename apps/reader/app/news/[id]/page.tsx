@@ -11,6 +11,7 @@ import { NewsPreviewCard } from "@/components/news-preview-card";
 import { requireCurrentReader } from "@/lib/auth";
 import { getReaderNewsItem } from "@/lib/news";
 import { formatPracticalBucket, formatScoreComponentLabel } from "@/lib/news-display";
+import { priorityLabel } from "@/lib/reader-feed-ranking";
 
 export const dynamic = "force-dynamic";
 const DISPLAY_TIME_ZONE = "Europe/Warsaw";
@@ -60,7 +61,7 @@ export default async function NewsDetailPage({ params }: NewsDetailPageProps) {
         </Link>
         <div className="flex items-center gap-2">
           <NewsItemActions itemId={item.id} isRead={isRead} isSaved={isSaved} isArchived={isArchived} />
-          <NewsItemFeedbackActions itemId={item.id} feedback={item.feedback} />
+          <NewsItemFeedbackActions itemId={item.id} feedback={item.feedback} feedbackReason={item.feedbackReason} />
         </div>
       </header>
 
@@ -73,7 +74,8 @@ export default async function NewsDetailPage({ params }: NewsDetailPageProps) {
             {item.practicalBucket ? <Badge variant="outline">{formatPracticalBucket(item.practicalBucket)}</Badge> : null}
             <span>{item.source}</span>
             <span>{formatDate(item.publishedAt)}</span>
-            {item.importanceScore === null ? null : <Badge variant="outline">{item.importanceScore}</Badge>}
+            <Badge variant="outline">{priorityLabel(item.editorialScore)}</Badge>
+            {item.sourceCount > 1 ? <Badge variant="outline">{item.sourceCount} sources</Badge> : null}
           </div>
 
           <CardTitle className="text-xl leading-tight sm:text-2xl">
@@ -100,6 +102,34 @@ export default async function NewsDetailPage({ params }: NewsDetailPageProps) {
                   </Badge>
                 ))}
               </div>
+            </section>
+          ) : null}
+
+          {item.sourceVariants.length > 1 ? (
+            <section className="grid gap-2">
+              <h2 className="text-sm font-semibold">Sources</h2>
+              <div className="grid gap-2">
+                {item.sourceVariants.map((source) => (
+                  <a key={source.articleId} className="flex items-center justify-between gap-3 rounded-md border p-2 text-sm hover:bg-muted/40" href={source.url} target="_blank" rel="noreferrer">
+                    <span>{source.name}</span>
+                    <span className="text-xs text-muted-foreground">{formatDate(source.publishedAt)}</span>
+                  </a>
+                ))}
+              </div>
+            </section>
+          ) : null}
+
+          {item.updateHistory.length ? (
+            <section className="grid gap-2">
+              <h2 className="text-sm font-semibold">Story updates</h2>
+              <ol className="grid gap-2">
+                {item.updateHistory.map((update) => (
+                  <li key={update.digestRunId} className="border-l-2 border-primary/30 pl-3 text-sm">
+                    <p className="font-medium">{update.changedFields.includes("new") ? "First selected" : "Updated"}</p>
+                    <p className="text-xs text-muted-foreground">{formatDate(update.createdAt)} · {update.changedFields.join(", ") || "No material changes"}</p>
+                  </li>
+                ))}
+              </ol>
             </section>
           ) : null}
 

@@ -1,10 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   buildFeedbackProfile,
   extractFeedbackKeywords,
   feedbackScoreAdjustment,
   parseFeedbackSentiment,
+  parseFeedbackReason,
 } from "./reader-feedback";
 
 describe("reader feedback scoring", () => {
@@ -13,6 +14,32 @@ describe("reader feedback scoring", () => {
     expect(parseFeedbackSentiment("less")).toBe("less");
     expect(parseFeedbackSentiment(null)).toBeNull();
     expect(parseFeedbackSentiment("other")).toBeUndefined();
+    expect(parseFeedbackReason("source")).toBe("source");
+    expect(parseFeedbackReason("other")).toBeUndefined();
+  });
+
+  it("keeps source-only feedback from suppressing an entire topic", () => {
+    const profile = buildFeedbackProfile([
+      { category: "AI", reason: "source", sentiment: "less", source: "Noisy Source", summary: "NVIDIA models", title: "AI release" },
+    ]);
+
+    expect(feedbackScoreAdjustment(profile, { category: "AI", source: "Other Source", text: "NVIDIA models" })).toBe(0);
+    expect(feedbackScoreAdjustment(profile, { category: "AI", source: "Noisy Source", text: "Different subject" })).toBe(-8);
+  });
+
+  it("decays preference influence with a 45-day half-life", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-11T00:00:00.000Z"));
+    const recent = buildFeedbackProfile([
+      { category: "AI", reason: "source", sentiment: "more", source: "Source", summary: "Summary", title: "Title", updatedAt: "2026-07-11T00:00:00.000Z" },
+    ]);
+    const old = buildFeedbackProfile([
+      { category: "AI", reason: "source", sentiment: "more", source: "Source", summary: "Summary", title: "Title", updatedAt: "2026-05-27T00:00:00.000Z" },
+    ]);
+    const candidate = { category: "Business", source: "Source", text: "Unrelated" };
+
+    expect(feedbackScoreAdjustment(old, candidate)).toBeCloseTo(feedbackScoreAdjustment(recent, candidate) / 2);
+    vi.useRealTimers();
   });
 
   it("extracts stable keywords from feedback text", () => {

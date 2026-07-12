@@ -167,6 +167,17 @@ export type Database = {
           source_url: string;
           category: string;
           importance_score: number | null;
+          story_cluster_id: string | null;
+          editorial_score: number;
+          selection_score: number;
+          first_selected_at: string | null;
+          last_selected_at: string | null;
+          last_material_change_at: string | null;
+          changed_fields: Json;
+          source_count: number;
+          source_variants: Json;
+          topic_tags: Json;
+          entity_tags: Json;
           published_at: string | null;
           raw_payload: Json;
           created_at: string;
@@ -182,6 +193,17 @@ export type Database = {
           source_url: string;
           category: string;
           importance_score?: number | null;
+          story_cluster_id?: string | null;
+          editorial_score?: number;
+          selection_score?: number;
+          first_selected_at?: string | null;
+          last_selected_at?: string | null;
+          last_material_change_at?: string | null;
+          changed_fields?: Json;
+          source_count?: number;
+          source_variants?: Json;
+          topic_tags?: Json;
+          entity_tags?: Json;
           published_at?: string | null;
           raw_payload?: Json;
           created_at?: string;
@@ -197,6 +219,17 @@ export type Database = {
           source_url?: string;
           category?: string;
           importance_score?: number | null;
+          story_cluster_id?: string | null;
+          editorial_score?: number;
+          selection_score?: number;
+          first_selected_at?: string | null;
+          last_selected_at?: string | null;
+          last_material_change_at?: string | null;
+          changed_fields?: Json;
+          source_count?: number;
+          source_variants?: Json;
+          topic_tags?: Json;
+          entity_tags?: Json;
           published_at?: string | null;
           raw_payload?: Json;
           created_at?: string;
@@ -396,6 +429,96 @@ export type Database = {
         };
         Relationships: [];
       };
+      reader_story_feedback: {
+        Row: {
+          story_cluster_id: string;
+          user_id: string;
+          sentiment: "more" | "less";
+          reason: "topic" | "source" | "repetitive" | "quality";
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          story_cluster_id: string;
+          user_id: string;
+          sentiment: "more" | "less";
+          reason?: "topic" | "source" | "repetitive" | "quality";
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          story_cluster_id?: string;
+          user_id?: string;
+          sentiment?: "more" | "less";
+          reason?: "topic" | "source" | "repetitive" | "quality";
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      reader_profiles: {
+        Row: {
+          user_id: string;
+          last_feed_visited_at: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          user_id: string;
+          last_feed_visited_at?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          user_id?: string;
+          last_feed_visited_at?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      reader_feed_events: {
+        Row: {
+          id: string;
+          user_id: string;
+          session_id: string;
+          news_item_id: string | null;
+          story_cluster_id: string | null;
+          event_type: "impression" | "fast_read" | "source_open" | "read" | "save" | "archive" | "feedback";
+          rank: number | null;
+          sort_mode: "for-you" | "top" | "latest" | null;
+          feed: string | null;
+          metadata: Json;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          session_id: string;
+          news_item_id?: string | null;
+          story_cluster_id?: string | null;
+          event_type: "impression" | "fast_read" | "source_open" | "read" | "save" | "archive" | "feedback";
+          rank?: number | null;
+          sort_mode?: "for-you" | "top" | "latest" | null;
+          feed?: string | null;
+          metadata?: Json;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          session_id?: string;
+          news_item_id?: string | null;
+          story_cluster_id?: string | null;
+          event_type?: "impression" | "fast_read" | "source_open" | "read" | "save" | "archive" | "feedback";
+          rank?: number | null;
+          sort_mode?: "for-you" | "top" | "latest" | null;
+          feed?: string | null;
+          metadata?: Json;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
       source_items: {
         Row: {
           id: string;
@@ -536,6 +659,33 @@ export type Database = {
           duplicate_count?: number;
           changed_fields?: Json;
           metadata?: Json;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
+      story_updates: {
+        Row: {
+          id: string;
+          story_cluster_id: string;
+          digest_run_id: string;
+          changed_fields: Json;
+          snapshot: Json;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          story_cluster_id: string;
+          digest_run_id: string;
+          changed_fields?: Json;
+          snapshot?: Json;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          story_cluster_id?: string;
+          digest_run_id?: string;
+          changed_fields?: Json;
+          snapshot?: Json;
           created_at?: string;
         };
         Relationships: [];

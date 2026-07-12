@@ -26,6 +26,14 @@ type GroupedStory = {
   storyKey: string;
 };
 
+export type StorySourceVariant = {
+  articleId: string;
+  name: string;
+  priority: number;
+  publishedAt: string | null;
+  url: string;
+};
+
 const MAX_DEDUPE_CANDIDATES_PER_ARTICLE = 80;
 const MAX_DEDUPE_KEY_TOKENS = 8;
 
@@ -38,6 +46,45 @@ function bestArticleForGroup(articles: ArticleRow[]) {
 
     return rightPriority - leftPriority || rightSummary - leftSummary;
   })[0];
+}
+
+function sourceVariantsForGroup(articles: ArticleRow[]): StorySourceVariant[] {
+  return [...articles]
+    .sort((left, right) => {
+      const priorityDiff = jsonNumber(right.metadata, "sourcePriority") - jsonNumber(left.metadata, "sourcePriority");
+      const rightTime = Date.parse(right.last_seen_at || right.first_seen_at || "") || 0;
+      const leftTime = Date.parse(left.last_seen_at || left.first_seen_at || "") || 0;
+
+      return priorityDiff || rightTime - leftTime;
+    })
+    .map((article) => ({
+      articleId: article.id,
+      name: article.source,
+      priority: jsonNumber(article.metadata, "sourcePriority"),
+      publishedAt: article.last_seen_at || article.first_seen_at,
+      url: article.canonical_url,
+    }));
+}
+
+export function detectStoryChanges(
+  existing: Pick<
+    StoryClusterRow,
+    "canonical_title" | "source" | "latest_summary" | "latest_duplicate_count"
+  > | null,
+  next: { canonicalTitle: string; source: string; summary: string; sourceCount: number },
+) {
+  if (!existing) {
+    return ["new"];
+  }
+
+  const changes: string[] = [];
+
+  if (existing.canonical_title !== next.canonicalTitle) changes.push("title");
+  if (existing.latest_summary !== next.summary) changes.push("summary");
+  if (existing.source !== next.source) changes.push("canonical_source");
+  if (existing.latest_duplicate_count !== next.sourceCount) changes.push("source_count");
+
+  return changes;
 }
 
 function dedupeMetadata(profiles: DedupeProfile[], duplicateEdges: DuplicateEdge[]) {
@@ -187,7 +234,17 @@ async function loadExistingStoryClusters(storyKeys: string[]) {
   const supabase = createSupabaseAdminClient();
   const existing = new Map<
     string,
-    Pick<StoryClusterRow, "story_key" | "first_seen_at" | "confirmation_count" | "metadata">
+    Pick<
+      StoryClusterRow,
+      | "story_key"
+      | "first_seen_at"
+      | "confirmation_count"
+      | "metadata"
+      | "canonical_title"
+      | "source"
+      | "latest_summary"
+      | "latest_duplicate_count"
+    >
   >();
   const storyKeyBatches = chunkByEncodedLength(
     storyKeys,
@@ -198,7 +255,9 @@ async function loadExistingStoryClusters(storyKeys: string[]) {
   for (const [batchIndex, storyKeyBatch] of storyKeyBatches.entries()) {
     const { data, error } = await supabase
       .from("story_clusters")
-      .select("story_key, first_seen_at, confirmation_count, metadata")
+      .select(
+        "story_key, first_seen_at, confirmation_count, metadata, canonical_title, source, latest_summary, latest_duplicate_count",
+      )
       .in("story_key", storyKeyBatch);
 
     if (error) {
@@ -252,6 +311,14 @@ export const runStoryClusteringStage: StageRunner = async ({ digestRunId }) => {
   const clusters: StoryClusterInsert[] = groupedStories.map(({ duplicateEdges, group, profiles, storyKey }) => {
     const canonical = bestArticleForGroup(group);
     const existing = existingStories.get(storyKey);
+    const sourceVariants = sourceVariantsForGroup(group);
+    const summary = canonical.enriched_description || canonical.raw_summary || "";
+    const changedFields = detectStoryChanges(existing || null, {
+      canonicalTitle: canonical.title,
+      source: canonical.source,
+      sourceCount: sourceVariants.length,
+      summary,
+    });
 
     return {
       canonical_title: canonical.title,
@@ -265,12 +332,14 @@ export const runStoryClusteringStage: StageRunner = async ({ digestRunId }) => {
       last_seen_at: now,
       latest_duplicate_count: group.length,
       latest_published_at: canonical.last_seen_at,
-      latest_summary: canonical.enriched_description || canonical.raw_summary || "",
+      latest_summary: summary,
       metadata: {
         articleIds: group.map((article) => article.id),
         canonicalArticleId: canonical.id,
         dedupe: dedupeMetadata(profiles, duplicateEdges),
         digestRunId,
+        changedFields,
+        sourceVariants,
         sourceUrls: group.map((article) => article.canonical_url),
       },
       source: canonical.source,
@@ -293,6 +362,15 @@ export const runStoryClusteringStage: StageRunner = async ({ digestRunId }) => {
   for (const { duplicateEdges, group, profiles, storyKey } of groupedStories) {
     const cluster = savedClusters.get(storyKey);
     const canonical = bestArticleForGroup(group);
+    const existing = existingStories.get(storyKey);
+    const sourceVariants = sourceVariantsForGroup(group);
+    const summary = canonical.enriched_description || canonical.raw_summary || "";
+    const changedFields = detectStoryChanges(existing || null, {
+      canonicalTitle: canonical.title,
+      source: canonical.source,
+      sourceCount: sourceVariants.length,
+      summary,
+    });
 
     if (!cluster) {
       continue;
@@ -301,16 +379,19 @@ export const runStoryClusteringStage: StageRunner = async ({ digestRunId }) => {
     snapshots.push({
       digest_run_id: digestRunId,
       duplicate_count: group.length,
+      changed_fields: changedFields,
       metadata: {
         articleIds: group.map((article) => article.id),
         canonicalArticleId: canonical.id,
         canonicalUrl: canonical.canonical_url,
         category: canonical.category,
         dedupe: dedupeMetadata(profiles, duplicateEdges),
+        changedFields,
         publishedAt: canonical.last_seen_at,
         source: canonical.source,
+        sourceVariants,
         sourcePriority: jsonNumber(canonical.metadata, "sourcePriority"),
-        summary: canonical.enriched_description || canonical.raw_summary || "",
+        summary,
         title: canonical.title,
       },
       story_cluster_id: cluster.id,

@@ -3,7 +3,6 @@ import "server-only";
 import type { Database, Json } from "../../database.types";
 import { getDigestSettingsForRun, type ReaderDigestSettings } from "../../digest-settings";
 import { readerFeedForCategory, type ReaderFeedId } from "../../feed-categories";
-import { feedbackScoreAdjustment, getFeedbackProfileForUser } from "../../reader-feedback";
 import { createSupabaseAdminClient } from "../../supabase";
 import { buildDedupeProfile, duplicateDecision } from "../dedupe";
 import {
@@ -15,7 +14,7 @@ import {
   SUPABASE_WRITE_BATCH_SIZE,
 } from "../constants";
 import type { StageRunner } from "../types";
-import { chunk, jsonNumber, jsonString } from "../utils";
+import { chunk, jsonNumber, jsonString, jsonStringArray } from "../utils";
 
 type StorySnapshotInsert = Database["public"]["Tables"]["story_snapshots"]["Insert"];
 type StorySnapshotRow = Database["public"]["Tables"]["story_snapshots"]["Row"];
@@ -162,21 +161,6 @@ async function loadRunSnapshots(digestRunId: string) {
   }
 
   return data || [];
-}
-
-async function loadRunStartedByUserId(digestRunId: string) {
-  const supabase = createSupabaseAdminClient();
-  const { data, error } = await supabase
-    .from("digest_runs")
-    .select("started_by_user_id")
-    .eq("id", digestRunId)
-    .maybeSingle<Pick<Database["public"]["Tables"]["digest_runs"]["Row"], "started_by_user_id">>();
-
-  if (error) {
-    throw error;
-  }
-
-  return data?.started_by_user_id ?? null;
 }
 
 function textIncludesAny(text: string, keywords: string[]) {
@@ -356,7 +340,8 @@ function scoreSnapshot(snapshot: StorySnapshotRow, settings: ReaderDigestSetting
   const publishedTimestamp = Date.parse(publishedAt);
   const ageHours = Number.isNaN(publishedTimestamp) ? 72 : (Date.now() - publishedTimestamp) / 3_600_000;
   const urgencyScore = ageHours <= 6 ? 10 : ageHours <= 24 ? 8 : ageHours <= 72 ? 5 : 3;
-  const noveltyScore = 8;
+  const changedFields = jsonStringArray(snapshot.changed_fields);
+  const noveltyScore = changedFields.includes("new") ? 10 : changedFields.length ? 7 : 2;
   const editorialScore = Math.round(
     impactScore * 2.4 +
       noveltyScore * 1.6 +
@@ -379,12 +364,21 @@ function scoreSnapshot(snapshot: StorySnapshotRow, settings: ReaderDigestSetting
 }
 
 export const runEditorialScoringStage: StageRunner = async ({ digestRunId }) => {
-  const [settings, snapshots, startedByUserId] = await Promise.all([
+  const [settings, snapshots] = await Promise.all([
     getDigestSettingsForRun(digestRunId),
     loadRunSnapshots(digestRunId),
-    loadRunStartedByUserId(digestRunId),
   ]);
-  const feedbackProfile = await getFeedbackProfileForUser(startedByUserId);
+  const supabase = createSupabaseAdminClient();
+  const clusterIds = snapshots.map((snapshot) => snapshot.story_cluster_id);
+  const { data: clusterRows, error: clusterError } = clusterIds.length
+    ? await supabase.from("story_clusters").select("id, latest_scores").in("id", clusterIds)
+    : { data: [], error: null };
+
+  if (clusterError) {
+    throw clusterError;
+  }
+
+  const previousScoresByClusterId = new Map((clusterRows || []).map((cluster) => [cluster.id, cluster.latest_scores]));
   const scored = snapshots
     .map((snapshot) => {
       const scores = scoreSnapshot(snapshot, settings);
@@ -400,7 +394,7 @@ export const runEditorialScoringStage: StageRunner = async ({ digestRunId }) => 
       const geopoliticsIsRelevant =
         feed === "geopolitics" ? geopoliticsStoryAffectsBusinessSecurityChipsEnergy(text) : false;
       const excludedKeywordPenalty = textIncludesAny(text, settings.excludedKeywords) ? 80 : 0;
-      const feedbackAdjustment = feedbackScoreAdjustment(feedbackProfile, { category, source, text });
+      const feedbackAdjustment = 0;
       const practicalBucket = classifyPracticalBucket(text);
       const feedAdjustment = feedScoreAdjustment(feed, {
         geopoliticsIsRelevant,
@@ -417,7 +411,19 @@ export const runEditorialScoringStage: StageRunner = async ({ digestRunId }) => 
         title,
       });
 
+      const previousEditorialScore = jsonNumber(previousScoresByClusterId.get(snapshot.story_cluster_id) || {}, "editorial");
+      const changedFields = jsonStringArray(snapshot.changed_fields);
+
+      if (previousEditorialScore > 0 && Math.abs(previousEditorialScore - scores.editorialScore) >= 10) {
+        changedFields.push("score");
+        if (scores.noveltyScore <= 2) {
+          scores.noveltyScore = 7;
+          scores.editorialScore += 8;
+        }
+      }
+
       return {
+        changedFields: Array.from(new Set(changedFields)),
         dedupeProfile,
         feedbackAdjustment,
         feed,
@@ -434,6 +440,10 @@ export const runEditorialScoringStage: StageRunner = async ({ digestRunId }) => 
     .sort((left, right) => right.selectionScore - left.selectionScore);
   const candidates = scored.filter((item) => {
     if (item.scores.editorialScore < settings.minimumImportanceScore) {
+      return false;
+    }
+
+    if (item.scores.noveltyScore <= 2 && !item.isMajorSecurity && item.snapshot.duplicate_count < 3) {
       return false;
     }
 
@@ -498,9 +508,9 @@ export const runEditorialScoringStage: StageRunner = async ({ digestRunId }) => 
     selectItem(item);
   }
 
-  const supabase = createSupabaseAdminClient();
   const scoredSnapshots: StorySnapshotInsert[] = scored.map(
     ({
+      changedFields,
       dedupeProfile: _dedupeProfile,
       feedbackAdjustment,
       feed,
@@ -517,6 +527,7 @@ export const runEditorialScoringStage: StageRunner = async ({ digestRunId }) => 
 
       return {
         ...snapshot,
+        changed_fields: changedFields,
         confirmation_score: scores.confirmationScore,
         editorial_score: scores.editorialScore,
         impact_score: scores.impactScore,
@@ -575,6 +586,52 @@ export const runEditorialScoringStage: StageRunner = async ({ digestRunId }) => 
     }
   }
 
+  const selectedStoryUpdates: Database["public"]["Tables"]["story_updates"]["Insert"][] = selectedItems.map(
+    (item) => ({
+      changed_fields: item.changedFields,
+      digest_run_id: digestRunId,
+      snapshot: {
+        category: jsonString(item.snapshot.metadata, "category"),
+        editorialScore: item.scores.editorialScore,
+        publishedAt: jsonString(item.snapshot.metadata, "publishedAt"),
+        source: jsonString(item.snapshot.metadata, "source"),
+        summary: jsonString(item.snapshot.metadata, "summary"),
+        title: jsonString(item.snapshot.metadata, "title"),
+      },
+      story_cluster_id: item.snapshot.story_cluster_id,
+    }),
+  );
+
+  for (const updateBatch of chunk(selectedStoryUpdates, SUPABASE_WRITE_BATCH_SIZE)) {
+    const { error: updateError } = await supabase.from("story_updates").upsert(updateBatch, {
+      onConflict: "story_cluster_id,digest_run_id",
+    });
+
+    if (updateError) {
+      throw updateError;
+    }
+  }
+
+  for (const itemBatch of chunk(selectedItems, SUPABASE_WRITE_BATCH_SIZE)) {
+    await Promise.all(
+      itemBatch.map(async (item) => {
+        const { error: scoreError } = await supabase
+          .from("story_clusters")
+          .update({
+            latest_scores: {
+              editorial: item.scores.editorialScore,
+              impact: item.scores.impactScore,
+              novelty: item.scores.noveltyScore,
+              selection: item.selectionScore,
+            },
+          })
+          .eq("id", item.snapshot.story_cluster_id);
+
+        if (scoreError) throw scoreError;
+      }),
+    );
+  }
+
   return {
     metrics: {
       selectedCount: selectedIds.size,
@@ -585,7 +642,7 @@ export const runEditorialScoringStage: StageRunner = async ({ digestRunId }) => 
         publishTopN: settings.publishTopN,
         requireMajorSecurity: settings.requireMajorSecurity,
       },
-      feedbackAdjustedCount: scored.filter((item) => item.feedbackAdjustment !== 0).length,
+      feedbackAdjustedCount: 0,
       skippedNonMajorSecurityCount: settings.requireMajorSecurity
         ? scored.filter((item) => item.feed === "security" && !item.isMajorSecurity && !item.isDeveloperSecurity).length
         : 0,

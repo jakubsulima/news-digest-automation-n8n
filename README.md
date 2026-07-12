@@ -7,7 +7,7 @@ Daily News Digest is a private Vercel-hosted news reader. It fetches configured 
 ```text
 Vercel Cron -> /api/digest-runs/advance -> Supabase digest state
 Reader UI -> /api/digest-runs -> Supabase status/feed data
-RSS sources -> staged TypeScript pipeline -> latest news_items
+RSS sources -> staged TypeScript pipeline -> durable, ranked news_items
 ```
 
 The active runtime is:
@@ -17,7 +17,7 @@ The active runtime is:
 - `config/rss-sources.json`: RSS source list used by the hosted pipeline.
 - `vercel.json`: Vercel build settings and cron schedule.
 
-The reader keeps only the latest published feed in `news_items`. Pipeline memory remains in `articles`, `story_clusters`, `digest_runs`, and stage tables.
+`news_items` are durable story-cluster projections retained for 90 days, while saved items remain until unsaved. Pipeline memory remains in `articles`, `story_clusters`, `story_updates`, `digest_runs`, and stage tables. Reader feedback is cluster-backed so publication cleanup cannot erase personalization.
 
 ## Requirements
 
@@ -67,7 +67,10 @@ infra/supabase/migrations/006_reader_digest_settings.sql
 infra/supabase/migrations/007_reader_sources_and_feedback.sql
 infra/supabase/migrations/008_expand_reader_source_catalog.sql
 infra/supabase/migrations/009_add_digest_summaries.sql
+infra/supabase/migrations/010_durable_personalized_feed.sql
 ```
+
+Migration `010` must be applied before deploying reader code that selects the new ranking columns. Deploy in this order: apply the migration, deploy the application, complete at least one successful digest, verify durable feedback and stable story IDs, then remove legacy `reader_item_feedback` compatibility in a later migration.
 
 Then insert your reader email into `private.allowed_reader_emails` and create a Supabase Auth user for that email.
 

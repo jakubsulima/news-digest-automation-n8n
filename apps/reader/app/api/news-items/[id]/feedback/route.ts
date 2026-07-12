@@ -2,7 +2,7 @@ import { revalidatePath } from "next/cache";
 import { NextResponse } from "next/server";
 
 import { getCurrentReader } from "@/lib/auth";
-import { parseFeedbackSentiment, setReaderItemFeedback } from "@/lib/reader-feedback";
+import { parseFeedbackReason, parseFeedbackSentiment, setReaderItemFeedback } from "@/lib/reader-feedback";
 
 type RouteContext = {
   params: Promise<{
@@ -23,14 +23,15 @@ export async function PATCH(request: Request, { params }: RouteContext) {
 
   try {
     const { id } = await params;
-    const payload = (await request.json()) as { sentiment?: unknown };
+    const payload = (await request.json()) as { reason?: unknown; sentiment?: unknown };
     const sentiment = parseFeedbackSentiment(payload.sentiment);
+    const reason = payload.reason === undefined ? "topic" : parseFeedbackReason(payload.reason);
 
-    if (sentiment === undefined) {
+    if (sentiment === undefined || !reason || (sentiment === "more" && reason !== "topic" && reason !== "source")) {
       return NextResponse.json({ ok: false, error: "Invalid item feedback." }, { status: 400 });
     }
 
-    await setReaderItemFeedback(user.id, id, sentiment);
+    await setReaderItemFeedback(user.id, id, sentiment, reason);
     revalidatePath("/");
     revalidatePath(`/news/${id}`);
 
