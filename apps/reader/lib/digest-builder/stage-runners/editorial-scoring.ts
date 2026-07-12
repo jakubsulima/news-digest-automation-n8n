@@ -285,7 +285,7 @@ export function selectionReasonForStory({
   geopoliticsIsRelevant: boolean;
   isDeveloperSecurity: boolean;
   isMajorSecurity: boolean;
-  scores: ReturnType<typeof scoreSnapshot>;
+  scores: Omit<ReturnType<typeof scoreSnapshot>, "ageHours">;
   text: string;
 }) {
   const hits = uniqueHits(
@@ -326,12 +326,13 @@ function scoreSnapshot(snapshot: StorySnapshotRow, settings: ReaderDigestSetting
   const publishedAt = jsonString(snapshot.metadata, "publishedAt");
   const sourcePriority = Math.max(0, Math.min(5, jsonNumber(snapshot.metadata, "sourcePriority")));
   const text = `${title} ${summary} ${category}`;
-  const preferredKeywordHits = settings.preferredKeywords.filter((keyword) => text.toLowerCase().includes(keyword)).length;
+  const normalizedText = text.toLowerCase();
+  const preferredKeywordHits = settings.preferredKeywords.filter((keyword) => normalizedText.includes(keyword)).length;
   const impactScore = Math.max(
     1,
     Math.min(
       10,
-      2 + IMPORTANT_KEYWORDS.filter((keyword) => text.toLowerCase().includes(keyword)).length + preferredKeywordHits,
+      2 + IMPORTANT_KEYWORDS.filter((keyword) => normalizedText.includes(keyword)).length + preferredKeywordHits,
     ),
   );
   const confirmationScore = Math.min(10, snapshot.duplicate_count >= 5 ? 10 : snapshot.duplicate_count * 3);
@@ -354,6 +355,7 @@ function scoreSnapshot(snapshot: StorySnapshotRow, settings: ReaderDigestSetting
 
   return {
     actionabilityScore,
+    ageHours,
     confirmationScore,
     editorialScore,
     impactScore,
@@ -387,6 +389,7 @@ export const runEditorialScoringStage: StageRunner = async ({ digestRunId }) => 
       const category = jsonString(snapshot.metadata, "category");
       const publishedAt = jsonString(snapshot.metadata, "publishedAt");
       const source = jsonString(snapshot.metadata, "source");
+      const normalizedSource = source.trim().toLowerCase();
       const feed = readerFeedForCategory(category);
       const text = `${title} ${summary} ${category}`;
       const isMajorSecurity = feed === "security" ? securityStoryIsMajor(snapshot, text) : false;
@@ -432,6 +435,7 @@ export const runEditorialScoringStage: StageRunner = async ({ digestRunId }) => 
         isDeveloperSecurity,
         isMajorSecurity,
         practicalBucket,
+        normalizedSource,
         scores,
         selectionScore: scores.editorialScore + feedAdjustment + feedbackAdjustment - excludedKeywordPenalty,
         snapshot,
@@ -439,6 +443,14 @@ export const runEditorialScoringStage: StageRunner = async ({ digestRunId }) => 
     })
     .sort((left, right) => right.selectionScore - left.selectionScore);
   const candidates = scored.filter((item) => {
+    if (item.scores.ageHours > settings.freshnessWindowHours) {
+      return false;
+    }
+
+    if (item.snapshot.duplicate_count < settings.minimumSourceCount) {
+      return false;
+    }
+
     if (item.scores.editorialScore < settings.minimumImportanceScore) {
       return false;
     }
@@ -464,9 +476,17 @@ export const runEditorialScoringStage: StageRunner = async ({ digestRunId }) => 
     software: 0,
     security: 0,
   };
+  const selectedSourceCounts = new Map<string, number>();
 
   function selectItem(item: (typeof scored)[number]) {
     if (selectedIds.size >= settings.publishTopN || selectedIds.has(item.snapshot.id)) {
+      return;
+    }
+
+    if (
+      item.normalizedSource &&
+      (selectedSourceCounts.get(item.normalizedSource) ?? 0) >= settings.maxStoriesPerSource
+    ) {
       return;
     }
 
@@ -486,6 +506,9 @@ export const runEditorialScoringStage: StageRunner = async ({ digestRunId }) => 
     selectedIds.add(item.snapshot.id);
     selectedItems.push(item);
     selectedCounts[item.feed] += 1;
+    if (item.normalizedSource) {
+      selectedSourceCounts.set(item.normalizedSource, (selectedSourceCounts.get(item.normalizedSource) ?? 0) + 1);
+    }
   }
 
   for (const feed of FEED_SELECTION_ORDER) {
@@ -519,6 +542,7 @@ export const runEditorialScoringStage: StageRunner = async ({ digestRunId }) => 
       isDeveloperSecurity,
       isMajorSecurity,
       practicalBucket,
+      normalizedSource: _normalizedSource,
       scores,
       selectionScore,
       snapshot,
@@ -639,6 +663,9 @@ export const runEditorialScoringStage: StageRunner = async ({ digestRunId }) => 
       suppressedDuplicateCount: suppressedDuplicates.size,
       settings: {
         minimumImportanceScore: settings.minimumImportanceScore,
+        freshnessWindowHours: settings.freshnessWindowHours,
+        maxStoriesPerSource: settings.maxStoriesPerSource,
+        minimumSourceCount: settings.minimumSourceCount,
         publishTopN: settings.publishTopN,
         requireMajorSecurity: settings.requireMajorSecurity,
       },

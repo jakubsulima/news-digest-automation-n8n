@@ -370,7 +370,10 @@ export type Database = {
           summary_max_chars: number;
           minimum_importance_score: number;
           feed_targets: Json;
+          freshness_window_hours: number;
+          max_stories_per_source: number;
           preferred_keywords: Json;
+          minimum_source_count: number;
           excluded_keywords: Json;
           require_major_security: boolean;
           use_ai_summaries: boolean;
@@ -383,7 +386,10 @@ export type Database = {
           summary_max_chars?: number;
           minimum_importance_score?: number;
           feed_targets?: Json;
+          freshness_window_hours?: number;
+          max_stories_per_source?: number;
           preferred_keywords?: Json;
+          minimum_source_count?: number;
           excluded_keywords?: Json;
           require_major_security?: boolean;
           use_ai_summaries?: boolean;
@@ -396,7 +402,10 @@ export type Database = {
           summary_max_chars?: number;
           minimum_importance_score?: number;
           feed_targets?: Json;
+          freshness_window_hours?: number;
+          max_stories_per_source?: number;
           preferred_keywords?: Json;
+          minimum_source_count?: number;
           excluded_keywords?: Json;
           require_major_security?: boolean;
           use_ai_summaries?: boolean;

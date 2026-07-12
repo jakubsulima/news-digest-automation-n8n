@@ -68,9 +68,12 @@ infra/supabase/migrations/007_reader_sources_and_feedback.sql
 infra/supabase/migrations/008_expand_reader_source_catalog.sql
 infra/supabase/migrations/009_add_digest_summaries.sql
 infra/supabase/migrations/010_durable_personalized_feed.sql
+infra/supabase/migrations/011_digest_quality_controls.sql
 ```
 
 Migration `010` must be applied before deploying reader code that selects the new ranking columns. Deploy in this order: apply the migration, deploy the application, complete at least one successful digest, verify durable feedback and stable story IDs, then remove legacy `reader_item_feedback` compatibility in a later migration.
+
+Migration `011` adds per-reader controls for story freshness, minimum source confirmation, and source diversity. Apply it before saving the new controls from the Advanced settings tab.
 
 Then insert your reader email into `private.allowed_reader_emails` and create a Supabase Auth user for that email.
 

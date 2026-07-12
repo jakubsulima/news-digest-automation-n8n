@@ -14,7 +14,10 @@ export type DigestFeedTargets = {
 export type ReaderDigestSettings = {
   excludedKeywords: string[];
   feedTargets: DigestFeedTargets;
+  freshnessWindowHours: number;
+  maxStoriesPerSource: number;
   minimumImportanceScore: number;
+  minimumSourceCount: number;
   preferredKeywords: string[];
   publishTopN: number;
   requireMajorSecurity: boolean;
@@ -51,7 +54,10 @@ export const DEFAULT_DIGEST_SETTINGS: ReaderDigestSettings = {
     software: 6,
     security: 5,
   },
+  freshnessWindowHours: 72,
+  maxStoriesPerSource: 4,
   minimumImportanceScore: 55,
+  minimumSourceCount: 1,
   preferredKeywords: [
     "ai",
     "llm",
@@ -96,7 +102,7 @@ function jsonRecord(value: Json): Record<string, Json | undefined> {
 
 function jsonStringArray(value: Json): string[] {
   return Array.isArray(value)
-    ? value.map((item) => (typeof item === "string" ? item.trim().toLowerCase() : "")).filter(Boolean)
+    ? [...new Set(value.map((item) => (typeof item === "string" ? item.trim().toLowerCase() : "")).filter(Boolean))]
     : [];
 }
 
@@ -128,7 +134,10 @@ function normalizeSettings(row: SettingsRow | null): ReaderDigestSettings {
   return {
     excludedKeywords: jsonStringArray(row.excluded_keywords),
     feedTargets: parseFeedTargets(row.feed_targets),
+    freshnessWindowHours: clampInteger(row.freshness_window_hours ?? DEFAULT_DIGEST_SETTINGS.freshnessWindowHours, 6, 336),
+    maxStoriesPerSource: clampInteger(row.max_stories_per_source ?? DEFAULT_DIGEST_SETTINGS.maxStoriesPerSource, 1, 20),
     minimumImportanceScore: clampInteger(row.minimum_importance_score, 0, 100),
+    minimumSourceCount: clampInteger(row.minimum_source_count ?? DEFAULT_DIGEST_SETTINGS.minimumSourceCount, 1, 10),
     preferredKeywords: jsonStringArray(row.preferred_keywords),
     publishTopN: clampInteger(row.publish_top_n, 5, 100),
     requireMajorSecurity: row.require_major_security,
@@ -189,7 +198,10 @@ export async function upsertReaderDigestSettings(userId: string, settings: Reade
   const update: SettingsUpdate & { user_id: string } = {
     excluded_keywords: settings.excludedKeywords,
     feed_targets: settings.feedTargets,
+    freshness_window_hours: settings.freshnessWindowHours,
+    max_stories_per_source: settings.maxStoriesPerSource,
     minimum_importance_score: settings.minimumImportanceScore,
+    minimum_source_count: settings.minimumSourceCount,
     preferred_keywords: settings.preferredKeywords,
     publish_top_n: settings.publishTopN,
     require_major_security: settings.requireMajorSecurity,
@@ -212,11 +224,12 @@ export function digestSettingsFromFormData(formData: FormData): ReaderDigestSett
     return clampInteger(Number.isFinite(value) ? value : fallback, min, max);
   };
   const keywords = (name: string) =>
-    String(formData.get(name) || "")
-      .split(",")
-      .map((keyword) => keyword.trim().toLowerCase())
-      .filter(Boolean)
-      .slice(0, 50);
+    [...new Set(
+      String(formData.get(name) || "")
+        .split(",")
+        .map((keyword) => keyword.trim().toLowerCase())
+        .filter(Boolean),
+    )].slice(0, 50);
 
   return {
     excludedKeywords: keywords("excludedKeywords"),
@@ -227,11 +240,29 @@ export function digestSettingsFromFormData(formData: FormData): ReaderDigestSett
       software: numberValue("feedTargetSoftware", DEFAULT_DIGEST_SETTINGS.feedTargets.software, 0, 50),
       security: numberValue("feedTargetSecurity", DEFAULT_DIGEST_SETTINGS.feedTargets.security, 0, 50),
     },
+    freshnessWindowHours: numberValue(
+      "freshnessWindowHours",
+      DEFAULT_DIGEST_SETTINGS.freshnessWindowHours,
+      6,
+      336,
+    ),
+    maxStoriesPerSource: numberValue(
+      "maxStoriesPerSource",
+      DEFAULT_DIGEST_SETTINGS.maxStoriesPerSource,
+      1,
+      20,
+    ),
     minimumImportanceScore: numberValue(
       "minimumImportanceScore",
       DEFAULT_DIGEST_SETTINGS.minimumImportanceScore,
       0,
       100,
+    ),
+    minimumSourceCount: numberValue(
+      "minimumSourceCount",
+      DEFAULT_DIGEST_SETTINGS.minimumSourceCount,
+      1,
+      10,
     ),
     preferredKeywords: keywords("preferredKeywords"),
     publishTopN: numberValue("publishTopN", DEFAULT_DIGEST_SETTINGS.publishTopN, 5, 100),

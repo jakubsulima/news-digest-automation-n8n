@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { Activity, Check, Circle, Loader2, Play, RotateCcw, Sparkles, X } from "lucide-react";
+import { Activity, CalendarDays, Check, Circle, Loader2, Play, RotateCcw, Sparkles, X } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -45,7 +45,6 @@ const STAGE_COPY: Record<string, { label: string; verb: string }> = {
   finalization: { label: "Done", verb: "Finalizing" },
 };
 const ACTIVE_STATUS_REFRESH_MS = 4_000;
-const ACTIVE_ADVANCE_MS = 8_000;
 
 function formatRunStatus(status: RunStatus | null) {
   if (!status) {
@@ -169,13 +168,12 @@ export function DigestRunPanel({ initialRun, retrySlot }: DigestRunPanelProps) {
       }
 
       setRun(payload.run);
-      await advanceRun();
     } catch (error) {
       setClientError(error instanceof Error ? error.message : "Could not start digest run.");
     } finally {
       setIsStarting(false);
     }
-  }, [advanceRun]);
+  }, []);
 
   const resetRun = useCallback(async () => {
     setIsResetting(true);
@@ -215,30 +213,33 @@ export function DigestRunPanel({ initialRun, retrySlot }: DigestRunPanelProps) {
       });
     };
 
-    const advanceIfVisible = () => {
+    const resumeIfVisible = () => {
       if (!tabIsVisible()) {
         return;
       }
 
+      refreshIfVisible();
       void advanceRun().catch((error) => {
         setClientError(error instanceof Error ? error.message : "Could not advance digest run.");
       });
     };
 
-    advanceIfVisible();
-    refreshIfVisible();
+    resumeIfVisible();
 
     const refreshTimer = window.setInterval(refreshIfVisible, ACTIVE_STATUS_REFRESH_MS);
-    const advanceTimer = window.setInterval(advanceIfVisible, ACTIVE_ADVANCE_MS);
+    document.addEventListener("visibilitychange", resumeIfVisible);
 
     return () => {
       window.clearInterval(refreshTimer);
-      window.clearInterval(advanceTimer);
+      document.removeEventListener("visibilitychange", resumeIfVisible);
     };
   }, [active, advanceRun, isResetting, isStarting, refreshRun]);
 
   return (
-    <section className="overflow-hidden border-y py-4" aria-label="Digest run">
+    <section
+      className="overflow-hidden rounded-2xl border bg-gradient-to-br from-card via-card to-primary/5 p-4 shadow-sm sm:p-5"
+      aria-label="Digest run"
+    >
       <div className="grid gap-4 sm:grid-cols-[1fr_auto] sm:items-start">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
@@ -247,6 +248,12 @@ export function DigestRunPanel({ initialRun, retrySlot }: DigestRunPanelProps) {
             <Badge variant={run?.status === "failed" ? "destructive" : active ? "secondary" : "outline"}>
               {formatRunStatus(run?.status ?? null)}
             </Badge>
+            {run ? (
+              <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                <CalendarDays className="size-3.5" aria-hidden="true" />
+                {run.report_date}
+              </span>
+            ) : null}
           </div>
 
           <div className="mt-3 grid gap-3">
@@ -254,8 +261,8 @@ export function DigestRunPanel({ initialRun, retrySlot }: DigestRunPanelProps) {
               <p className="text-sm font-medium">
                 {currentCopy ? currentCopy.verb : "Ready for today"}
               </p>
-              <span className="text-xs tabular-nums text-muted-foreground">
-                {`${completedStageCount}/${displayStages.length} stages`}
+              <span className="text-xs font-medium tabular-nums text-muted-foreground">
+                {`${progress}% · ${completedStageCount}/${displayStages.length} stages`}
               </span>
             </div>
 
@@ -269,7 +276,7 @@ export function DigestRunPanel({ initialRun, retrySlot }: DigestRunPanelProps) {
               ) : null}
             </div>
 
-            <div className="grid grid-cols-4 gap-2 sm:grid-cols-7">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7">
               {displayStages.map((stage) => {
                 const copy = stageCopy(stage.stage_name);
                 const isCurrent = currentStage?.id === stage.id;
@@ -280,7 +287,7 @@ export function DigestRunPanel({ initialRun, retrySlot }: DigestRunPanelProps) {
                   <div
                     key={stage.id}
                     className={cn(
-                      "flex min-h-16 flex-col justify-between rounded-lg border bg-card px-2 py-2 transition-colors",
+                      "flex min-h-16 flex-col justify-between rounded-xl border bg-background/70 px-2.5 py-2.5 transition-colors",
                       isCurrent && active && "border-primary/50 bg-accent",
                       isDone && "border-primary/20",
                       isFailed && "border-destructive/30 bg-destructive/5",

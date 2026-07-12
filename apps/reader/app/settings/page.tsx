@@ -1,4 +1,4 @@
-import { ArrowLeft, ChevronLeft, ChevronRight, Plus, Save, SlidersHorizontal } from "lucide-react";
+import { ArrowLeft, Plus, Save } from "lucide-react";
 import Link from "next/link";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -39,9 +39,9 @@ const STATUS_COPY = {
 const SUCCESS_STATUSES = new Set(["saved", "source-preset-saved", "source-saved", "sources-saved"]);
 const PRESET_CARD_CLASS =
   "h-auto min-h-20 w-full flex-col items-start gap-1 whitespace-normal px-3 py-2 text-left";
-const SECTION_CARD_CLASS = "rounded-none bg-transparent py-0 ring-0";
-const SECTION_HEADER_CLASS = "px-0";
-const SECTION_CONTENT_CLASS = "px-0";
+const SECTION_CARD_CLASS = "border-border/70 bg-card/70 shadow-sm ring-0";
+const SECTION_HEADER_CLASS = "border-b border-border/60";
+const SECTION_CONTENT_CLASS = "pt-1";
 
 const DIGEST_PRESETS = [
   {
@@ -376,6 +376,9 @@ function NumberField({
 function HiddenDigestAdvancedFields({ settings }: { settings: ReaderDigestSettings }) {
   return (
     <>
+      <input type="hidden" name="freshnessWindowHours" value={settings.freshnessWindowHours} />
+      <input type="hidden" name="minimumSourceCount" value={settings.minimumSourceCount} />
+      <input type="hidden" name="maxStoriesPerSource" value={settings.maxStoriesPerSource} />
       <input type="hidden" name="summaryMaxChars" value={settings.summaryMaxChars} />
       <input type="hidden" name="useAiSummaries" value={settings.useAiSummaries ? "on" : "off"} />
     </>
@@ -523,23 +526,24 @@ function DigestPresetLinks({
 
 function SourcePresetControls({ activeSourceFeed }: { activeSourceFeed: SourceFeedId }) {
   return (
-    <div className="grid gap-2 lg:grid-cols-5">
-      {SOURCE_PRESETS.map((preset) => (
-        <form key={preset.id} action={saveReaderSourcePreset}>
-          <input type="hidden" name="sourcePreset" value={preset.id} />
-          <input type="hidden" name="sourceFeed" value={activeSourceFeed} />
-          <input type="hidden" name="settingsTab" value="sources" />
-          <Button
-            type="submit"
-            variant="outline"
-            className={PRESET_CARD_CLASS}
-          >
-            <span className="font-semibold">{preset.label}</span>
-            <span className="text-xs font-normal text-muted-foreground">{preset.description}</span>
-          </Button>
-        </form>
-      ))}
-    </div>
+    <form action={saveReaderSourcePreset} className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
+      <input type="hidden" name="sourceFeed" value={activeSourceFeed} />
+      <input type="hidden" name="settingsTab" value="sources" />
+      <div className="grid gap-2">
+        <Label htmlFor="sourcePreset">Preset</Label>
+        <select
+          id="sourcePreset"
+          name="sourcePreset"
+          className="h-9 w-full rounded-lg border border-input bg-transparent px-3 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"
+          defaultValue="essentials"
+        >
+          {SOURCE_PRESETS.map((preset) => (
+            <option key={preset.id} value={preset.id}>{preset.label}</option>
+          ))}
+        </select>
+      </div>
+      <Button type="submit" variant="outline">Apply preset</Button>
+    </form>
   );
 }
 
@@ -554,14 +558,6 @@ function SourceTabs({
   activePreset: DigestPresetId | null;
   groups: SourceGroup[];
 }) {
-  const activeIndex = Math.max(
-    0,
-    SOURCE_FEEDS.findIndex((feed) => feed.id === activeFeed),
-  );
-  const activeSourceFeed = SOURCE_FEEDS[activeIndex] ?? SOURCE_FEEDS[0];
-  const previousSourceFeed = SOURCE_FEEDS[(activeIndex - 1 + SOURCE_FEEDS.length) % SOURCE_FEEDS.length];
-  const nextSourceFeed = SOURCE_FEEDS[(activeIndex + 1) % SOURCE_FEEDS.length];
-  const count = sourceTabCount(groups, activeSourceFeed.id);
   const sharedHrefParams = {
     avoidKeywordGroups: activeKeywordGroups.avoid,
     preferKeywordGroups: activeKeywordGroups.prefer,
@@ -570,38 +566,29 @@ function SourceTabs({
   };
 
   return (
-    <nav className="flex items-center gap-2 rounded-lg border bg-muted/30 p-2" aria-label="Source groups">
-      <Link
-        className={buttonVariants({ variant: "outline", size: "icon-lg" })}
-        href={settingsHref({
-          ...sharedHrefParams,
-          sourceFeed: previousSourceFeed.id,
-        })}
-        scroll={false}
-        title={`Show ${previousSourceFeed.label}`}
-        aria-label={`Show ${previousSourceFeed.label}`}
-      >
-        <ChevronLeft aria-hidden="true" />
-      </Link>
-      <div className="grid min-w-0 flex-1 justify-items-center gap-1 px-2 text-center">
-        <span className="text-xs font-medium uppercase tracking-normal text-muted-foreground">Current category</span>
-        <span className="truncate text-base font-semibold leading-tight">{activeSourceFeed.label}</span>
-        <Badge variant="outline">
-          {count.enabled}/{count.sources} enabled
-        </Badge>
-      </div>
-      <Link
-        className={buttonVariants({ variant: "outline", size: "icon-lg" })}
-        href={settingsHref({
-          ...sharedHrefParams,
-          sourceFeed: nextSourceFeed.id,
-        })}
-        scroll={false}
-        title={`Show ${nextSourceFeed.label}`}
-        aria-label={`Show ${nextSourceFeed.label}`}
-      >
-        <ChevronRight aria-hidden="true" />
-      </Link>
+    <nav className="grid grid-cols-2 gap-2 lg:grid-cols-5" aria-label="Source categories">
+      {SOURCE_FEEDS.map((feed) => {
+        const active = feed.id === activeFeed;
+        const count = sourceTabCount(groups, feed.id);
+
+        return (
+          <Link
+            key={feed.id}
+            className={cn(
+              "grid min-h-16 content-center gap-1 rounded-xl border px-3 py-2 text-left transition-colors",
+              active
+                ? "border-primary/40 bg-primary/10 text-foreground shadow-sm"
+                : "bg-background/60 text-muted-foreground hover:bg-muted/50 hover:text-foreground",
+            )}
+            href={settingsHref({ ...sharedHrefParams, sourceFeed: feed.id })}
+            scroll={false}
+            aria-current={active ? "page" : undefined}
+          >
+            <span className="truncate text-sm font-semibold">{feed.label}</span>
+            <span className="text-xs tabular-nums">{count.enabled} of {count.sources} active</span>
+          </Link>
+        );
+      })}
     </nav>
   );
 }
@@ -648,17 +635,17 @@ function SettingsTabs({
 
 function SourceEditor({ fieldNamePrefix, source }: { fieldNamePrefix: string; source: ReaderSource }) {
   return (
-    <details className="group rounded-lg border bg-card">
-      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2 [&::-webkit-details-marker]:hidden">
+    <details className="group rounded-xl border bg-background/70 transition-colors open:bg-background">
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-3 [&::-webkit-details-marker]:hidden">
         <div className="min-w-0">
           <h3 className="truncate text-sm font-semibold">{source.name}</h3>
           <p className="truncate text-xs text-muted-foreground">{source.category}</p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
           <SourceEnabledToggle defaultEnabled={source.enabled} name={sourceFieldName("enabled", fieldNamePrefix)} />
-          <Badge variant="outline">P{source.priority}</Badge>
-          <span className="text-xs text-muted-foreground group-open:hidden">Edit</span>
-          <span className="hidden text-xs text-muted-foreground group-open:inline">Close</span>
+          <Badge variant="outline" className="hidden sm:inline-flex">Priority {source.priority}</Badge>
+          <span className="w-12 text-right text-xs font-medium text-muted-foreground group-open:hidden">Edit</span>
+          <span className="hidden w-12 text-right text-xs font-medium text-muted-foreground group-open:inline">Close</span>
         </div>
       </summary>
       <div className="grid gap-3 border-t p-3">
@@ -870,8 +857,44 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
 
           <Card className={SECTION_CARD_CLASS}>
             <CardHeader className={SECTION_HEADER_CLASS}>
-              <CardTitle>Advanced settings</CardTitle>
-              <CardDescription>Fine tune summary length and AI-generated short summaries.</CardDescription>
+              <CardTitle>Quality controls</CardTitle>
+              <CardDescription>Trade breadth for fresher, better-confirmed, and more diverse stories.</CardDescription>
+            </CardHeader>
+            <CardContent className={cn(SECTION_CONTENT_CLASS, "grid gap-4")}>
+              <div className="grid gap-4 sm:grid-cols-3">
+                <NumberField
+                  name="freshnessWindowHours"
+                  label="Freshness window (hours)"
+                  min={6}
+                  max={336}
+                  defaultValue={settings.freshnessWindowHours}
+                />
+                <NumberField
+                  name="minimumSourceCount"
+                  label="Minimum source matches"
+                  min={1}
+                  max={10}
+                  defaultValue={settings.minimumSourceCount}
+                />
+                <NumberField
+                  name="maxStoriesPerSource"
+                  label="Stories per source"
+                  min={1}
+                  max={20}
+                  defaultValue={settings.maxStoriesPerSource}
+                />
+              </div>
+              <p className="rounded-lg border bg-muted/30 px-3 py-2 text-xs leading-relaxed text-muted-foreground">
+                A 48–72 hour window and one source match work well for speed. Raise source matches to 2 for a stricter,
+                better-confirmed digest; the per-source limit prevents one publisher from dominating the result.
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card className={SECTION_CARD_CLASS}>
+            <CardHeader className={SECTION_HEADER_CLASS}>
+              <CardTitle>Summary generation</CardTitle>
+              <CardDescription>Fine tune fast-read length and AI-generated short summaries.</CardDescription>
             </CardHeader>
             <CardContent className={cn(SECTION_CONTENT_CLASS, "grid gap-4")}>
               <NumberField name="summaryMaxChars" label="Fast-read length" min={180} max={5000} defaultValue={settings.summaryMaxChars} />
@@ -910,19 +933,11 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
               <Badge variant="outline">{SOURCE_FEEDS.find((feed) => feed.id === activeSourceFeed)?.label}</Badge>
             </div>
           </CardHeader>
-          <CardContent className={cn(SECTION_CONTENT_CLASS, "grid gap-4")}>
-            <section className="grid gap-2">
+          <CardContent className={cn(SECTION_CONTENT_CLASS, "grid gap-5")}>
+            <section className="grid gap-3">
               <div>
-                <h2 className="text-sm font-semibold">Source presets</h2>
-                <p className="mt-1 text-xs text-muted-foreground">Apply a curated source set before editing individual feeds.</p>
-              </div>
-              <SourcePresetControls activeSourceFeed={activeSourceFeed} />
-            </section>
-
-            <section className="grid gap-2">
-              <div>
-                <h2 className="text-sm font-semibold">Source groups</h2>
-                <p className="mt-1 text-xs text-muted-foreground">Move between feed categories.</p>
+                <h2 className="text-sm font-semibold">Choose a category</h2>
+                <p className="mt-1 text-xs text-muted-foreground">See every category at once and switch directly.</p>
               </div>
               <SourceTabs
                 activeFeed={activeSourceFeed}
@@ -932,27 +947,6 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
               />
             </section>
 
-            <section className="grid gap-2">
-              <h2 className="text-sm font-semibold">Add source</h2>
-              <details className="rounded-lg border bg-muted/20">
-                <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 [&::-webkit-details-marker]:hidden">
-                  <Plus className="size-4 text-primary" aria-hidden="true" />
-                  <span className="text-sm font-semibold">Custom RSS feed</span>
-                </summary>
-                <form action={saveReaderSource} className="grid gap-3 border-t p-3">
-                  <input type="hidden" name="sourceFeed" value={activeSourceFeed} />
-                  <input type="hidden" name="settingsTab" value="sources" />
-                  <SourceFields />
-                  <div className="flex justify-end">
-                    <Button type="submit" size="lg">
-                      <Plus aria-hidden="true" />
-                      Add source
-                    </Button>
-                  </div>
-                </form>
-              </details>
-            </section>
-
             <form action={saveReaderSources} className="grid gap-3">
               <input type="hidden" name="sourceFeed" value={activeSourceFeed} />
               <input type="hidden" name="settingsTab" value="sources" />
@@ -960,21 +954,16 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
               <section className="grid gap-3">
                 <div className="flex flex-wrap items-end justify-between gap-3">
                   <div>
-                    <h2 className="text-sm font-semibold">Source list</h2>
-                    <p className="mt-1 text-xs text-muted-foreground">Open rows to edit URLs, categories, priorities, or enabled states.</p>
+                    <h2 className="text-sm font-semibold">
+                      {SOURCE_FEEDS.find((feed) => feed.id === activeSourceFeed)?.label}
+                    </h2>
+                    <p className="mt-1 text-xs text-muted-foreground">Toggle sources now. Open Edit only when you need URL or priority settings.</p>
                   </div>
                 </div>
-                <div className="grid gap-5">
+                <div className="grid gap-3">
                   {shownSourceGroups.map((group) =>
                     group.sources.length ? (
                       <section key={group.id} className="grid gap-2">
-                        <div className="flex items-center justify-between gap-3">
-                          <h2 className="text-sm font-semibold">{group.label}</h2>
-                          <Badge variant="outline">
-                            {group.enabledCount}/{group.sources.length}
-                          </Badge>
-                        </div>
-
                         <div className="grid gap-2">
                           {group.sources.map((source) => {
                             const fieldNamePrefix = `sources.${sourceFieldIndex}`;
@@ -989,18 +978,50 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
                 </div>
               </section>
 
-              <div className="flex justify-end">
+              <div className="sticky bottom-3 z-10 flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-background/95 px-3 py-3 shadow-lg backdrop-blur">
+                <p className="text-xs text-muted-foreground">Changes to switches and details are saved together.</p>
                 <Button type="submit" size="lg" disabled={!shownSourceCount}>
                   <Save aria-hidden="true" />
-                  Save sources
+                  Save {shownSourceCount} sources
                 </Button>
               </div>
             </form>
 
-            <div className="flex items-center gap-2 rounded-lg border bg-muted/20 px-3 py-2 text-sm text-muted-foreground">
-              <SlidersHorizontal className="size-4 shrink-0" aria-hidden="true" />
-              Source presets update the enabled feed set; individual rows remain editable afterward.
-            </div>
+            <section className="grid gap-2 border-t pt-5">
+              <h2 className="text-sm font-semibold">Optional tools</h2>
+              <div className="grid gap-2 lg:grid-cols-2">
+                <details className="rounded-xl border bg-muted/20">
+                  <summary className="cursor-pointer list-none px-3 py-3 text-sm font-semibold [&::-webkit-details-marker]:hidden">
+                    Start from a preset
+                    <span className="mt-1 block text-xs font-normal text-muted-foreground">Replace active choices across all categories.</span>
+                  </summary>
+                  <div className="border-t p-3">
+                    <SourcePresetControls activeSourceFeed={activeSourceFeed} />
+                  </div>
+                </details>
+
+                <details className="rounded-xl border bg-muted/20">
+                  <summary className="flex cursor-pointer list-none items-start gap-2 px-3 py-3 [&::-webkit-details-marker]:hidden">
+                    <Plus className="mt-0.5 size-4 text-primary" aria-hidden="true" />
+                    <span className="text-sm font-semibold">
+                      Add custom RSS feed
+                      <span className="mt-1 block text-xs font-normal text-muted-foreground">Use a feed that is not in the curated catalog.</span>
+                    </span>
+                  </summary>
+                  <form action={saveReaderSource} className="grid gap-3 border-t p-3">
+                    <input type="hidden" name="sourceFeed" value={activeSourceFeed} />
+                    <input type="hidden" name="settingsTab" value="sources" />
+                    <SourceFields />
+                    <div className="flex justify-end">
+                      <Button type="submit" size="lg">
+                        <Plus aria-hidden="true" />
+                        Add source
+                      </Button>
+                    </div>
+                  </form>
+                </details>
+              </div>
+            </section>
           </CardContent>
         </Card>
       ) : null}
