@@ -3,7 +3,11 @@ import "server-only";
 import type { Database, Json } from "./database.types";
 import { createSupabaseAdminClient } from "./supabase";
 import { cleanArticleSummary, plainTextFromHtml } from "./text";
-import { isReaderFeedbackSchemaError, type FeedbackSentiment } from "./reader-feedback";
+import {
+  isReaderFeedbackSchemaError,
+  type FeedbackReason,
+  type FeedbackSentiment,
+} from "./reader-feedback";
 
 export type NewsItemPreview = {
   clickIf: string;
@@ -12,8 +16,24 @@ export type NewsItemPreview = {
   whyItMatters: string;
 };
 
+export type NewsSourceVariant = {
+  articleId: string;
+  name: string;
+  priority: number;
+  publishedAt: string | null;
+  url: string;
+};
+
+export type StoryUpdate = {
+  changedFields: string[];
+  createdAt: string;
+  digestRunId: string;
+  snapshot: Record<string, Json | undefined>;
+};
+
 export type NewsItemWithState = {
   id: string;
+  storyClusterId: string | null;
   externalId: string;
   digestDate: string;
   title: string;
@@ -22,6 +42,17 @@ export type NewsItemWithState = {
   sourceUrl: string;
   category: string;
   importanceScore: number | null;
+  editorialScore: number;
+  selectionScore: number;
+  firstSelectedAt: string | null;
+  lastSelectedAt: string | null;
+  lastMaterialChangeAt: string | null;
+  changedFields: string[];
+  sourceCount: number;
+  sourceVariants: NewsSourceVariant[];
+  topicTags: string[];
+  entityTags: string[];
+  updateHistory: StoryUpdate[];
   practicalBucket: string | null;
   preview: NewsItemPreview | null;
   publishedAt: string | null;
@@ -31,6 +62,7 @@ export type NewsItemWithState = {
   archivedAt: string | null;
   scoreComponents: Record<string, string | number | boolean>;
   feedback: FeedbackSentiment | null;
+  feedbackReason: FeedbackReason | null;
   whyInteresting: string | null;
 };
 
@@ -45,6 +77,17 @@ type NewsItemRow = Pick<
   | "source_url"
   | "category"
   | "importance_score"
+  | "story_cluster_id"
+  | "editorial_score"
+  | "selection_score"
+  | "first_selected_at"
+  | "last_selected_at"
+  | "last_material_change_at"
+  | "changed_fields"
+  | "source_count"
+  | "source_variants"
+  | "topic_tags"
+  | "entity_tags"
   | "published_at"
   | "raw_payload"
 >;
@@ -54,7 +97,7 @@ type ReaderItemStateRow = Pick<
 >;
 
 const NEWS_ITEM_COLUMNS =
-  "id, external_id, digest_date, title, summary, source, source_url, category, importance_score, published_at, raw_payload";
+  "id, external_id, digest_date, title, summary, source, source_url, category, importance_score, story_cluster_id, editorial_score, selection_score, first_selected_at, last_selected_at, last_material_change_at, changed_fields, source_count, source_variants, topic_tags, entity_tags, published_at, raw_payload";
 
 function jsonRecord(value: Json | undefined): Record<string, Json | undefined> {
   return value && typeof value === "object" && !Array.isArray(value) ? value : {};
@@ -62,6 +105,25 @@ function jsonRecord(value: Json | undefined): Record<string, Json | undefined> {
 
 function jsonString(value: Json | undefined) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function jsonStringList(value: Json | undefined) {
+  return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : [];
+}
+
+function sourceVariantsFromJson(value: Json): NewsSourceVariant[] {
+  if (!Array.isArray(value)) return [];
+
+  return value.flatMap((entry) => {
+    const record = jsonRecord(entry);
+    const articleId = jsonString(record.articleId);
+    const name = jsonString(record.name);
+    const url = jsonString(record.url);
+    const priority = typeof record.priority === "number" ? record.priority : 0;
+    const publishedAt = jsonString(record.publishedAt);
+
+    return articleId && name && url ? [{ articleId, name, priority, publishedAt, url }] : [];
+  });
 }
 
 function scoreComponentsFromPayload(rawPayload: Json): Record<string, string | number | boolean> {
@@ -100,7 +162,8 @@ function previewFromPayload(rawPayload: Json): NewsItemPreview | null {
 function newsItemWithState(
   item: NewsItemRow,
   state: ReaderItemStateRow | null | undefined,
-  feedback: FeedbackSentiment | null,
+  feedback: { reason: FeedbackReason; sentiment: FeedbackSentiment } | null,
+  updateHistory: StoryUpdate[] = [],
 ): NewsItemWithState {
   const title = plainTextFromHtml(item.title);
   const rawPayload = jsonRecord(item.raw_payload);
@@ -108,6 +171,7 @@ function newsItemWithState(
 
   return {
     id: item.id,
+    storyClusterId: item.story_cluster_id,
     externalId: item.external_id,
     digestDate: item.digest_date,
     title,
@@ -116,6 +180,17 @@ function newsItemWithState(
     sourceUrl: item.source_url,
     category: item.category,
     importanceScore: item.importance_score,
+    editorialScore: item.editorial_score,
+    selectionScore: item.selection_score,
+    firstSelectedAt: item.first_selected_at,
+    lastSelectedAt: item.last_selected_at,
+    lastMaterialChangeAt: item.last_material_change_at,
+    changedFields: jsonStringList(item.changed_fields),
+    sourceCount: item.source_count,
+    sourceVariants: sourceVariantsFromJson(item.source_variants),
+    topicTags: jsonStringList(item.topic_tags),
+    entityTags: jsonStringList(item.entity_tags),
+    updateHistory,
     practicalBucket: preview?.practicalBucket ?? jsonString(rawPayload.practicalBucket),
     preview,
     publishedAt: item.published_at,
@@ -124,7 +199,8 @@ function newsItemWithState(
     savedAt: state?.saved_at ?? null,
     archivedAt: state?.archived_at ?? null,
     scoreComponents: scoreComponentsFromPayload(item.raw_payload),
-    feedback,
+    feedback: feedback?.sentiment ?? null,
+    feedbackReason: feedback?.reason ?? null,
     whyInteresting: jsonString(rawPayload.whyInteresting),
   };
 }
@@ -135,22 +211,24 @@ export async function getReaderNewsItems(userId: string): Promise<NewsItemWithSt
   const [
     { data: items, error: itemError },
     { data: states, error: stateError },
-    { data: feedback, error: feedbackError },
+    { data: storyFeedback, error: storyFeedbackError },
+    { data: legacyFeedback, error: legacyFeedbackError },
   ] = await Promise.all([
     supabase
       .from("news_items")
       .select(NEWS_ITEM_COLUMNS)
-      .order("published_at", { ascending: false, nullsFirst: false })
+      .order("last_selected_at", { ascending: false, nullsFirst: false })
       .order("digest_date", { ascending: false })
-      .limit(100),
+      .limit(500),
     supabase
       .from("reader_item_states")
       .select("news_item_id, read_at, saved_at, archived_at")
       .eq("user_id", userId),
     supabase
-      .from("reader_item_feedback")
-      .select("news_item_id, sentiment")
+      .from("reader_story_feedback")
+      .select("story_cluster_id, sentiment, reason")
       .eq("user_id", userId),
+    supabase.from("reader_item_feedback").select("news_item_id, sentiment").eq("user_id", userId),
   ]);
 
   if (itemError) {
@@ -159,16 +237,30 @@ export async function getReaderNewsItems(userId: string): Promise<NewsItemWithSt
   if (stateError) {
     throw stateError;
   }
-  if (feedbackError && !isReaderFeedbackSchemaError(feedbackError)) {
-    throw feedbackError;
-  }
+  if (storyFeedbackError && !isReaderFeedbackSchemaError(storyFeedbackError)) throw storyFeedbackError;
+  if (legacyFeedbackError && !isReaderFeedbackSchemaError(legacyFeedbackError)) throw legacyFeedbackError;
 
   const statesByItemId = new Map((states || []).map((state) => [state.news_item_id, state]));
-  const feedbackByItemId = new Map(feedbackError ? [] : (feedback || []).map((row) => [row.news_item_id, row.sentiment]));
+  const storyFeedbackByClusterId = new Map(
+    storyFeedbackError ? [] : (storyFeedback || []).map((row) => [row.story_cluster_id, row]),
+  );
+  const legacyFeedbackByItemId = new Map(
+    legacyFeedbackError ? [] : (legacyFeedback || []).map((row) => [row.news_item_id, row.sentiment]),
+  );
 
   return (items || []).map((item) => {
     const state = statesByItemId.get(item.id);
-    return newsItemWithState(item, state, feedbackByItemId.get(item.id) ?? null);
+    const durableFeedback = item.story_cluster_id ? storyFeedbackByClusterId.get(item.story_cluster_id) : null;
+    const legacySentiment = legacyFeedbackByItemId.get(item.id);
+    return newsItemWithState(
+      item,
+      state,
+      durableFeedback
+        ? { reason: durableFeedback.reason, sentiment: durableFeedback.sentiment }
+        : legacySentiment
+          ? { reason: "topic", sentiment: legacySentiment }
+          : null,
+    );
   });
 }
 
@@ -178,7 +270,7 @@ export async function getReaderNewsItem(itemId: string, userId: string): Promise
   const [
     { data: item, error: itemError },
     { data: state, error: stateError },
-    { data: feedback, error: feedbackError },
+    { data: legacyFeedback, error: legacyFeedbackError },
   ] = await Promise.all([
     supabase
       .from("news_items")
@@ -208,9 +300,40 @@ export async function getReaderNewsItem(itemId: string, userId: string): Promise
   if (stateError) {
     throw stateError;
   }
-  if (feedbackError && !isReaderFeedbackSchemaError(feedbackError)) {
-    throw feedbackError;
-  }
+  if (legacyFeedbackError && !isReaderFeedbackSchemaError(legacyFeedbackError)) throw legacyFeedbackError;
 
-  return newsItemWithState(item, state, feedbackError ? null : feedback?.sentiment ?? null);
+  const [{ data: storyFeedback, error: storyFeedbackError }, { data: updates, error: updatesError }] = item.story_cluster_id
+    ? await Promise.all([
+        supabase
+          .from("reader_story_feedback")
+          .select("story_cluster_id, sentiment, reason")
+          .eq("user_id", userId)
+          .eq("story_cluster_id", item.story_cluster_id)
+          .maybeSingle(),
+        supabase
+        .from("story_updates")
+        .select("digest_run_id, changed_fields, snapshot, created_at")
+        .eq("story_cluster_id", item.story_cluster_id)
+        .order("created_at", { ascending: false })
+        .limit(20),
+      ])
+    : [{ data: null, error: null }, { data: [], error: null }];
+
+  if (storyFeedbackError && !isReaderFeedbackSchemaError(storyFeedbackError)) throw storyFeedbackError;
+  if (updatesError && !isReaderFeedbackSchemaError(updatesError)) throw updatesError;
+
+  const updateHistory: StoryUpdate[] = (updates || []).map((update) => ({
+    changedFields: jsonStringList(update.changed_fields),
+    createdAt: update.created_at,
+    digestRunId: update.digest_run_id,
+    snapshot: jsonRecord(update.snapshot),
+  }));
+
+  const feedback = !storyFeedbackError && storyFeedback
+    ? { reason: storyFeedback.reason, sentiment: storyFeedback.sentiment }
+    : !legacyFeedbackError && legacyFeedback?.sentiment
+      ? { reason: "topic" as const, sentiment: legacyFeedback.sentiment }
+      : null;
+
+  return newsItemWithState(item, state, feedback, updateHistory);
 }

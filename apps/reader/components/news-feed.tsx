@@ -1,197 +1,261 @@
 "use client";
 
-import { CheckCheck, ChevronDown, EyeOff, Inbox } from "lucide-react";
+import { CheckCheck, ChevronDown, EyeOff, Inbox, Loader2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
-import { NewsCardSkeleton } from "@/components/news-card-skeleton";
-import { NewsItemCard } from "@/components/news-item-card";
+import { NewsFeedSection } from "@/components/news-feed-section";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { READER_FEEDS, readerFeedForCategory, type ReaderFeedId } from "@/lib/feed-categories";
-import {
-  filterReaderItems,
-  itemMatchesReaderView,
-  READER_VIEWS,
-  type ReaderViewId,
-} from "@/lib/reader-feed-filters";
-import type { NewsItemWithState } from "@/lib/news";
-import type { FeedbackSentiment } from "@/lib/reader-feedback";
+import { READER_FEEDS, type ReaderFeedId } from "@/lib/feed-categories";
+import type { ReaderFeedPage } from "@/lib/reader-feed";
+import { FEED_PERIODS, FEED_SORTS, type FeedPeriod, type FeedSort, type RankedNewsItem } from "@/lib/reader-feed-ranking";
+import { READER_VIEWS, type ReaderViewId } from "@/lib/reader-feed-filters";
+import type { FeedbackReason, FeedbackSentiment } from "@/lib/reader-feedback";
 import { cn } from "@/lib/utils";
 
 type NewsFeedProps = {
   briefingSlot?: ReactNode;
   digestSlot: ReactNode;
   initialFeed: ReaderFeedId;
-  initialItems: NewsItemWithState[];
+  initialPage: ReaderFeedPage;
+  initialPeriod: FeedPeriod;
+  initialSort: FeedSort;
   initialView: ReaderViewId;
 };
 
-const FEED_SWITCH_SKELETON_MS = 120;
+type FeedSelection = {
+  feed: ReaderFeedId;
+  period: FeedPeriod;
+  sort: FeedSort;
+  view: ReaderViewId;
+};
+
+const SORT_LABELS: Record<FeedSort, string> = {
+  "for-you": "For you",
+  latest: "Latest",
+  top: "Top",
+};
+
+const PERIOD_LABELS: Record<FeedPeriod, string> = {
+  history: "History",
+  latest: "Latest digest",
+  "since-visit": "Since last visit",
+};
+
+function pageItems(page: ReaderFeedPage) {
+  return [page.grouped.top, page.grouped.actionable, page.grouped.worthKnowing, page.grouped.more].flat();
+}
 
 async function apiBatchRead(itemIds: string[]) {
   return fetch("/api/news-items/state", {
     body: JSON.stringify({ action: "read", enabled: true, itemIds }),
-    headers: {
-      "Content-Type": "application/json",
-    },
+    headers: { "Content-Type": "application/json" },
     method: "PATCH",
   });
+}
+
+function sendEvents(events: Array<Record<string, unknown>>) {
+  if (!events.length) return Promise.resolve();
+  return fetch("/api/feed-events", {
+    body: JSON.stringify({ events }),
+    headers: { "Content-Type": "application/json" },
+    method: "POST",
+  }).then(() => undefined);
 }
 
 export function NewsFeed({
   briefingSlot,
   digestSlot,
   initialFeed,
-  initialItems,
+  initialPage,
+  initialPeriod,
+  initialSort,
   initialView,
 }: NewsFeedProps) {
-  const [activeFeed, setActiveFeed] = useState(initialFeed);
-  const [activeView, setActiveView] = useState(initialView);
+  const [selection, setSelection] = useState<FeedSelection>({
+    feed: initialFeed,
+    period: initialPeriod,
+    sort: initialSort,
+    view: initialView,
+  });
+  const [page, setPage] = useState(initialPage);
   const [openFilter, setOpenFilter] = useState<"feed" | "view" | null>(null);
-  const [items, setItems] = useState(initialItems);
-  const [isSwitchingFeed, setIsSwitchingFeed] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
   const [isMarkingRead, setIsMarkingRead] = useState(false);
-  const [batchError, setBatchError] = useState<string | null>(null);
-  const switchTimerRef = useRef<number | null>(null);
+  const [moreExpanded, setMoreExpanded] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
+  const sessionIdRef = useRef<string | null>(null);
+  const impressedItemIdsRef = useRef<Set<string>>(new Set());
+  const didRecordVisitRef = useRef(false);
+  const items = useMemo(() => pageItems(page), [page]);
+  const visibleUnreadItems = items.filter((item) => !item.readAt && !item.archivedAt);
 
   useEffect(() => {
-    setActiveFeed(initialFeed);
-    setActiveView(initialView);
-    setItems(initialItems);
-  }, [initialFeed, initialItems, initialView]);
-
-  const visibleItems = useMemo(() => filterReaderItems(items, activeFeed, activeView), [activeFeed, activeView, items]);
-  const feedCounts = useMemo(() => {
-    const viewItems = items.filter((item) => itemMatchesReaderView(item, activeView));
-    const counts = new Map(READER_FEEDS.map((feed) => [feed.id, feed.id === "all" ? viewItems.length : 0]));
-
-    for (const item of viewItems) {
-      const feed = readerFeedForCategory(item.category);
-      counts.set(feed, (counts.get(feed) || 0) + 1);
+    sessionIdRef.current ||= crypto.randomUUID();
+    if (!didRecordVisitRef.current) {
+      didRecordVisitRef.current = true;
+      void fetch("/api/reader/visit", { method: "POST" });
     }
 
-    return counts;
-  }, [activeView, items]);
-  const viewCounts = useMemo(() => {
-    const feedItems = items.filter((item) => activeFeed === "all" || readerFeedForCategory(item.category) === activeFeed);
+    if (!sessionIdRef.current) return;
+    const newImpressions = items.flatMap((item, rank) => {
+      if (impressedItemIdsRef.current.has(item.id)) return [];
+      impressedItemIdsRef.current.add(item.id);
+      return [{ item, rank }];
+    });
+    void sendEvents(
+      newImpressions.map(({ item, rank }) => ({
+        eventType: "impression",
+        feed: selection.feed,
+        newsItemId: item.id,
+        rank,
+        sessionId: sessionIdRef.current,
+        sortMode: selection.sort,
+        storyClusterId: item.storyClusterId,
+      })),
+    );
+  }, [items, selection.feed, selection.period, selection.sort]);
 
-    return new Map(READER_VIEWS.map((view) => [view.id, feedItems.filter((item) => itemMatchesReaderView(item, view.id)).length]));
-  }, [activeFeed, items]);
-  const visibleUnreadItems = visibleItems.filter((item) => !item.readAt);
+  useEffect(() => () => abortRef.current?.abort(), []);
 
-  useEffect(() => {
-    return () => {
-      if (switchTimerRef.current) {
-        window.clearTimeout(switchTimerRef.current);
-      }
-    };
-  }, []);
-
-  function scheduleSkeleton() {
-    setIsSwitchingFeed(true);
-
-    if (switchTimerRef.current) {
-      window.clearTimeout(switchTimerRef.current);
-    }
-
-    switchTimerRef.current = window.setTimeout(() => {
-      setIsSwitchingFeed(false);
-    }, FEED_SWITCH_SKELETON_MS);
-  }
-
-  function writeUrl(nextFeed: ReaderFeedId, nextView: ReaderViewId) {
+  function writeUrl(next: FeedSelection) {
     const params = new URLSearchParams();
-
-    if (nextFeed !== "all") {
-      params.set("feed", nextFeed);
-    }
-    if (nextView !== "all") {
-      params.set("view", nextView);
-    }
-
+    if (next.feed !== "all") params.set("feed", next.feed);
+    if (next.view !== "all") params.set("view", next.view);
+    if (next.sort !== "for-you") params.set("sort", next.sort);
+    if (next.period !== "latest") params.set("period", next.period);
     const query = params.toString();
     window.history.replaceState(null, "", query ? `/?${query}` : "/");
   }
 
-  function selectFeed(feedId: ReaderFeedId) {
-    setOpenFilter(null);
+  async function loadFeed(next: FeedSelection, cursor: string | null = null, append = false) {
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    setError(null);
+    setIsLoading(true);
 
-    if (feedId === activeFeed) {
-      return;
+    try {
+      const params = new URLSearchParams({
+        feed: next.feed,
+        period: next.period,
+        sort: next.sort,
+        view: next.view,
+      });
+      if (cursor) params.set("cursor", cursor);
+      if (initialPage.previousVisitAt) params.set("since", initialPage.previousVisitAt);
+      const response = await fetch(`/api/news-feed?${params}`, { signal: controller.signal });
+      const payload = (await response.json().catch(() => null)) as ReaderFeedPage & { error?: string };
+      if (!response.ok || !payload?.grouped) throw new Error(payload?.error || "Could not load the feed.");
+
+      if (append) {
+        const appendedItems = pageItems(payload);
+        setPage((current) => ({
+          ...payload,
+          grouped: { ...current.grouped, more: [...current.grouped.more, ...appendedItems] },
+        }));
+        setMoreExpanded(true);
+      } else {
+        setPage(payload);
+        setMoreExpanded(false);
+      }
+    } catch (loadError) {
+      if (loadError instanceof DOMException && loadError.name === "AbortError") return;
+      setError(loadError instanceof Error ? loadError.message : "Could not load the feed.");
+    } finally {
+      if (abortRef.current === controller) setIsLoading(false);
     }
-
-    setActiveFeed(feedId);
-    scheduleSkeleton();
-    writeUrl(feedId, activeView);
   }
 
-  function selectView(viewId: ReaderViewId) {
+  function changeSelection(patch: Partial<FeedSelection>) {
+    const next = { ...selection, ...patch };
+    setSelection(next);
     setOpenFilter(null);
-
-    if (viewId === activeView) {
-      return;
-    }
-
-    setActiveView(viewId);
-    scheduleSkeleton();
-    writeUrl(activeFeed, viewId);
+    writeUrl(next);
+    void loadFeed(next);
   }
 
-  function toggleHideRead() {
-    const nextView = activeView === "unread" ? "all" : "unread";
+  function updateItem(itemId: string, updater: (item: RankedNewsItem) => RankedNewsItem) {
+    setPage((current) => ({
+      ...current,
+      grouped: Object.fromEntries(
+        Object.entries(current.grouped).map(([key, group]) => [
+          key,
+          group.map((item) => (item.id === itemId ? updater(item) : item)),
+        ]),
+      ) as ReaderFeedPage["grouped"],
+    }));
+  }
 
-    setActiveView(nextView);
-    scheduleSkeleton();
-    writeUrl(activeFeed, nextView);
+  function trackInteraction(eventType: string, item: RankedNewsItem, rank: number, metadata?: Record<string, unknown>) {
+    if (!sessionIdRef.current) return;
+    void sendEvents([{
+      eventType,
+      feed: selection.feed,
+      metadata,
+      newsItemId: item.id,
+      rank,
+      sessionId: sessionIdRef.current,
+      sortMode: selection.sort,
+      storyClusterId: item.storyClusterId,
+    }]);
   }
 
   function updateItemState(
     itemId: string,
-    state: Pick<NewsItemWithState, "archivedAt" | "readAt" | "savedAt">,
+    state: Pick<RankedNewsItem, "archivedAt" | "readAt" | "savedAt">,
   ) {
-    setItems((currentItems) =>
-      currentItems.map((item) => (item.id === itemId ? { ...item, ...state } : item)),
-    );
+    const previous = items.find((item) => item.id === itemId);
+    updateItem(itemId, (item) => ({ ...item, ...state }));
+    if (!previous || !sessionIdRef.current) return;
+    const eventType = !previous.savedAt && state.savedAt
+      ? "save"
+      : !previous.readAt && state.readAt
+        ? "read"
+        : !previous.archivedAt && state.archivedAt
+          ? "archive"
+          : null;
+    if (eventType) trackInteraction(eventType, previous, items.indexOf(previous));
   }
 
-  function updateFeedback(itemId: string, feedback: FeedbackSentiment | null) {
-    setItems((currentItems) => currentItems.map((item) => (item.id === itemId ? { ...item, feedback } : item)));
+  function updateFeedback(
+    itemId: string,
+    feedback: FeedbackSentiment | null,
+    reason: FeedbackReason | null,
+  ) {
+    const previous = items.find((item) => item.id === itemId);
+    updateItem(itemId, (item) => ({ ...item, feedback, feedbackReason: reason }));
+    if (previous) trackInteraction("feedback", previous, items.indexOf(previous), { feedback, reason });
   }
 
   async function markVisibleAsRead() {
-    if (isMarkingRead || !visibleUnreadItems.length) {
-      return;
-    }
-
-    const itemIds = visibleUnreadItems.map((item) => item.id);
-    const itemIdSet = new Set(itemIds);
-    const previousItems = items;
+    if (isMarkingRead || !visibleUnreadItems.length) return;
+    const previousPage = page;
     const readAt = new Date().toISOString();
-
-    setBatchError(null);
     setIsMarkingRead(true);
-    setItems((currentItems) =>
-      currentItems.map((item) => (itemIdSet.has(item.id) ? { ...item, readAt: item.readAt ?? readAt } : item)),
-    );
+    setError(null);
+    for (const item of visibleUnreadItems) updateItem(item.id, (current) => ({ ...current, readAt }));
 
     try {
-      const response = await apiBatchRead(itemIds);
-      const payload = (await response.json().catch(() => null)) as { ok?: boolean; error?: string } | null;
-
-      if (!response.ok || !payload?.ok) {
-        throw new Error(payload?.error || "Could not mark items read.");
-      }
-    } catch (error) {
-      setItems(previousItems);
-      setBatchError(error instanceof Error ? error.message : "Could not mark items read.");
+      const response = await apiBatchRead(visibleUnreadItems.map((item) => item.id));
+      const payload = (await response.json().catch(() => null)) as { error?: string; ok?: boolean } | null;
+      if (!response.ok || !payload?.ok) throw new Error(payload?.error || "Could not mark items read.");
+      visibleUnreadItems.forEach((item) => trackInteraction("read", item, items.indexOf(item)));
+    } catch (markError) {
+      setPage(previousPage);
+      setError(markError instanceof Error ? markError.message : "Could not mark items read.");
     } finally {
       setIsMarkingRead(false);
     }
   }
 
-  const skeletonCount = Math.min(Math.max(visibleItems.length, 1), 3);
-  const activeFeedOption = READER_FEEDS.find((feed) => feed.id === activeFeed) ?? READER_FEEDS[0];
-  const activeViewOption = READER_VIEWS.find((view) => view.id === activeView) ?? READER_VIEWS[0];
+  const activeFeed = READER_FEEDS.find((feed) => feed.id === selection.feed) || READER_FEEDS[0];
+  const activeView = READER_VIEWS.find((view) => view.id === selection.view) || READER_VIEWS[0];
+  const moreItems = moreExpanded ? page.grouped.more : [];
+  const actionableOffset = page.grouped.top.length;
+  const worthOffset = actionableOffset + page.grouped.actionable.length;
+  const moreOffset = worthOffset + page.grouped.worthKnowing.length;
 
   return (
     <>
@@ -199,135 +263,83 @@ export function NewsFeed({
       {digestSlot}
 
       <section className="grid gap-2 border-y py-2" aria-label="Reading controls">
+        <div className="grid grid-cols-3 gap-1.5" aria-label="Feed ranking">
+          {FEED_SORTS.map((sort) => (
+            <Button key={sort} type="button" size="sm" variant={selection.sort === sort ? "default" : "outline"} onClick={() => changeSelection({ sort })}>
+              {SORT_LABELS[sort]}
+            </Button>
+          ))}
+        </div>
+
         <div className="grid grid-cols-2 gap-1.5">
-          <Button
-            type="button"
-            variant={openFilter === "feed" ? "secondary" : "outline"}
-            size="sm"
-            className="h-8 min-w-0 justify-between gap-2 px-2.5"
-            aria-expanded={openFilter === "feed"}
-            onClick={() => setOpenFilter((current) => (current === "feed" ? null : "feed"))}
-          >
-            <span className="truncate">{activeFeedOption.label}</span>
-            <span className="flex items-center gap-1 tabular-nums opacity-80">
-              {feedCounts.get(activeFeed) || 0}
-              <ChevronDown className={cn("size-3 transition-transform", openFilter === "feed" && "rotate-180")} aria-hidden="true" />
-            </span>
+          <Button type="button" variant={openFilter === "feed" ? "secondary" : "outline"} size="sm" className="min-w-0 justify-between" aria-expanded={openFilter === "feed"} onClick={() => setOpenFilter((value) => value === "feed" ? null : "feed")}>
+            <span className="truncate">{activeFeed.label}</span>
+            <span className="flex items-center gap-1 tabular-nums">{page.feedCounts[selection.feed] || 0}<ChevronDown className="size-3" aria-hidden="true" /></span>
           </Button>
-          <Button
-            type="button"
-            variant={openFilter === "view" ? "secondary" : "outline"}
-            size="sm"
-            className="h-8 min-w-0 justify-between gap-2 px-2.5"
-            aria-expanded={openFilter === "view"}
-            onClick={() => setOpenFilter((current) => (current === "view" ? null : "view"))}
-          >
-            <span className="truncate">{activeViewOption.label}</span>
-            <span className="flex items-center gap-1 tabular-nums opacity-80">
-              {viewCounts.get(activeView) || 0}
-              <ChevronDown className={cn("size-3 transition-transform", openFilter === "view" && "rotate-180")} aria-hidden="true" />
-            </span>
+          <Button type="button" variant={openFilter === "view" ? "secondary" : "outline"} size="sm" className="min-w-0 justify-between" aria-expanded={openFilter === "view"} onClick={() => setOpenFilter((value) => value === "view" ? null : "view")}>
+            <span className="truncate">{activeView.label}</span>
+            <span className="flex items-center gap-1 tabular-nums">{page.viewCounts[selection.view] || 0}<ChevronDown className="size-3" aria-hidden="true" /></span>
           </Button>
         </div>
 
         {openFilter === "feed" ? (
           <nav className="grid grid-cols-2 gap-1.5 rounded-lg bg-muted/20 p-1" aria-label="Category feeds">
-            {READER_FEEDS.map((feed) => {
-              const isActive = feed.id === activeFeed;
-
-              return (
-                <Button
-                  key={feed.id}
-                  variant={isActive ? "default" : "ghost"}
-                  size="sm"
-                  type="button"
-                  className={cn("h-7 min-w-0 justify-between gap-2 px-2", !isActive && "text-muted-foreground")}
-                  aria-current={isActive ? "page" : undefined}
-                  onClick={() => selectFeed(feed.id)}
-                >
-                  <span className="truncate">{feed.label}</span>
-                  <span className="tabular-nums opacity-75">{feedCounts.get(feed.id) || 0}</span>
-                </Button>
-              );
-            })}
+            {READER_FEEDS.map((feed) => (
+              <Button key={feed.id} type="button" size="sm" variant={selection.feed === feed.id ? "default" : "ghost"} className="justify-between" onClick={() => changeSelection({ feed: feed.id })}>
+                <span>{feed.label}</span><span className="tabular-nums opacity-70">{page.feedCounts[feed.id] || 0}</span>
+              </Button>
+            ))}
           </nav>
         ) : null}
 
         {openFilter === "view" ? (
           <div className="grid grid-cols-2 gap-1.5 rounded-lg bg-muted/20 p-1" aria-label="Item filters">
-            {READER_VIEWS.map((view) => {
-              const isActive = view.id === activeView;
-
-              return (
-                <Button
-                  key={view.id}
-                  variant={isActive ? "default" : "ghost"}
-                  size="sm"
-                  type="button"
-                  className={cn("h-7 min-w-0 justify-between gap-2 px-2", !isActive && "text-muted-foreground")}
-                  aria-current={isActive ? "page" : undefined}
-                  onClick={() => selectView(view.id)}
-                >
-                  <span className="truncate">{view.label}</span>
-                  <span className="tabular-nums opacity-80">{viewCounts.get(view.id) || 0}</span>
-                </Button>
-              );
-            })}
+            {READER_VIEWS.map((view) => (
+              <Button key={view.id} type="button" size="sm" variant={selection.view === view.id ? "default" : "ghost"} className="justify-between" onClick={() => changeSelection({ view: view.id })}>
+                <span>{view.label}</span><span className="tabular-nums opacity-70">{page.viewCounts[view.id] || 0}</span>
+              </Button>
+            ))}
           </div>
         ) : null}
 
-        <div className="flex flex-wrap items-center gap-1.5">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="h-7"
-              disabled={isMarkingRead || !visibleUnreadItems.length}
-              onClick={() => void markVisibleAsRead()}
-            >
-              <CheckCheck aria-hidden="true" />
-              Mark read
+        <div className="flex flex-wrap gap-1.5" aria-label="Feed period">
+          {FEED_PERIODS.map((period) => (
+            <Button key={period} type="button" size="sm" variant={selection.period === period ? "secondary" : "ghost"} onClick={() => changeSelection({ period })}>
+              {PERIOD_LABELS[period]}
             </Button>
-            <Button
-              type="button"
-              variant={activeView === "unread" ? "secondary" : "outline"}
-              size="sm"
-              className="h-7"
-              onClick={toggleHideRead}
-            >
-              <EyeOff aria-hidden="true" />
-              Hide read
-            </Button>
+          ))}
         </div>
-        {batchError ? <span className="text-xs text-destructive">{batchError}</span> : null}
+
+        <div className="flex flex-wrap items-center gap-1.5">
+          <Button type="button" variant="outline" size="sm" disabled={isMarkingRead || !visibleUnreadItems.length} onClick={() => void markVisibleAsRead()}>
+            {isMarkingRead ? <Loader2 className="animate-spin" aria-hidden="true" /> : <CheckCheck aria-hidden="true" />} Mark read
+          </Button>
+          <Button type="button" variant={selection.view === "unread" ? "secondary" : "outline"} size="sm" onClick={() => changeSelection({ view: selection.view === "unread" ? "all" : "unread" })}>
+            <EyeOff aria-hidden="true" /> Hide read
+          </Button>
+          {isLoading ? <span className="text-xs text-muted-foreground" role="status">Updating…</span> : null}
+        </div>
+        {error ? <span className="text-xs text-destructive" role="alert">{error}</span> : null}
       </section>
 
-      {isSwitchingFeed ? (
-        <section className="grid gap-2" aria-label="Loading selected feed">
-          {Array.from({ length: skeletonCount }).map((_, index) => (
-            <NewsCardSkeleton key={index} />
-          ))}
-        </section>
-      ) : visibleItems.length ? (
-        <section className="grid gap-2" aria-label="News feed">
-          {visibleItems.map((item, index) => (
-            <NewsItemCard
-              key={`${item.id}-${index}`}
-              density="compact"
-              item={item}
-              onFeedbackChange={updateFeedback}
-              onItemStateChange={updateItemState}
-            />
-          ))}
-        </section>
-      ) : (
-        <Card>
-          <CardContent className="flex items-center gap-3 text-muted-foreground">
-            <Inbox className="size-5" aria-hidden="true" />
-            <p className="text-sm">No items yet.</p>
-          </CardContent>
-        </Card>
-      )}
+      <div className={cn("grid gap-4 transition-opacity", isLoading && "pointer-events-none opacity-60")}>
+        {items.length ? (
+          <>
+            <NewsFeedSection label="Top stories" items={page.grouped.top} rankOffset={0} onFeedbackChange={updateFeedback} onItemStateChange={updateItemState} onFastRead={(item, rank) => trackInteraction("fast_read", item, rank)} onSourceOpen={(item, rank) => trackInteraction("source_open", item, rank)} />
+            <NewsFeedSection label="Act on this" items={page.grouped.actionable} rankOffset={actionableOffset} onFeedbackChange={updateFeedback} onItemStateChange={updateItemState} onFastRead={(item, rank) => trackInteraction("fast_read", item, rank)} onSourceOpen={(item, rank) => trackInteraction("source_open", item, rank)} />
+            <NewsFeedSection label="Worth knowing" items={page.grouped.worthKnowing} rankOffset={worthOffset} onFeedbackChange={updateFeedback} onItemStateChange={updateItemState} onFastRead={(item, rank) => trackInteraction("fast_read", item, rank)} onSourceOpen={(item, rank) => trackInteraction("source_open", item, rank)} />
+            {page.grouped.more.length ? (
+              <section className="grid gap-2">
+                <Button type="button" variant="outline" onClick={() => setMoreExpanded((value) => !value)}>{moreExpanded ? "Hide more stories" : `Show ${page.grouped.more.length} more stories`}</Button>
+                <NewsFeedSection label="More stories" items={moreItems} rankOffset={moreOffset} onFeedbackChange={updateFeedback} onItemStateChange={updateItemState} onFastRead={(item, rank) => trackInteraction("fast_read", item, rank)} onSourceOpen={(item, rank) => trackInteraction("source_open", item, rank)} />
+              </section>
+            ) : null}
+            {page.nextCursor ? <Button type="button" variant="outline" disabled={isLoading} onClick={() => void loadFeed(selection, page.nextCursor, true)}>Load more</Button> : null}
+          </>
+        ) : (
+          <Card><CardContent className="flex items-center gap-3 text-muted-foreground"><Inbox className="size-5" aria-hidden="true" /><p className="text-sm">No stories match this view.</p></CardContent></Card>
+        )}
+      </div>
     </>
   );
 }

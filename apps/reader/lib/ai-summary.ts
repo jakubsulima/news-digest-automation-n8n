@@ -12,7 +12,9 @@ type NvidiaChatResponse = {
 
 export type NvidiaArticlePreview = {
   clickIf: string;
+  entities: string[];
   practicalBucket: string;
+  topics: string[];
   whatHappened: string;
   whyItMatters: string;
 };
@@ -95,6 +97,19 @@ function requiredString(value: unknown) {
 
 function requiredArticleIndex(value: unknown, articleCount: number) {
   return typeof value === "number" && Number.isInteger(value) && value >= 0 && value < articleCount ? value : null;
+}
+
+function boundedStringArray(value: unknown) {
+  return Array.isArray(value)
+    ? Array.from(
+        new Set(
+          value.flatMap((entry) => {
+            const normalized = requiredString(entry);
+            return normalized ? [normalized] : [];
+          }),
+        ),
+      ).slice(0, 8)
+    : [];
 }
 
 export function fallbackDigestBrief(articles: DigestBriefArticle[]): NvidiaDigestBrief {
@@ -220,6 +235,8 @@ function parseStrictPreviewJson(content: string): NvidiaArticlePreview | null {
   const whyItMatters = requiredString(preview.whyItMatters);
   const clickIf = requiredString(preview.clickIf);
   const practicalBucket = requiredString(preview.practicalBucket);
+  const entities = boundedStringArray(preview.entities);
+  const topics = boundedStringArray(preview.topics);
 
   if (!whatHappened || !whyItMatters || !clickIf || !practicalBucket) {
     return null;
@@ -227,7 +244,9 @@ function parseStrictPreviewJson(content: string): NvidiaArticlePreview | null {
 
   return {
     clickIf,
+    entities,
     practicalBucket,
+    topics,
     whatHappened,
     whyItMatters,
   };
@@ -263,7 +282,7 @@ export async function previewArticleWithNvidia({
           },
           {
             role: "user",
-            content: `Title: ${title}\n\nSummary: ${summary}\n\nReturn exactly this JSON shape with short, plain-English strings:\n{"whatHappened":"","whyItMatters":"","clickIf":"","practicalBucket":""}`,
+            content: `Title: ${title}\n\nSummary: ${summary}\n\nReturn exactly this JSON shape with short, plain-English strings and at most 8 concise topics/entities:\n{"whatHappened":"","whyItMatters":"","clickIf":"","practicalBucket":"","topics":[],"entities":[]}`,
           },
         ],
         model: process.env.NVIDIA_MODEL || DEFAULT_NVIDIA_MODEL,

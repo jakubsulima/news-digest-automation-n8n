@@ -12,7 +12,8 @@ import { getDigestRunStatus } from "@/lib/digest-runs";
 import { fallbackDigestBriefFromNews, getLatestDigestBrief } from "@/lib/digest-brief";
 import { normalizeReaderFeedId } from "@/lib/feed-categories";
 import { normalizeReaderViewId } from "@/lib/reader-feed-filters";
-import { getReaderNewsItems } from "@/lib/news";
+import { getReaderFeedPage } from "@/lib/reader-feed";
+import { normalizeFeedPeriod, normalizeFeedSort } from "@/lib/reader-feed-ranking";
 import { createSupabaseServerClient } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
@@ -20,6 +21,8 @@ export const dynamic = "force-dynamic";
 type HomePageProps = {
   searchParams?: Promise<{
     feed?: string | string[];
+    period?: string | string[];
+    sort?: string | string[];
     view?: string | string[];
   }>;
 };
@@ -35,13 +38,21 @@ export default async function HomePage({ searchParams }: HomePageProps) {
   const params = await searchParams;
   const activeFeed = normalizeReaderFeedId(params?.feed);
   const activeView = normalizeReaderViewId(params?.view);
+  const activeSort = normalizeFeedSort(Array.isArray(params?.sort) ? params.sort[0] : params?.sort);
+  const activePeriod = normalizeFeedPeriod(Array.isArray(params?.period) ? params.period[0] : params?.period);
   const user = await requireCurrentReader();
-  const [items, digestRun, digestBrief] = await Promise.all([
-    getReaderNewsItems(user.id),
+  const [feedPage, digestRun, digestBrief] = await Promise.all([
+    getReaderFeedPage(user.id, {
+      feed: activeFeed,
+      period: activePeriod,
+      sort: activeSort,
+      view: activeView,
+    }),
     getDigestRunStatus(),
     getLatestDigestBrief(),
   ]);
-  const brief = digestBrief || fallbackDigestBriefFromNews(items);
+  const allInitialItems = Object.values(feedPage.grouped).flat();
+  const brief = digestBrief || fallbackDigestBriefFromNews(allInitialItems);
 
   return (
     <main className="mx-auto flex w-full max-w-5xl flex-col gap-4 px-4 py-5 sm:px-6 sm:py-7">
@@ -73,7 +84,9 @@ export default async function HomePage({ searchParams }: HomePageProps) {
       <NewsFeed
         briefingSlot={brief ? <DigestBriefCard brief={brief} /> : null}
         initialFeed={activeFeed}
-        initialItems={items}
+        initialPage={feedPage}
+        initialPeriod={activePeriod}
+        initialSort={activeSort}
         initialView={activeView}
         digestSlot={
           <DigestRunPanel

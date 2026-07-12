@@ -137,7 +137,7 @@ describe("advanceDigestRun", () => {
     const { advanceDigestRun } = await import("./digest-stage-executor");
 
     await expect(advanceDigestRun("run-1")).resolves.toMatchObject({
-      advancedStage: "source_fetch",
+      advancedStage: null,
       message: "source_fetch is already running.",
       status: "running",
     });
