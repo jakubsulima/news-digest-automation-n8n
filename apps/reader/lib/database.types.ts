@@ -40,6 +40,10 @@ export type Database = {
           enriched_text: string | null;
           enriched_word_count: number;
           enriched_fetched_at: string | null;
+          content_mode: "unknown" | "readable" | "audio_only" | "video_only" | "insufficient_text";
+          content_mode_reason: string | null;
+          has_audio: boolean;
+          has_video: boolean;
           metadata: Json;
           created_at: string;
           updated_at: string;
@@ -59,6 +63,10 @@ export type Database = {
           enriched_text?: string | null;
           enriched_word_count?: number;
           enriched_fetched_at?: string | null;
+          content_mode?: "unknown" | "readable" | "audio_only" | "video_only" | "insufficient_text";
+          content_mode_reason?: string | null;
+          has_audio?: boolean;
+          has_video?: boolean;
           metadata?: Json;
           created_at?: string;
           updated_at?: string;
@@ -78,6 +86,10 @@ export type Database = {
           enriched_text?: string | null;
           enriched_word_count?: number;
           enriched_fetched_at?: string | null;
+          content_mode?: "unknown" | "readable" | "audio_only" | "video_only" | "insufficient_text";
+          content_mode_reason?: string | null;
+          has_audio?: boolean;
+          has_video?: boolean;
           metadata?: Json;
           created_at?: string;
           updated_at?: string;
@@ -377,6 +389,9 @@ export type Database = {
           excluded_keywords: Json;
           require_major_security: boolean;
           use_ai_summaries: boolean;
+          readable_only: boolean;
+          personalization_enabled: boolean;
+          implicit_personalization_enabled: boolean;
           created_at: string;
           updated_at: string;
         };
@@ -393,6 +408,9 @@ export type Database = {
           excluded_keywords?: Json;
           require_major_security?: boolean;
           use_ai_summaries?: boolean;
+          readable_only?: boolean;
+          personalization_enabled?: boolean;
+          implicit_personalization_enabled?: boolean;
           created_at?: string;
           updated_at?: string;
         };
@@ -409,6 +427,9 @@ export type Database = {
           excluded_keywords?: Json;
           require_major_security?: boolean;
           use_ai_summaries?: boolean;
+          readable_only?: boolean;
+          personalization_enabled?: boolean;
+          implicit_personalization_enabled?: boolean;
           created_at?: string;
           updated_at?: string;
         };
@@ -538,6 +559,7 @@ export type Database = {
           raw_payload: Json;
           normalized_url: string | null;
           published_at: string | null;
+          reader_source_id: string | null;
           created_at: string;
         };
         Insert: {
@@ -549,6 +571,7 @@ export type Database = {
           raw_payload: Json;
           normalized_url?: string | null;
           published_at?: string | null;
+          reader_source_id?: string | null;
           created_at?: string;
         };
         Update: {
@@ -560,7 +583,74 @@ export type Database = {
           raw_payload?: Json;
           normalized_url?: string | null;
           published_at?: string | null;
+          reader_source_id?: string | null;
           created_at?: string;
+        };
+        Relationships: [];
+      };
+      source_run_observations: {
+        Row: {
+          id: string;
+          digest_run_id: string;
+          reader_source_id: string | null;
+          source_name: string;
+          source_url: string;
+          category: string;
+          status: "succeeded" | "failed";
+          error_kind: string | null;
+          duration_ms: number;
+          parsed_item_count: number;
+          eligible_item_count: number;
+          skipped_old_item_count: number;
+          skipped_undated_item_count: number;
+          unique_story_count: number;
+          selected_story_count: number;
+          confirmation_story_count: number;
+          metadata: Json;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          digest_run_id: string;
+          reader_source_id?: string | null;
+          source_name: string;
+          source_url: string;
+          category: string;
+          status: "succeeded" | "failed";
+          error_kind?: string | null;
+          duration_ms?: number;
+          parsed_item_count?: number;
+          eligible_item_count?: number;
+          skipped_old_item_count?: number;
+          skipped_undated_item_count?: number;
+          unique_story_count?: number;
+          selected_story_count?: number;
+          confirmation_story_count?: number;
+          metadata?: Json;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          digest_run_id?: string;
+          reader_source_id?: string | null;
+          source_name?: string;
+          source_url?: string;
+          category?: string;
+          status?: "succeeded" | "failed";
+          error_kind?: string | null;
+          duration_ms?: number;
+          parsed_item_count?: number;
+          eligible_item_count?: number;
+          skipped_old_item_count?: number;
+          skipped_undated_item_count?: number;
+          unique_story_count?: number;
+          selected_story_count?: number;
+          confirmation_story_count?: number;
+          metadata?: Json;
+          created_at?: string;
+          updated_at?: string;
         };
         Relationships: [];
       };
@@ -618,6 +708,45 @@ export type Database = {
           metadata?: Json;
           created_at?: string;
           updated_at?: string;
+        };
+        Relationships: [];
+      };
+      story_cluster_articles: {
+        Row: {
+          story_cluster_id: string;
+          article_id: string;
+          first_seen_digest_run_id: string | null;
+          last_seen_digest_run_id: string | null;
+          match_reason: string;
+          match_score: number;
+          algorithm_version: string;
+          is_canonical: boolean;
+          first_seen_at: string;
+          last_seen_at: string;
+        };
+        Insert: {
+          story_cluster_id: string;
+          article_id: string;
+          first_seen_digest_run_id?: string | null;
+          last_seen_digest_run_id?: string | null;
+          match_reason?: string;
+          match_score?: number;
+          algorithm_version?: string;
+          is_canonical?: boolean;
+          first_seen_at?: string;
+          last_seen_at?: string;
+        };
+        Update: {
+          story_cluster_id?: string;
+          article_id?: string;
+          first_seen_digest_run_id?: string | null;
+          last_seen_digest_run_id?: string | null;
+          match_reason?: string;
+          match_score?: number;
+          algorithm_version?: string;
+          is_canonical?: boolean;
+          first_seen_at?: string;
+          last_seen_at?: string;
         };
         Relationships: [];
       };

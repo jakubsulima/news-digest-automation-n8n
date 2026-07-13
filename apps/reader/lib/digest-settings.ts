@@ -15,11 +15,14 @@ export type ReaderDigestSettings = {
   excludedKeywords: string[];
   feedTargets: DigestFeedTargets;
   freshnessWindowHours: number;
+  implicitPersonalizationEnabled: boolean;
   maxStoriesPerSource: number;
   minimumImportanceScore: number;
   minimumSourceCount: number;
+  personalizationEnabled: boolean;
   preferredKeywords: string[];
   publishTopN: number;
+  readableOnly: boolean;
   requireMajorSecurity: boolean;
   summaryMaxChars: number;
   useAiSummaries: boolean;
@@ -55,9 +58,11 @@ export const DEFAULT_DIGEST_SETTINGS: ReaderDigestSettings = {
     security: 5,
   },
   freshnessWindowHours: 72,
+  implicitPersonalizationEnabled: false,
   maxStoriesPerSource: 4,
   minimumImportanceScore: 55,
   minimumSourceCount: 1,
+  personalizationEnabled: true,
   preferredKeywords: [
     "ai",
     "llm",
@@ -87,6 +92,7 @@ export const DEFAULT_DIGEST_SETTINGS: ReaderDigestSettings = {
     "export controls",
   ],
   publishTopN: 20,
+  readableOnly: true,
   requireMajorSecurity: true,
   summaryMaxChars: 500,
   useAiSummaries: true,
@@ -135,11 +141,15 @@ function normalizeSettings(row: SettingsRow | null): ReaderDigestSettings {
     excludedKeywords: jsonStringArray(row.excluded_keywords),
     feedTargets: parseFeedTargets(row.feed_targets),
     freshnessWindowHours: clampInteger(row.freshness_window_hours ?? DEFAULT_DIGEST_SETTINGS.freshnessWindowHours, 6, 336),
+    implicitPersonalizationEnabled:
+      row.implicit_personalization_enabled ?? DEFAULT_DIGEST_SETTINGS.implicitPersonalizationEnabled,
     maxStoriesPerSource: clampInteger(row.max_stories_per_source ?? DEFAULT_DIGEST_SETTINGS.maxStoriesPerSource, 1, 20),
     minimumImportanceScore: clampInteger(row.minimum_importance_score, 0, 100),
     minimumSourceCount: clampInteger(row.minimum_source_count ?? DEFAULT_DIGEST_SETTINGS.minimumSourceCount, 1, 10),
+    personalizationEnabled: row.personalization_enabled ?? DEFAULT_DIGEST_SETTINGS.personalizationEnabled,
     preferredKeywords: jsonStringArray(row.preferred_keywords),
     publishTopN: clampInteger(row.publish_top_n, 5, 100),
+    readableOnly: row.readable_only ?? DEFAULT_DIGEST_SETTINGS.readableOnly,
     requireMajorSecurity: row.require_major_security,
     summaryMaxChars: clampInteger(row.summary_max_chars, 180, 5000),
     useAiSummaries: row.use_ai_summaries,
@@ -199,11 +209,14 @@ export async function upsertReaderDigestSettings(userId: string, settings: Reade
     excluded_keywords: settings.excludedKeywords,
     feed_targets: settings.feedTargets,
     freshness_window_hours: settings.freshnessWindowHours,
+    implicit_personalization_enabled: settings.implicitPersonalizationEnabled,
     max_stories_per_source: settings.maxStoriesPerSource,
     minimum_importance_score: settings.minimumImportanceScore,
     minimum_source_count: settings.minimumSourceCount,
+    personalization_enabled: settings.personalizationEnabled,
     preferred_keywords: settings.preferredKeywords,
     publish_top_n: settings.publishTopN,
+    readable_only: settings.readableOnly,
     require_major_security: settings.requireMajorSecurity,
     summary_max_chars: settings.summaryMaxChars,
     use_ai_summaries: settings.useAiSummaries,
@@ -246,6 +259,7 @@ export function digestSettingsFromFormData(formData: FormData): ReaderDigestSett
       6,
       336,
     ),
+    implicitPersonalizationEnabled: formData.get("implicitPersonalizationEnabled") === "on",
     maxStoriesPerSource: numberValue(
       "maxStoriesPerSource",
       DEFAULT_DIGEST_SETTINGS.maxStoriesPerSource,
@@ -264,8 +278,10 @@ export function digestSettingsFromFormData(formData: FormData): ReaderDigestSett
       1,
       10,
     ),
+    personalizationEnabled: formData.get("personalizationEnabled") === "on",
     preferredKeywords: keywords("preferredKeywords"),
     publishTopN: numberValue("publishTopN", DEFAULT_DIGEST_SETTINGS.publishTopN, 5, 100),
+    readableOnly: formData.get("readableOnly") === "on",
     requireMajorSecurity: formData.get("requireMajorSecurity") === "on",
     summaryMaxChars: numberValue("summaryMaxChars", DEFAULT_DIGEST_SETTINGS.summaryMaxChars, 180, 5000),
     useAiSummaries: formData.get("useAiSummaries") === "on",

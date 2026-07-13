@@ -7,12 +7,18 @@ import type { StageRunner } from "../types";
 
 export const runSourceFetchStage: StageRunner = async ({ digestRunId }) => {
   const sources = await getReaderSourcesForRun();
-  const { metrics, sourceItems } = await fetchSourceItemsForRun({ digestRunId, sources });
+  const { metrics, sourceItems, sourceObservations } = await fetchSourceItemsForRun({ digestRunId, sources });
   const supabase = createSupabaseAdminClient();
-  const { error: deleteError } = await supabase.from("source_items").delete().eq("digest_run_id", digestRunId);
+  const [{ error: deleteError }, { error: observationDeleteError }] = await Promise.all([
+    supabase.from("source_items").delete().eq("digest_run_id", digestRunId),
+    supabase.from("source_run_observations").delete().eq("digest_run_id", digestRunId),
+  ]);
 
   if (deleteError) {
     throw deleteError;
+  }
+  if (observationDeleteError) {
+    throw observationDeleteError;
   }
 
   if (sourceItems.length) {
@@ -20,6 +26,14 @@ export const runSourceFetchStage: StageRunner = async ({ digestRunId }) => {
 
     if (insertError) {
       throw insertError;
+    }
+  }
+
+  if (sourceObservations.length) {
+    const { error: observationError } = await supabase.from("source_run_observations").insert(sourceObservations);
+
+    if (observationError) {
+      throw observationError;
     }
   }
 

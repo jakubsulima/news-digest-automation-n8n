@@ -14,10 +14,15 @@ export type FeedbackBasis = {
   title: string;
   topicTags?: string[];
   updatedAt?: string;
+  weight?: number;
+  origin?: "explicit" | "implicit";
 };
 
 export type FeedbackProfile = {
+  evidenceCount: number;
+  explicitEvidenceCount: number;
   feeds: Map<Exclude<ReaderFeedId, "all">, { more: number; less: number }>;
+  implicitEvidenceCount: number;
   keywords: Map<string, { more: number; less: number }>;
   repetitiveStoryIds: Set<string>;
   sources: Map<string, { more: number; less: number }>;
@@ -68,7 +73,10 @@ export function extractFeedbackKeywords(text: string) {
 
 export function buildFeedbackProfile(items: FeedbackBasis[]): FeedbackProfile {
   const profile: FeedbackProfile = {
+    evidenceCount: items.length,
+    explicitEvidenceCount: items.filter((item) => item.origin !== "implicit").length,
     feeds: new Map(),
+    implicitEvidenceCount: items.filter((item) => item.origin === "implicit").length,
     keywords: new Map(),
     repetitiveStoryIds: new Set(),
     sources: new Map(),
@@ -76,7 +84,8 @@ export function buildFeedbackProfile(items: FeedbackBasis[]): FeedbackProfile {
 
   for (const item of items) {
     const ageDays = item.updatedAt ? Math.max(0, (Date.now() - Date.parse(item.updatedAt)) / 86_400_000) : 0;
-    const weight = Number.isFinite(ageDays) ? 0.5 ** (ageDays / FEEDBACK_HALF_LIFE_DAYS) : 1;
+    const recencyWeight = Number.isFinite(ageDays) ? 0.5 ** (ageDays / FEEDBACK_HALF_LIFE_DAYS) : 1;
+    const weight = recencyWeight * Math.max(0, item.weight ?? 1);
     const appliesToSource = !item.reason || item.reason === "source" || item.reason === "quality";
     const appliesToTopic = !item.reason || item.reason === "topic";
 

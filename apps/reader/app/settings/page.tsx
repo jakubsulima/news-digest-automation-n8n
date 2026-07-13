@@ -11,7 +11,7 @@ import { KeywordGroupManager } from "@/components/keyword-group-manager";
 import { Label } from "@/components/ui/label";
 import { SourceEnabledToggle } from "@/components/source-enabled-toggle";
 import { ThemeToggle } from "@/components/theme-toggle";
-import { saveReaderDigestSettings, saveReaderSource, saveReaderSourcePreset, saveReaderSources } from "@/lib/actions";
+import { resetPersonalization, saveReaderDigestSettings, saveReaderSource, saveReaderSourcePreset, saveReaderSources } from "@/lib/actions";
 import { hasNvidiaSummaryConfig } from "@/lib/ai-summary";
 import { requireCurrentReader } from "@/lib/auth";
 import {
@@ -20,13 +20,16 @@ import {
 } from "@/lib/digest-settings";
 import { READER_FEEDS, normalizeReaderFeedId, readerFeedForCategory, type ReaderFeedId } from "@/lib/feed-categories";
 import { getReaderFeedInsights } from "@/lib/feed-events";
+import { getFeedbackProfileForUser, summarizeFeedbackProfile } from "@/lib/reader-feedback";
 import { getReaderSources, SOURCE_PRESETS, type ReaderSource } from "@/lib/reader-sources";
+import { getSourceQualityInsights, type SourceQualityInsight } from "@/lib/source-quality";
 import { cn } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
 const STATUS_COPY = {
   "migration-required": "Settings cannot be saved until the reader_digest_settings Supabase migration is applied.",
+  "personalization-reset": "Learned preferences and interaction signals were reset.",
   "save-failed": "Settings could not be saved. Check the server log for the database error.",
   saved: "Settings saved.",
   "source-invalid": "Source could not be saved. Check the URL, name, category, and priority.",
@@ -36,7 +39,7 @@ const STATUS_COPY = {
   "sources-saved": "Sources saved.",
 } as const;
 
-const SUCCESS_STATUSES = new Set(["saved", "source-preset-saved", "source-saved", "sources-saved"]);
+const SUCCESS_STATUSES = new Set(["saved", "personalization-reset", "source-preset-saved", "source-saved", "sources-saved"]);
 const PRESET_CARD_CLASS =
   "h-auto min-h-20 w-full flex-col items-start gap-1 whitespace-normal px-3 py-2 text-left";
 const SECTION_CARD_CLASS = "border-border/70 bg-card/70 shadow-sm ring-0";
@@ -379,6 +382,9 @@ function HiddenDigestAdvancedFields({ settings }: { settings: ReaderDigestSettin
       <input type="hidden" name="freshnessWindowHours" value={settings.freshnessWindowHours} />
       <input type="hidden" name="minimumSourceCount" value={settings.minimumSourceCount} />
       <input type="hidden" name="maxStoriesPerSource" value={settings.maxStoriesPerSource} />
+      <input type="hidden" name="readableOnly" value={settings.readableOnly ? "on" : "off"} />
+      <input type="hidden" name="personalizationEnabled" value={settings.personalizationEnabled ? "on" : "off"} />
+      <input type="hidden" name="implicitPersonalizationEnabled" value={settings.implicitPersonalizationEnabled ? "on" : "off"} />
       <input type="hidden" name="summaryMaxChars" value={settings.summaryMaxChars} />
       <input type="hidden" name="useAiSummaries" value={settings.useAiSummaries ? "on" : "off"} />
     </>
@@ -633,7 +639,15 @@ function SettingsTabs({
   );
 }
 
-function SourceEditor({ fieldNamePrefix, source }: { fieldNamePrefix: string; source: ReaderSource }) {
+function SourceEditor({
+  fieldNamePrefix,
+  quality,
+  source,
+}: {
+  fieldNamePrefix: string;
+  quality?: SourceQualityInsight;
+  source: ReaderSource;
+}) {
   return (
     <details className="group rounded-xl border bg-background/70 transition-colors open:bg-background">
       <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-3 [&::-webkit-details-marker]:hidden">
@@ -642,6 +656,7 @@ function SourceEditor({ fieldNamePrefix, source }: { fieldNamePrefix: string; so
           <p className="truncate text-xs text-muted-foreground">{source.category}</p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
+          {quality ? <Badge variant={quality.recommendation === "keep" ? "secondary" : "outline"}>{quality.label}</Badge> : null}
           <SourceEnabledToggle defaultEnabled={source.enabled} name={sourceFieldName("enabled", fieldNamePrefix)} />
           <Badge variant="outline" className="hidden sm:inline-flex">Priority {source.priority}</Badge>
           <span className="w-12 text-right text-xs font-medium text-muted-foreground group-open:hidden">Edit</span>
@@ -650,6 +665,22 @@ function SourceEditor({ fieldNamePrefix, source }: { fieldNamePrefix: string; so
       </summary>
       <div className="grid gap-3 border-t p-3">
         <p className="truncate text-xs text-muted-foreground">{source.url}</p>
+        {quality ? (
+          <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-5">
+            {[
+              ["Reliability", quality.reliability],
+              ["Fresh yield", quality.freshYield],
+              ["Unique yield", quality.uniqueYield],
+              ["Selected", quality.selectionValue],
+              ["Reader value", quality.readerValue],
+            ].map(([label, value]) => (
+              <div key={label} className="rounded-md border bg-muted/20 p-2">
+                <p className="text-muted-foreground">{label}</p>
+                <p className="mt-1 font-semibold tabular-nums">{value}%</p>
+              </div>
+            ))}
+          </div>
+        ) : null}
         <SourceFields fieldNamePrefix={fieldNamePrefix} showEnabled={false} source={source} />
       </div>
     </details>
@@ -666,11 +697,17 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
     avoid: normalizeKeywordGroupIds("avoid", rawSearchParams?.avoidKeywordGroup),
     prefer: normalizeKeywordGroupIds("prefer", rawSearchParams?.preferKeywordGroup),
   };
-  const [savedSettings, sources, insights] = await Promise.all([
+  const [savedSettings, sources, insights, sourceQuality] = await Promise.all([
     getReaderDigestSettings(user.id),
     getReaderSources(),
     getReaderFeedInsights(user.id),
+    getSourceQualityInsights(user.id),
   ]);
+  const learnedPreferences = summarizeFeedbackProfile(
+    await getFeedbackProfileForUser(user.id, {
+      includeImplicit: savedSettings.implicitPersonalizationEnabled,
+    }),
+  );
   const settings = applyDigestPreset(savedSettings, activePreset);
   const activeKeywordGroups: ActiveKeywordGroups = {
     avoid: allSearchValues(rawSearchParams?.avoidKeywordGroup).length
@@ -884,10 +921,68 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
                   defaultValue={settings.maxStoriesPerSource}
                 />
               </div>
+              <label className="flex items-start gap-3 rounded-lg border bg-muted/20 p-3 text-sm">
+                <input
+                  className="mt-0.5 size-4 accent-primary"
+                  type="checkbox"
+                  name="readableOnly"
+                  defaultChecked={settings.readableOnly}
+                />
+                <span>
+                  <span className="block font-medium">Written articles only</span>
+                  <span className="mt-1 block text-xs leading-relaxed text-muted-foreground">
+                    Reject audio-only, video-only, teaser, and empty pages. Articles with optional audio remain eligible when they contain full text.
+                  </span>
+                </span>
+              </label>
               <p className="rounded-lg border bg-muted/30 px-3 py-2 text-xs leading-relaxed text-muted-foreground">
                 A 48–72 hour window and one source match work well for speed. Raise source matches to 2 for a stricter,
                 better-confirmed digest; the per-source limit prevents one publisher from dominating the result.
               </p>
+            </CardContent>
+          </Card>
+
+          <Card className={SECTION_CARD_CLASS}>
+            <CardHeader className={SECTION_HEADER_CLASS}>
+              <CardTitle>Learned preferences</CardTitle>
+              <CardDescription>Control how explicit feedback and reading behavior influence both the Digest Builder and Reader ranking.</CardDescription>
+            </CardHeader>
+            <CardContent className={cn(SECTION_CONTENT_CLASS, "grid gap-4")}>
+              <label className="flex items-start gap-3 rounded-lg border p-3 text-sm">
+                <input
+                  className="mt-0.5 size-4 accent-primary"
+                  type="checkbox"
+                  name="personalizationEnabled"
+                  defaultChecked={settings.personalizationEnabled}
+                />
+                <span><span className="block font-medium">Use More / Less feedback</span><span className="mt-1 block text-xs text-muted-foreground">Explicit choices adjust selection without bypassing quality and security filters.</span></span>
+              </label>
+              <label className="flex items-start gap-3 rounded-lg border p-3 text-sm">
+                <input
+                  className="mt-0.5 size-4 accent-primary"
+                  type="checkbox"
+                  name="implicitPersonalizationEnabled"
+                  defaultChecked={settings.implicitPersonalizationEnabled}
+                />
+                <span><span className="block font-medium">Learn from reading behavior (experimental)</span><span className="mt-1 block text-xs text-muted-foreground">Uses only positive, deduplicated opens, reads, and saves after at least five distinct stories. No click is never treated as negative feedback.</span></span>
+              </label>
+              <div className="grid gap-3 rounded-lg border bg-muted/20 p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-sm font-medium">Current evidence</p>
+                  <Badge variant="outline">{learnedPreferences.evidenceCount} signals</Badge>
+                </div>
+                <div className="grid gap-2 text-xs sm:grid-cols-3">
+                  <div><p className="font-medium">Topics</p><p className="mt-1 text-muted-foreground">{learnedPreferences.feeds.map((item) => `${item.label} ${item.score > 0 ? "+" : ""}${item.score.toFixed(1)}`).join(", ") || "Not enough feedback yet"}</p></div>
+                  <div><p className="font-medium">Sources</p><p className="mt-1 text-muted-foreground">{learnedPreferences.sources.map((item) => `${item.label} ${item.score > 0 ? "+" : ""}${item.score.toFixed(1)}`).join(", ") || "Not enough feedback yet"}</p></div>
+                  <div><p className="font-medium">Keywords</p><p className="mt-1 text-muted-foreground">{learnedPreferences.keywords.map((item) => `${item.label} ${item.score > 0 ? "+" : ""}${item.score.toFixed(1)}`).join(", ") || "Not enough feedback yet"}</p></div>
+                </div>
+                <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-3 text-xs text-muted-foreground">
+                  <span>{learnedPreferences.explicitEvidenceCount} explicit · {learnedPreferences.implicitEvidenceCount} behavioral</span>
+                  <Button type="submit" variant="outline" size="sm" formAction={resetPersonalization} formNoValidate>
+                    Reset learned data
+                  </Button>
+                </div>
+              </div>
             </CardContent>
           </Card>
 
@@ -969,7 +1064,14 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
                             const fieldNamePrefix = `sources.${sourceFieldIndex}`;
                             sourceFieldIndex += 1;
 
-                            return <SourceEditor key={source.id} fieldNamePrefix={fieldNamePrefix} source={source} />;
+                            return (
+                              <SourceEditor
+                                key={source.id}
+                                fieldNamePrefix={fieldNamePrefix}
+                                quality={sourceQuality.get(source.url)}
+                                source={source}
+                              />
+                            );
                           })}
                         </div>
                       </section>

@@ -2,7 +2,8 @@ import "server-only";
 
 import { READER_FEEDS, type ReaderFeedId } from "./feed-categories";
 import { getReaderNewsItems } from "./news";
-import { getFeedbackProfileForUser } from "./reader-feedback";
+import { getReaderDigestSettings } from "./digest-settings";
+import { buildFeedbackProfile, getFeedbackProfileForUser } from "./reader-feedback";
 import {
   filterFeedItems,
   groupReaderItems,
@@ -37,11 +38,14 @@ export function encodeFeedCursor(itemId: string) {
 }
 
 export async function getReaderFeedPage(userId: string, request: ReaderFeedRequest) {
-  const [items, profile, storedPreviousVisitAt] = await Promise.all([
+  const [items, settings, storedPreviousVisitAt] = await Promise.all([
     getReaderNewsItems(userId),
-    getFeedbackProfileForUser(userId),
+    getReaderDigestSettings(userId),
     getReaderLastVisit(userId),
   ]);
+  const profile = settings.personalizationEnabled
+    ? await getFeedbackProfileForUser(userId, { includeImplicit: settings.implicitPersonalizationEnabled })
+    : buildFeedbackProfile([]);
   const previousVisitAt = request.previousVisitAt === undefined ? storedPreviousVisitAt : request.previousVisitAt;
   const latestDigestDate = items.reduce<string | null>(
     (latest, item) => (!latest || item.digestDate > latest ? item.digestDate : latest),

@@ -1,6 +1,6 @@
 import "server-only";
 
-import type { Database } from "../../database.types";
+import type { Database, Json } from "../../database.types";
 import { createSupabaseAdminClient } from "../../supabase";
 import { normalizeUrl } from "../source-item-intake";
 import type { StageRunner } from "../types";
@@ -14,6 +14,10 @@ import {
 type ArticleInsert = Database["public"]["Tables"]["articles"]["Insert"];
 type ArticleRow = Database["public"]["Tables"]["articles"]["Row"];
 type SourceItemRow = Database["public"]["Tables"]["source_items"]["Row"];
+
+function jsonRecord(value: Json) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
 
 function articleUrlForSourceItem(item: SourceItemRow) {
   return item.normalized_url || normalizeUrl(jsonString(item.raw_payload, "link"));
@@ -35,6 +39,7 @@ function sourceItemToArticle(item: SourceItemRow, now: string): ArticleInsert | 
     metadata: {
       lastDigestRunId: item.digest_run_id,
       lastSourceItemId: item.id,
+      readerSourceId: item.reader_source_id,
       sourcePriority: jsonNumber(item.raw_payload, "sourcePriority"),
       sourceUrl: item.source_url,
     },
@@ -71,7 +76,7 @@ function dedupeArticlesByUrl(articles: ArticleInsert[]) {
 
 async function loadExistingArticles(canonicalUrls: string[]) {
   const supabase = createSupabaseAdminClient();
-  const existing = new Map<string, Pick<ArticleRow, "canonical_url" | "first_seen_at">>();
+  const existing = new Map<string, Pick<ArticleRow, "canonical_url" | "first_seen_at" | "metadata">>();
   const urlBatches = chunkByEncodedLength(
     canonicalUrls,
     SUPABASE_FILTER_BATCH_MAX_COUNT,
@@ -81,7 +86,7 @@ async function loadExistingArticles(canonicalUrls: string[]) {
   for (const [batchIndex, urlBatch] of urlBatches.entries()) {
     const { data, error } = await supabase
       .from("articles")
-      .select("canonical_url, first_seen_at")
+      .select("canonical_url, first_seen_at, metadata")
       .in("canonical_url", urlBatch);
 
     if (error) {
@@ -125,6 +130,10 @@ export const runArticleNormalizationStage: StageRunner = async ({ digestRunId })
       ? {
           ...article,
           first_seen_at: existing.first_seen_at,
+          metadata: {
+            ...jsonRecord(existing.metadata),
+            ...jsonRecord(article.metadata || {}),
+          },
         }
       : article;
   });

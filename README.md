@@ -69,11 +69,14 @@ infra/supabase/migrations/008_expand_reader_source_catalog.sql
 infra/supabase/migrations/009_add_digest_summaries.sql
 infra/supabase/migrations/010_durable_personalized_feed.sql
 infra/supabase/migrations/011_digest_quality_controls.sql
+infra/supabase/migrations/012_digest_intelligence_foundation.sql
 ```
 
 Migration `010` must be applied before deploying reader code that selects the new ranking columns. Deploy in this order: apply the migration, deploy the application, complete at least one successful digest, verify durable feedback and stable story IDs, then remove legacy `reader_item_feedback` compatibility in a later migration.
 
 Migration `011` adds per-reader controls for story freshness, minimum source confirmation, and source diversity. Apply it before saving the new controls from the Advanced settings tab.
+
+Migration `012` adds written-content classification, stable Story Cluster article membership, per-run source observations, and personalization controls. Apply it before deploying code that reads source quality or writes content modes. New Pipeline tables have RLS enabled; only source-quality observations receive an authenticated read policy, while technical cluster membership remains server-only.
 
 Then insert your reader email into `private.allowed_reader_emails` and create a Supabase Auth user for that email.
 
