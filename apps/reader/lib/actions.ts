@@ -12,6 +12,7 @@ import {
 import { errorMessage } from "./digest-builder/utils";
 import { requireCurrentReader } from "./auth";
 import { requireCurrentOperator } from "./operator";
+import { resetReaderPersonalization } from "./reader-feedback";
 import {
   applyReaderSourcePreset,
   isReaderSourceValidationError,
@@ -54,6 +55,14 @@ export async function saveReaderDigestSettings(formData: FormData) {
   const params = new URLSearchParams({ status, settingsTab });
 
   redirect(`/settings?${params.toString()}`);
+}
+
+export async function resetPersonalization() {
+  const user = await requireCurrentReader();
+  await resetReaderPersonalization(user.id);
+  revalidatePath("/");
+  revalidatePath("/settings");
+  redirect("/settings?settingsTab=advanced&status=personalization-reset");
 }
 
 export async function saveReaderSource(formData: FormData) {

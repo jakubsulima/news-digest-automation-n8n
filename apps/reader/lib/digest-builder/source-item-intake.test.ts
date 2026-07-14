@@ -69,6 +69,23 @@ describe("parseSourceFeed", () => {
     });
   });
 
+  it("keeps full feed content when the description is only a teaser", () => {
+    const fullContent = "Full public feed paragraph with useful reporting and context. ".repeat(20);
+    const items = parseSourceFeed(
+      `<rss><channel><item>
+        <title>Feed story</title>
+        <link>https://example.com/feed-story</link>
+        <description>Short teaser</description>
+        <content:encoded><![CDATA[<p>${fullContent}</p>]]></content:encoded>
+      </item></channel></rss>`,
+      source,
+      "run-full-content",
+    );
+
+    expect(rawPayload(items[0]).summary).toContain("Full public feed paragraph");
+    expect(String(rawPayload(items[0]).summary).length).toBeGreaterThan(500);
+  });
+
   it("strips Hacker News metadata-only summaries", () => {
     const items = parseSourceFeed(
       `<rss><channel><item>

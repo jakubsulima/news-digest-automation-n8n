@@ -4,8 +4,10 @@ import { cleanArticleSummary, decodeHtmlEntities, plainTextFromHtml } from "../t
 import { FEED_FETCH_TIMEOUT_MS, USER_AGENT } from "./constants";
 
 type SourceItemInsert = Database["public"]["Tables"]["source_items"]["Insert"];
+type SourceRunObservationInsert = Database["public"]["Tables"]["source_run_observations"]["Insert"];
 
 export type SourceConfig = {
+  id?: string;
   name: string;
   category: string;
   url: string;
@@ -35,6 +37,11 @@ const TRACKING_PARAMS = new Set([
   "at_campaign",
   "at_medium",
 ]);
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function databaseSourceId(value: string | undefined) {
+  return value && UUID_PATTERN.test(value) ? value : null;
+}
 
 function escapeRegExp(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -143,12 +150,9 @@ function parseSourceFeedWithStats(
     parsedItemCount += 1;
     const title = tagText(itemXml, "title");
     const link = tagText(itemXml, "link") || tagAttribute(itemXml, "link", "href");
-    const rawSummary =
-      tagText(itemXml, "description") ||
-      tagText(itemXml, "summary") ||
-      tagText(itemXml, "content") ||
-      tagText(itemXml, "content:encoded");
-    const summary = cleanArticleSummary(rawSummary, title);
+    const summary = ["description", "summary", "content", "content:encoded"]
+      .map((tag) => cleanArticleSummary(tagText(itemXml, tag), title))
+      .sort((left, right) => right.length - left.length)[0] || "";
     const publishedAt =
       parsePublishedAt(tagText(itemXml, "pubDate")) ||
       parsePublishedAt(tagText(itemXml, "published")) ||
@@ -179,12 +183,14 @@ function parseSourceFeedWithStats(
         link: link || null,
         publishedAt,
         rawXml: itemXml.slice(0, MAX_RAW_ITEM_XML_LENGTH),
+        readerSourceId: databaseSourceId(source.id),
         sourcePriority: source.priority ?? null,
         summary,
         title,
       },
       source_name: source.name,
       source_url: source.url,
+      reader_source_id: databaseSourceId(source.id),
     });
   }
 
@@ -206,6 +212,7 @@ async function fetchSource(
   fetchImpl: typeof fetch,
   allowedWarsawDates: Set<string>,
 ) {
+  const startedAt = Date.now();
   const response = await fetchImpl(source.url, {
     headers: {
       "user-agent": USER_AGENT,
@@ -222,8 +229,18 @@ async function fetchSource(
 
   return {
     ...result,
+    durationMs: Date.now() - startedAt,
     sourceName: source.name,
   };
+}
+
+function sourceErrorKind(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  const httpStatus = message.match(/HTTP\s+(\d{3})/i)?.[1];
+
+  if (httpStatus) return `http_${httpStatus}`;
+  if (/timeout|aborted/i.test(message)) return "timeout";
+  return "network_or_parse_error";
 }
 
 export async function fetchSourceItemsForRun({
@@ -233,10 +250,28 @@ export async function fetchSourceItemsForRun({
   now = new Date(),
 }: FetchSourceItemsForRunOptions) {
   const allowedWarsawDates = recentWarsawDates(now);
-  const settled = await Promise.allSettled(
-    sources.map((source) => fetchSource(source, digestRunId, fetchImpl, allowedWarsawDates)),
+  const settled = await Promise.all(
+    sources.map(async (source) => {
+      const startedAt = Date.now();
+
+      try {
+        return {
+          result: await fetchSource(source, digestRunId, fetchImpl, allowedWarsawDates),
+          source,
+          status: "fulfilled" as const,
+        };
+      } catch (error) {
+        return {
+          durationMs: Date.now() - startedAt,
+          error,
+          source,
+          status: "rejected" as const,
+        };
+      }
+    }),
   );
   const sourceItems: SourceItemInsert[] = [];
+  const sourceObservations: SourceRunObservationInsert[] = [];
   const sourceCounts: Record<string, number> = {};
   const errors: string[] = [];
   let parsedItemCount = 0;
@@ -245,15 +280,39 @@ export async function fetchSourceItemsForRun({
 
   for (const result of settled) {
     if (result.status === "fulfilled") {
-      sourceItems.push(...result.value.items);
-      parsedItemCount += result.value.parsedItemCount;
-      skippedOldItemCount += result.value.skippedOldItemCount;
-      skippedUndatedItemCount += result.value.skippedUndatedItemCount;
-      sourceCounts[result.value.sourceName] = result.value.items.length;
+      sourceItems.push(...result.result.items);
+      parsedItemCount += result.result.parsedItemCount;
+      skippedOldItemCount += result.result.skippedOldItemCount;
+      skippedUndatedItemCount += result.result.skippedUndatedItemCount;
+      sourceCounts[result.result.sourceName] = result.result.items.length;
+      sourceObservations.push({
+        category: result.source.category,
+        digest_run_id: digestRunId,
+        duration_ms: result.result.durationMs,
+        eligible_item_count: result.result.items.length,
+        parsed_item_count: result.result.parsedItemCount,
+        reader_source_id: databaseSourceId(result.source.id),
+        skipped_old_item_count: result.result.skippedOldItemCount,
+        skipped_undated_item_count: result.result.skippedUndatedItemCount,
+        source_name: result.source.name,
+        source_url: result.source.url,
+        status: "succeeded",
+      });
       continue;
     }
 
-    errors.push(result.reason instanceof Error ? result.reason.message : "Unknown source fetch error");
+    const message = result.error instanceof Error ? result.error.message : "Unknown source fetch error";
+    errors.push(message);
+    sourceObservations.push({
+      category: result.source.category,
+      digest_run_id: digestRunId,
+      duration_ms: result.durationMs,
+      error_kind: sourceErrorKind(result.error),
+      reader_source_id: databaseSourceId(result.source.id),
+      source_name: result.source.name,
+      source_url: result.source.url,
+      status: "failed",
+    });
   }
 
   return {
@@ -269,6 +328,7 @@ export async function fetchSourceItemsForRun({
       sourcesFailed: errors.length,
       sourcesSucceeded: settled.filter((result) => result.status === "fulfilled").length,
     },
+    sourceObservations,
     sourceItems,
   };
 }

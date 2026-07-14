@@ -79,9 +79,7 @@ export default async function NewsDetailPage({ params }: NewsDetailPageProps) {
           </div>
 
           <CardTitle className="text-xl leading-tight sm:text-2xl">
-            <a className="hover:underline" href={item.sourceUrl} target="_blank" rel="noreferrer">
-              {item.title}
-            </a>
+            {item.title}
           </CardTitle>
         </CardHeader>
         <CardContent className="grid gap-5">
@@ -92,6 +90,29 @@ export default async function NewsDetailPage({ params }: NewsDetailPageProps) {
               {item.recommendedAction ? <p>{item.recommendedAction}</p> : null}
             </section>
           ) : null}
+          {item.cachedArticle ? (
+            <section className="grid gap-4 border-t border-border pt-5">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h2 className="text-lg font-semibold">Cached article</h2>
+                <span className="text-xs text-muted-foreground">
+                  {item.cachedArticle.wordCount.toLocaleString("en-US")} words
+                  {item.cachedArticle.source !== item.source ? ` · ${item.cachedArticle.source}` : ""}
+                </span>
+              </div>
+              <p className="text-xs leading-5 text-muted-foreground">
+                Reader copy captured when the article was publicly accessible. The source may have changed since then.
+              </p>
+              <div className="grid gap-4 text-[0.98rem] leading-7 text-foreground/90">
+                {item.cachedArticle.text.split(/\n{2,}/).map((paragraph, index) => (
+                  <p key={`${index}-${paragraph.slice(0, 32)}`}>{paragraph}</p>
+                ))}
+              </div>
+            </section>
+          ) : (
+            <section className="rounded-md border border-border bg-muted/30 p-3 text-sm leading-6 text-muted-foreground">
+              A full reader copy was not available when this story was collected. The source may require an account or subscription.
+            </section>
+          )}
           {scoreComponents.length ? (
             <section className="grid gap-2">
               <h2 className="text-sm font-semibold">Score components</h2>

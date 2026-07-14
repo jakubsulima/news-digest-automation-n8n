@@ -1,6 +1,7 @@
 import "server-only";
 
 import type { Database, Json } from "./database.types";
+import { selectCachedArticle, type CachedArticle } from "./cached-article";
 import { createSupabaseAdminClient } from "./supabase";
 import { cleanArticleSummary, plainTextFromHtml } from "./text";
 import {
@@ -64,6 +65,7 @@ export type NewsItemWithState = {
   feedback: FeedbackSentiment | null;
   feedbackReason: FeedbackReason | null;
   whyInteresting: string | null;
+  cachedArticle?: CachedArticle | null;
 };
 
 type NewsItemRow = Pick<
@@ -98,6 +100,21 @@ type ReaderItemStateRow = Pick<
 
 const NEWS_ITEM_COLUMNS =
   "id, external_id, digest_date, title, summary, source, source_url, category, importance_score, story_cluster_id, editorial_score, selection_score, first_selected_at, last_selected_at, last_material_change_at, changed_fields, source_count, source_variants, topic_tags, entity_tags, published_at, raw_payload";
+
+const CACHED_ARTICLE_COLUMNS =
+  "id, canonical_url, source, raw_summary, enriched_text, enriched_word_count, enriched_fetched_at, content_mode";
+
+async function cachedArticleForNewsItem(item: NewsItemRow) {
+  const supabase = createSupabaseAdminClient();
+  const variantIds = sourceVariantsFromJson(item.source_variants).map((variant) => variant.articleId);
+  const candidates = variantIds.length
+    ? await supabase.from("articles").select(CACHED_ARTICLE_COLUMNS).in("id", variantIds)
+    : await supabase.from("articles").select(CACHED_ARTICLE_COLUMNS).eq("canonical_url", item.source_url).limit(1);
+
+  if (candidates.error) throw candidates.error;
+
+  return selectCachedArticle(candidates.data || [], item.source_url);
+}
 
 function jsonRecord(value: Json | undefined): Record<string, Json | undefined> {
   return value && typeof value === "object" && !Array.isArray(value) ? value : {};
@@ -302,7 +319,11 @@ export async function getReaderNewsItem(itemId: string, userId: string): Promise
   }
   if (legacyFeedbackError && !isReaderFeedbackSchemaError(legacyFeedbackError)) throw legacyFeedbackError;
 
-  const [{ data: storyFeedback, error: storyFeedbackError }, { data: updates, error: updatesError }] = item.story_cluster_id
+  const [
+    { data: storyFeedback, error: storyFeedbackError },
+    { data: updates, error: updatesError },
+    cachedArticle,
+  ] = item.story_cluster_id
     ? await Promise.all([
         supabase
           .from("reader_story_feedback")
@@ -316,8 +337,9 @@ export async function getReaderNewsItem(itemId: string, userId: string): Promise
         .eq("story_cluster_id", item.story_cluster_id)
         .order("created_at", { ascending: false })
         .limit(20),
+        cachedArticleForNewsItem(item),
       ])
-    : [{ data: null, error: null }, { data: [], error: null }];
+    : [{ data: null, error: null }, { data: [], error: null }, await cachedArticleForNewsItem(item)];
 
   if (storyFeedbackError && !isReaderFeedbackSchemaError(storyFeedbackError)) throw storyFeedbackError;
   if (updatesError && !isReaderFeedbackSchemaError(updatesError)) throw updatesError;
@@ -335,5 +357,8 @@ export async function getReaderNewsItem(itemId: string, userId: string): Promise
       ? { reason: "topic" as const, sentiment: legacyFeedback.sentiment }
       : null;
 
-  return newsItemWithState(item, state, feedback, updateHistory);
+  return {
+    ...newsItemWithState(item, state, feedback, updateHistory),
+    cachedArticle,
+  };
 }

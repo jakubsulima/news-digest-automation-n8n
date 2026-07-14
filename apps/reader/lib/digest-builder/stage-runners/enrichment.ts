@@ -3,6 +3,8 @@ import "server-only";
 import type { Database } from "../../database.types";
 import { createSupabaseAdminClient } from "../../supabase";
 import { plainTextFromHtml } from "../../text";
+import { keywordHitCount } from "../../keyword-matching";
+import { analyzeReadableContent } from "../../readable-content";
 import { loadRunArticles, type RunArticle } from "../run-articles";
 import {
   ARTICLE_FETCH_TIMEOUT_MS,
@@ -12,16 +14,21 @@ import {
   USER_AGENT,
 } from "../constants";
 import type { StageRunner } from "../types";
-import { compactText, jsonNumber, jsonStringArray, uniqueStrings } from "../utils";
+import { jsonNumber, jsonStringArray, uniqueStrings } from "../utils";
 
 type ArticleRow = RunArticle;
 type EnrichmentRecordInsert = Database["public"]["Tables"]["enrichment_records"]["Insert"];
+const READER_COPY_VERSION = 2;
+
+function jsonRecord(value: Database["public"]["Tables"]["articles"]["Row"]["metadata"]) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
 
 function articleImportanceScore(article: ArticleRow) {
   const text = `${article.title} ${article.raw_summary} ${article.enriched_description || ""} ${
     article.enriched_text || ""
-  }`.toLowerCase();
-  const keywordHits = IMPORTANT_KEYWORDS.filter((keyword) => text.includes(keyword)).length;
+  }`;
+  const keywordHits = keywordHitCount(text, IMPORTANT_KEYWORDS);
   const enrichedBonus = article.enriched_text && article.enriched_text.length > 900 ? 2 : 0;
 
   return Math.max(1, Math.min(10, 2 + keywordHits + enrichedBonus));
@@ -35,7 +42,12 @@ function articleTimestamp(article: ArticleRow) {
 
 function chooseEnrichmentCandidates(articles: ArticleRow[]) {
   return [...articles]
-    .filter((article) => article.enrichment_status !== "enriched")
+    .filter(
+      (article) =>
+        article.enrichment_status !== "enriched" ||
+        article.content_mode === "unknown" ||
+        jsonNumber(article.metadata, "readerCopyVersion") < READER_COPY_VERSION,
+    )
     .sort((left, right) => {
       const scoreDiff = articleImportanceScore(right) - articleImportanceScore(left);
 
@@ -53,17 +65,10 @@ function extractHtmlDescription(html: string) {
   return plainTextFromHtml(description);
 }
 
-function extractArticleText(html: string) {
-  return compactText(
-    plainTextFromHtml(
-      html
-        .replace(/<script[\s\S]*?<\/script>/gi, " ")
-        .replace(/<style[\s\S]*?<\/style>/gi, " ")
-        .replace(/<nav[\s\S]*?<\/nav>/gi, " ")
-        .replace(/<footer[\s\S]*?<\/footer>/gi, " "),
-    ),
-    8000,
-  );
+function archivedArticleText(value: string) {
+  const text = value.trim();
+
+  return text.length > 200_000 ? `${text.slice(0, 199_999).trimEnd()}…` : text;
 }
 
 async function fetchArticleEnrichment(article: ArticleRow) {
@@ -81,9 +86,16 @@ async function fetchArticleEnrichment(article: ArticleRow) {
 
     const html = await response.text();
     const description = extractHtmlDescription(html);
-    const text = extractArticleText(html);
+    const pageAnalysis = analyzeReadableContent(html);
+    const feedAnalysis = analyzeReadableContent(article.raw_summary);
+    const analysis =
+      pageAnalysis.mode === "readable" || feedAnalysis.mode !== "readable"
+        ? pageAnalysis
+        : { ...feedAnalysis, reason: "full_written_text_from_feed" };
+    const text = archivedArticleText(analysis.text);
 
     return {
+      analysis,
       description,
       status: description || text ? "enriched" : "empty",
       text,
@@ -110,16 +122,21 @@ export const runEnrichmentStage: StageRunner = async ({ digestRunId, stage }) =>
   let enrichedCount = jsonNumber(stage.metrics, "enrichedCount");
   let errorCount = jsonNumber(stage.metrics, "errorCount");
   const records: EnrichmentRecordInsert[] = [];
+  const fetchedBatch = await Promise.all(
+    batchArticleIds.map(async (articleId) => {
+      const article = articlesById.get(articleId);
+      return article ? { article, articleId, result: await fetchArticleEnrichment(article) } : { article: null, articleId, result: null };
+    }),
+  );
 
-  for (const articleId of batchArticleIds) {
-    const article = articlesById.get(articleId);
+  for (const { article, articleId, result } of fetchedBatch) {
 
-    if (!article) {
+    if (!article || !result) {
       processedArticleIds.add(articleId);
       continue;
     }
 
-    const result = await fetchArticleEnrichment(article);
+    const analysis = "analysis" in result ? result.analysis : null;
     const fetchedAt = new Date().toISOString();
 
     if (result.status === "enriched") {
@@ -132,11 +149,19 @@ export const runEnrichmentStage: StageRunner = async ({ digestRunId, stage }) =>
     const { error } = await supabase
       .from("articles")
       .update({
+        content_mode: analysis?.mode || "unknown",
+        content_mode_reason: analysis?.reason || ("error" in result ? result.error : null),
         enriched_description: "description" in result ? result.description || null : null,
         enriched_fetched_at: fetchedAt,
         enriched_text: "text" in result ? result.text || null : null,
-        enriched_word_count: "text" in result && result.text ? result.text.split(/\s+/).length : 0,
+        enriched_word_count: analysis?.wordCount || 0,
         enrichment_status: result.status,
+        has_audio: analysis?.hasAudio || false,
+        has_video: analysis?.hasVideo || false,
+        metadata: {
+          ...jsonRecord(article.metadata),
+          readerCopyVersion: READER_COPY_VERSION,
+        },
       })
       .eq("id", article.id);
 
@@ -151,6 +176,9 @@ export const runEnrichmentStage: StageRunner = async ({ digestRunId, stage }) =>
       fetched_at: fetchedAt,
       metadata: {
         canonicalUrl: article.canonical_url,
+        contentMode: analysis?.mode || "unknown",
+        contentModeReason: analysis?.reason || ("error" in result ? result.error : null),
+        paragraphCount: analysis?.paragraphCount || 0,
       },
       status: result.status,
     });

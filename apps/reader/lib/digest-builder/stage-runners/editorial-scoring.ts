@@ -3,6 +3,8 @@ import "server-only";
 import type { Database, Json } from "../../database.types";
 import { getDigestSettingsForRun, type ReaderDigestSettings } from "../../digest-settings";
 import { readerFeedForCategory, type ReaderFeedId } from "../../feed-categories";
+import { keywordHitCount, matchingKeywords, textMatchesAnyKeyword } from "../../keyword-matching";
+import { feedbackScoreAdjustment, getFeedbackProfileForUser } from "../../reader-feedback";
 import { createSupabaseAdminClient } from "../../supabase";
 import { buildDedupeProfile, duplicateDecision } from "../dedupe";
 import {
@@ -18,6 +20,7 @@ import { chunk, jsonNumber, jsonString, jsonStringArray } from "../utils";
 
 type StorySnapshotInsert = Database["public"]["Tables"]["story_snapshots"]["Insert"];
 type StorySnapshotRow = Database["public"]["Tables"]["story_snapshots"]["Row"];
+type ArticleRow = Database["public"]["Tables"]["articles"]["Row"];
 type ContentFeed = Exclude<ReaderFeedId, "all">;
 
 const FEED_SELECTION_ORDER: ContentFeed[] = ["geopolitics", "business", "ai", "software", "security"];
@@ -163,16 +166,72 @@ async function loadRunSnapshots(digestRunId: string) {
   return data || [];
 }
 
-function textIncludesAny(text: string, keywords: string[]) {
-  const lower = text.toLowerCase();
+async function loadSnapshotArticles(snapshots: StorySnapshotRow[]) {
+  const articleIds = [...new Set(snapshots.flatMap((snapshot) => jsonStringArray(snapshot.metadata, "articleIds")))];
+  const supabase = createSupabaseAdminClient();
+  const articles = new Map<string, ArticleRow>();
 
-  return keywords.some((keyword) => lower.includes(keyword));
+  for (const articleIdBatch of chunk(articleIds, 40)) {
+    const { data, error } = await supabase.from("articles").select("*").in("id", articleIdBatch);
+    if (error) throw error;
+    for (const article of data || []) articles.set(article.id, article);
+  }
+
+  return articles;
+}
+
+function bestReadableArticle(snapshot: StorySnapshotRow, articles: Map<string, ArticleRow>) {
+  return jsonStringArray(snapshot.metadata, "articleIds")
+    .flatMap((articleId) => {
+      const article = articles.get(articleId);
+      return article?.content_mode === "readable" ? [article] : [];
+    })
+    .sort((left, right) => {
+      const priority = jsonNumber(right.metadata, "sourcePriority") - jsonNumber(left.metadata, "sourcePriority");
+      const textLength = (right.enriched_text || "").length - (left.enriched_text || "").length;
+      return priority || textLength;
+    })[0];
+}
+
+function snapshotWithReadableVariant(snapshot: StorySnapshotRow, articles: Map<string, ArticleRow>) {
+  const articleIds = jsonStringArray(snapshot.metadata, "articleIds");
+  const contentModes = [...new Set(articleIds.flatMap((articleId) => {
+    const article = articles.get(articleId);
+    return article ? [article.content_mode] : [];
+  }))];
+  const readableArticle = bestReadableArticle(snapshot, articles);
+
+  if (!readableArticle) {
+    return { contentModes, hasReadableVariant: false, snapshot };
+  }
+
+  return {
+    contentModes,
+    hasReadableVariant: true,
+    snapshot: {
+      ...snapshot,
+      metadata: {
+        ...jsonRecord(snapshot.metadata),
+        canonicalArticleId: readableArticle.id,
+        canonicalUrl: readableArticle.canonical_url,
+        category: readableArticle.category,
+        contentMode: readableArticle.content_mode,
+        publishedAt: readableArticle.last_seen_at || readableArticle.first_seen_at,
+        source: readableArticle.source,
+        sourcePriority: jsonNumber(readableArticle.metadata, "sourcePriority"),
+        summary: readableArticle.enriched_description || readableArticle.raw_summary,
+        title: readableArticle.enriched_title || readableArticle.title,
+      },
+    },
+  };
+}
+
+function textIncludesAny(text: string, keywords: string[]) {
+  return textMatchesAnyKeyword(text, keywords);
 }
 
 function keywordHits(text: string, keywords: string[]) {
-  const lower = text.toLowerCase();
-
-  return keywords.filter((keyword) => lower.includes(keyword));
+  return matchingKeywords(text, keywords);
 }
 
 function jsonRecord(value: Json): Record<string, Json | undefined> {
@@ -223,15 +282,13 @@ function feedScoreAdjustment(
 }
 
 function classifyPracticalBucket(text: string): PracticalBucket {
-  const lower = text.toLowerCase();
-
   for (const bucket of PRACTICAL_BUCKET_PRIORITY) {
-    if (keywordHits(lower, BUCKET_KEYWORDS[bucket]).length > 0) {
+    if (keywordHits(text, BUCKET_KEYWORDS[bucket]).length > 0) {
       return bucket;
     }
   }
 
-  return textIncludesAny(lower, SCOPE_KEYWORDS) ? "product_trend" : "ignore";
+  return textIncludesAny(text, SCOPE_KEYWORDS) ? "product_trend" : "ignore";
 }
 
 function humanBucket(bucket: PracticalBucket) {
@@ -285,7 +342,7 @@ export function selectionReasonForStory({
   geopoliticsIsRelevant: boolean;
   isDeveloperSecurity: boolean;
   isMajorSecurity: boolean;
-  scores: ReturnType<typeof scoreSnapshot>;
+  scores: Omit<ReturnType<typeof scoreSnapshot>, "ageHours">;
   text: string;
 }) {
   const hits = uniqueHits(
@@ -326,12 +383,12 @@ function scoreSnapshot(snapshot: StorySnapshotRow, settings: ReaderDigestSetting
   const publishedAt = jsonString(snapshot.metadata, "publishedAt");
   const sourcePriority = Math.max(0, Math.min(5, jsonNumber(snapshot.metadata, "sourcePriority")));
   const text = `${title} ${summary} ${category}`;
-  const preferredKeywordHits = settings.preferredKeywords.filter((keyword) => text.toLowerCase().includes(keyword)).length;
+  const preferredKeywordHits = keywordHitCount(text, settings.preferredKeywords);
   const impactScore = Math.max(
     1,
     Math.min(
       10,
-      2 + IMPORTANT_KEYWORDS.filter((keyword) => text.toLowerCase().includes(keyword)).length + preferredKeywordHits,
+      2 + keywordHitCount(text, IMPORTANT_KEYWORDS) + preferredKeywordHits,
     ),
   );
   const confirmationScore = Math.min(10, snapshot.duplicate_count >= 5 ? 10 : snapshot.duplicate_count * 3);
@@ -354,6 +411,7 @@ function scoreSnapshot(snapshot: StorySnapshotRow, settings: ReaderDigestSetting
 
   return {
     actionabilityScore,
+    ageHours,
     confirmationScore,
     editorialScore,
     impactScore,
@@ -364,11 +422,21 @@ function scoreSnapshot(snapshot: StorySnapshotRow, settings: ReaderDigestSetting
 }
 
 export const runEditorialScoringStage: StageRunner = async ({ digestRunId }) => {
+  const supabase = createSupabaseAdminClient();
   const [settings, snapshots] = await Promise.all([
     getDigestSettingsForRun(digestRunId),
     loadRunSnapshots(digestRunId),
   ]);
-  const supabase = createSupabaseAdminClient();
+  const [{ data: run, error: runError }, articles] = await Promise.all([
+    supabase.from("digest_runs").select("started_by_user_id").eq("id", digestRunId).maybeSingle(),
+    loadSnapshotArticles(snapshots),
+  ]);
+  if (runError) throw runError;
+  const feedbackProfile = settings.personalizationEnabled
+    ? await getFeedbackProfileForUser(run?.started_by_user_id || null, {
+        includeImplicit: settings.implicitPersonalizationEnabled,
+      })
+    : null;
   const clusterIds = snapshots.map((snapshot) => snapshot.story_cluster_id);
   const { data: clusterRows, error: clusterError } = clusterIds.length
     ? await supabase.from("story_clusters").select("id, latest_scores").in("id", clusterIds)
@@ -380,13 +448,16 @@ export const runEditorialScoringStage: StageRunner = async ({ digestRunId }) => 
 
   const previousScoresByClusterId = new Map((clusterRows || []).map((cluster) => [cluster.id, cluster.latest_scores]));
   const scored = snapshots
-    .map((snapshot) => {
+    .map((rawSnapshot) => {
+      const prepared = snapshotWithReadableVariant(rawSnapshot, articles);
+      const snapshot = prepared.snapshot;
       const scores = scoreSnapshot(snapshot, settings);
       const title = jsonString(snapshot.metadata, "title");
       const summary = jsonString(snapshot.metadata, "summary");
       const category = jsonString(snapshot.metadata, "category");
       const publishedAt = jsonString(snapshot.metadata, "publishedAt");
       const source = jsonString(snapshot.metadata, "source");
+      const normalizedSource = source.trim().toLowerCase();
       const feed = readerFeedForCategory(category);
       const text = `${title} ${summary} ${category}`;
       const isMajorSecurity = feed === "security" ? securityStoryIsMajor(snapshot, text) : false;
@@ -394,7 +465,14 @@ export const runEditorialScoringStage: StageRunner = async ({ digestRunId }) => 
       const geopoliticsIsRelevant =
         feed === "geopolitics" ? geopoliticsStoryAffectsBusinessSecurityChipsEnergy(text) : false;
       const excludedKeywordPenalty = textIncludesAny(text, settings.excludedKeywords) ? 80 : 0;
-      const feedbackAdjustment = 0;
+      const feedbackAdjustment = feedbackProfile
+        ? feedbackScoreAdjustment(feedbackProfile, {
+            category,
+            source,
+            storyClusterId: snapshot.story_cluster_id,
+            text,
+          })
+        : 0;
       const practicalBucket = classifyPracticalBucket(text);
       const feedAdjustment = feedScoreAdjustment(feed, {
         geopoliticsIsRelevant,
@@ -424,14 +502,18 @@ export const runEditorialScoringStage: StageRunner = async ({ digestRunId }) => 
 
       return {
         changedFields: Array.from(new Set(changedFields)),
+        contentModes: prepared.contentModes,
         dedupeProfile,
         feedbackAdjustment,
         feed,
         feedAdjustment,
         geopoliticsIsRelevant,
         isDeveloperSecurity,
+        hasReadableVariant: prepared.hasReadableVariant,
+        isExcluded: excludedKeywordPenalty > 0,
         isMajorSecurity,
         practicalBucket,
+        normalizedSource,
         scores,
         selectionScore: scores.editorialScore + feedAdjustment + feedbackAdjustment - excludedKeywordPenalty,
         snapshot,
@@ -439,6 +521,22 @@ export const runEditorialScoringStage: StageRunner = async ({ digestRunId }) => 
     })
     .sort((left, right) => right.selectionScore - left.selectionScore);
   const candidates = scored.filter((item) => {
+    if (item.isExcluded) {
+      return false;
+    }
+
+    if (settings.readableOnly && !item.hasReadableVariant) {
+      return false;
+    }
+
+    if (item.scores.ageHours > settings.freshnessWindowHours) {
+      return false;
+    }
+
+    if (item.snapshot.duplicate_count < settings.minimumSourceCount) {
+      return false;
+    }
+
     if (item.scores.editorialScore < settings.minimumImportanceScore) {
       return false;
     }
@@ -464,9 +562,17 @@ export const runEditorialScoringStage: StageRunner = async ({ digestRunId }) => 
     software: 0,
     security: 0,
   };
+  const selectedSourceCounts = new Map<string, number>();
 
   function selectItem(item: (typeof scored)[number]) {
     if (selectedIds.size >= settings.publishTopN || selectedIds.has(item.snapshot.id)) {
+      return;
+    }
+
+    if (
+      item.normalizedSource &&
+      (selectedSourceCounts.get(item.normalizedSource) ?? 0) >= settings.maxStoriesPerSource
+    ) {
       return;
     }
 
@@ -486,6 +592,9 @@ export const runEditorialScoringStage: StageRunner = async ({ digestRunId }) => 
     selectedIds.add(item.snapshot.id);
     selectedItems.push(item);
     selectedCounts[item.feed] += 1;
+    if (item.normalizedSource) {
+      selectedSourceCounts.set(item.normalizedSource, (selectedSourceCounts.get(item.normalizedSource) ?? 0) + 1);
+    }
   }
 
   for (const feed of FEED_SELECTION_ORDER) {
@@ -508,17 +617,43 @@ export const runEditorialScoringStage: StageRunner = async ({ digestRunId }) => 
     selectItem(item);
   }
 
+  const selectedStoriesBySourceUrl = new Map<string, Set<string>>();
+  for (const item of selectedItems) {
+    const sourceVariants = jsonRecord(item.snapshot.metadata).sourceVariants;
+    if (!Array.isArray(sourceVariants)) continue;
+    for (const variant of sourceVariants) {
+      const sourceFeedUrl = jsonString(variant, "sourceFeedUrl");
+      if (!sourceFeedUrl) continue;
+      const storyIds = selectedStoriesBySourceUrl.get(sourceFeedUrl) || new Set<string>();
+      storyIds.add(item.snapshot.story_cluster_id);
+      selectedStoriesBySourceUrl.set(sourceFeedUrl, storyIds);
+    }
+  }
+  await Promise.all(
+    [...selectedStoriesBySourceUrl].map(async ([sourceUrl, storyIds]) => {
+      const { error } = await supabase
+        .from("source_run_observations")
+        .update({ selected_story_count: storyIds.size })
+        .eq("digest_run_id", digestRunId)
+        .eq("source_url", sourceUrl);
+      if (error) throw error;
+    }),
+  );
+
   const scoredSnapshots: StorySnapshotInsert[] = scored.map(
     ({
       changedFields,
+      contentModes,
       dedupeProfile: _dedupeProfile,
       feedbackAdjustment,
       feed,
       feedAdjustment,
       geopoliticsIsRelevant,
       isDeveloperSecurity,
+      hasReadableVariant,
       isMajorSecurity,
       practicalBucket,
+      normalizedSource: _normalizedSource,
       scores,
       selectionScore,
       snapshot,
@@ -535,6 +670,8 @@ export const runEditorialScoringStage: StageRunner = async ({ digestRunId }) => 
         metadata: {
           ...jsonRecord(snapshot.metadata),
           ...(duplicateSuppression ? { duplicateSuppression } : {}),
+          contentModes,
+          hasReadableVariant,
           isDeveloperSecurity,
           isMajorSecurity,
           practicalBucket,
@@ -544,6 +681,7 @@ export const runEditorialScoringStage: StageRunner = async ({ digestRunId }) => 
             confirmation: scores.confirmationScore,
             editorial: scores.editorialScore,
             feedbackAdjustment,
+            personalizationEvidenceCount: feedbackProfile?.evidenceCount || 0,
             feed,
             feedAdjustment,
             geopoliticsIsRelevant,
@@ -618,16 +756,34 @@ export const runEditorialScoringStage: StageRunner = async ({ digestRunId }) => 
         const { error: scoreError } = await supabase
           .from("story_clusters")
           .update({
+            canonical_title: jsonString(item.snapshot.metadata, "title"),
+            canonical_url: jsonString(item.snapshot.metadata, "canonicalUrl"),
             latest_scores: {
               editorial: item.scores.editorialScore,
               impact: item.scores.impactScore,
               novelty: item.scores.noveltyScore,
               selection: item.selectionScore,
             },
+            latest_summary: jsonString(item.snapshot.metadata, "summary"),
+            source: jsonString(item.snapshot.metadata, "source"),
           })
           .eq("id", item.snapshot.story_cluster_id);
 
         if (scoreError) throw scoreError;
+        const canonicalArticleId = jsonString(item.snapshot.metadata, "canonicalArticleId");
+        if (canonicalArticleId) {
+          const { error: clearCanonicalError } = await supabase
+            .from("story_cluster_articles")
+            .update({ is_canonical: false })
+            .eq("story_cluster_id", item.snapshot.story_cluster_id);
+          if (clearCanonicalError) throw clearCanonicalError;
+          const { error: canonicalError } = await supabase
+            .from("story_cluster_articles")
+            .update({ is_canonical: true })
+            .eq("story_cluster_id", item.snapshot.story_cluster_id)
+            .eq("article_id", canonicalArticleId);
+          if (canonicalError) throw canonicalError;
+        }
       }),
     );
   }
@@ -639,10 +795,18 @@ export const runEditorialScoringStage: StageRunner = async ({ digestRunId }) => 
       suppressedDuplicateCount: suppressedDuplicates.size,
       settings: {
         minimumImportanceScore: settings.minimumImportanceScore,
+        freshnessWindowHours: settings.freshnessWindowHours,
+        maxStoriesPerSource: settings.maxStoriesPerSource,
+        minimumSourceCount: settings.minimumSourceCount,
         publishTopN: settings.publishTopN,
+        readableOnly: settings.readableOnly,
         requireMajorSecurity: settings.requireMajorSecurity,
       },
-      feedbackAdjustedCount: 0,
+      feedbackAdjustedCount: scored.filter((item) => item.feedbackAdjustment !== 0).length,
+      personalizationEvidenceCount: feedbackProfile?.evidenceCount || 0,
+      skippedWithoutReadableTextCount: settings.readableOnly
+        ? scored.filter((item) => !item.hasReadableVariant).length
+        : 0,
       skippedNonMajorSecurityCount: settings.requireMajorSecurity
         ? scored.filter((item) => item.feed === "security" && !item.isMajorSecurity && !item.isDeveloperSecurity).length
         : 0,

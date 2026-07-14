@@ -16,12 +16,14 @@ type ArticleRow = RunArticle;
 type StoryClusterInsert = Database["public"]["Tables"]["story_clusters"]["Insert"];
 type StoryClusterRow = Database["public"]["Tables"]["story_clusters"]["Row"];
 type StorySnapshotInsert = Database["public"]["Tables"]["story_snapshots"]["Insert"];
+type StoryClusterArticleInsert = Database["public"]["Tables"]["story_cluster_articles"]["Insert"];
 
 type DuplicateEdge = { leftArticleId: string; reason: string; rightArticleId: string; score: number };
 
 type GroupedStory = {
   duplicateEdges: DuplicateEdge[];
   group: ArticleRow[];
+  historicalMatch?: { cluster: StoryClusterRow; reason: string; score: number };
   profiles: DedupeProfile[];
   storyKey: string;
 };
@@ -31,11 +33,15 @@ export type StorySourceVariant = {
   name: string;
   priority: number;
   publishedAt: string | null;
+  readerSourceId: string | null;
+  sourceFeedUrl: string | null;
   url: string;
 };
 
-const MAX_DEDUPE_CANDIDATES_PER_ARTICLE = 80;
+const MAX_DEDUPE_CANDIDATES_PER_ARTICLE = 250;
 const MAX_DEDUPE_KEY_TOKENS = 8;
+const HISTORICAL_MATCH_WINDOW_DAYS = 7;
+const STORY_CLUSTERING_ALGORITHM_VERSION = "story-clustering-v2";
 
 function bestArticleForGroup(articles: ArticleRow[]) {
   return [...articles].sort((left, right) => {
@@ -48,8 +54,28 @@ function bestArticleForGroup(articles: ArticleRow[]) {
   })[0];
 }
 
-function sourceVariantsForGroup(articles: ArticleRow[]): StorySourceVariant[] {
-  return [...articles]
+function publisherKey(article: ArticleRow) {
+  return jsonString(article.metadata, "readerSourceId") || article.source.trim().toLocaleLowerCase("und");
+}
+
+export function sourceVariantsForGroup(articles: ArticleRow[]): StorySourceVariant[] {
+  const distinctPublishers = new Map<string, ArticleRow>();
+
+  for (const article of articles) {
+    const key = publisherKey(article);
+    const existing = distinctPublishers.get(key);
+
+    if (
+      !existing ||
+      jsonNumber(article.metadata, "sourcePriority") > jsonNumber(existing.metadata, "sourcePriority") ||
+      (article.enriched_description || article.raw_summary || "").length >
+        (existing.enriched_description || existing.raw_summary || "").length
+    ) {
+      distinctPublishers.set(key, article);
+    }
+  }
+
+  return [...distinctPublishers.values()]
     .sort((left, right) => {
       const priorityDiff = jsonNumber(right.metadata, "sourcePriority") - jsonNumber(left.metadata, "sourcePriority");
       const rightTime = Date.parse(right.last_seen_at || right.first_seen_at || "") || 0;
@@ -62,6 +88,8 @@ function sourceVariantsForGroup(articles: ArticleRow[]): StorySourceVariant[] {
       name: article.source,
       priority: jsonNumber(article.metadata, "sourcePriority"),
       publishedAt: article.last_seen_at || article.first_seen_at,
+      readerSourceId: jsonString(article.metadata, "readerSourceId") || null,
+      sourceFeedUrl: jsonString(article.metadata, "sourceUrl") || null,
       url: article.canonical_url,
     }));
 }
@@ -95,18 +123,26 @@ function dedupeMetadata(profiles: DedupeProfile[], duplicateEdges: DuplicateEdge
 }
 
 function dedupeCandidateKeys(profile: DedupeProfile) {
-  const keys = new Set<string>([`feed:${profile.broadFeed}`]);
+  const keys = new Set<string>();
 
   if (profile.fingerprint) {
     keys.add(`fingerprint:${profile.fingerprint}`);
   }
 
-  for (const token of [...profile.titleTokens].slice(0, MAX_DEDUPE_KEY_TOKENS)) {
+  const informativeTitleTokens = [...profile.titleTokens].sort(
+    (left, right) => Number(/\d/.test(right)) - Number(/\d/.test(left)) || right.length - left.length,
+  );
+
+  for (const token of informativeTitleTokens.slice(0, MAX_DEDUPE_KEY_TOKENS)) {
     keys.add(`title:${profile.broadFeed}:${token}`);
   }
 
   for (const token of [...profile.textTokens].filter((value) => /\d/.test(value) || value.length >= 7).slice(0, 4)) {
     keys.add(`anchor:${profile.broadFeed}:${token}`);
+  }
+
+  if (!keys.size || profile.titleTokens.size < 2) {
+    keys.add(`feed:${profile.broadFeed}`);
   }
 
   return [...keys];
@@ -150,73 +186,62 @@ function groupArticlesIntoStories(articles: ArticleRow[]) {
       title: article.title,
     }),
   );
-  const parent = articles.map((_, index) => index);
-  const duplicateEdges: DuplicateEdge[] = [];
   const candidateBuckets = new Map<string, number[]>();
+  const groups: Array<{ articleIndexes: number[]; duplicateEdges: DuplicateEdge[] }> = [];
+  const groupIndexByArticle = new Map<number, number>();
   let skippedDedupeCandidateCount = 0;
-
-  function find(index: number): number {
-    if (parent[index] !== index) {
-      parent[index] = find(parent[index]);
-    }
-
-    return parent[index];
-  }
-
-  function union(left: number, right: number) {
-    const leftRoot = find(left);
-    const rightRoot = find(right);
-
-    if (leftRoot !== rightRoot) {
-      parent[rightRoot] = leftRoot;
-    }
-  }
 
   for (const [rightIndex, profile] of profiles.entries()) {
     const { candidateIndexes, skippedCandidateCount } = candidateIndexesForProfile(profile, candidateBuckets);
     skippedDedupeCandidateCount += skippedCandidateCount;
+    const candidateGroupIndexes = new Set(
+      candidateIndexes.flatMap((articleIndex) => {
+        const groupIndex = groupIndexByArticle.get(articleIndex);
+        return groupIndex === undefined ? [] : [groupIndex];
+      }),
+    );
+    const viableGroups = [...candidateGroupIndexes].flatMap((groupIndex) => {
+      const group = groups[groupIndex];
+      const decisions = group.articleIndexes.map((leftIndex) => ({
+        decision: duplicateDecision(profiles[leftIndex], profile),
+        leftIndex,
+      }));
 
-    for (const leftIndex of candidateIndexes) {
-      const decision = duplicateDecision(profiles[leftIndex], profile);
-
-      if (!decision.duplicate) {
-        continue;
+      if (!decisions.every(({ decision }) => decision.duplicate)) {
+        return [];
       }
 
-      union(leftIndex, rightIndex);
-      duplicateEdges.push({
-        leftArticleId: articles[leftIndex].id,
-        reason: decision.reason,
-        rightArticleId: articles[rightIndex].id,
-        score: Number(decision.score.toFixed(3)),
-      });
+      return [{
+        decisions,
+        groupIndex,
+        score: Math.min(...decisions.map(({ decision }) => decision.score)),
+      }];
+    });
+    const bestGroup = viableGroups.sort((left, right) => right.score - left.score)[0];
+
+    if (bestGroup) {
+      const group = groups[bestGroup.groupIndex];
+      group.articleIndexes.push(rightIndex);
+      group.duplicateEdges.push(
+        ...bestGroup.decisions.map(({ decision, leftIndex }) => ({
+          leftArticleId: articles[leftIndex].id,
+          reason: decision.reason,
+          rightArticleId: articles[rightIndex].id,
+          score: Number(decision.score.toFixed(3)),
+        })),
+      );
+      groupIndexByArticle.set(rightIndex, bestGroup.groupIndex);
+    } else {
+      groupIndexByArticle.set(rightIndex, groups.length);
+      groups.push({ articleIndexes: [rightIndex], duplicateEdges: [] });
     }
 
     addProfileToCandidateBuckets(profile, rightIndex, candidateBuckets);
   }
 
-  const groups = new Map<number, { articleIndexes: number[]; duplicateEdges: DuplicateEdge[] }>();
-
-  for (const [articleIndex] of articles.entries()) {
-    const root = find(articleIndex);
-    const existing = groups.get(root) || { articleIndexes: [], duplicateEdges: [] };
-    existing.articleIndexes.push(articleIndex);
-    groups.set(root, existing);
-  }
-
-  for (const edge of duplicateEdges) {
-    const leftIndex = articles.findIndex((article) => article.id === edge.leftArticleId);
-    const root = find(leftIndex);
-    const existing = groups.get(root);
-
-    if (existing) {
-      existing.duplicateEdges.push(edge);
-    }
-  }
-
   return {
     skippedDedupeCandidateCount,
-    stories: [...groups.values()].map(({ articleIndexes, duplicateEdges: edges }) => {
+    stories: groups.map(({ articleIndexes, duplicateEdges: edges }) => {
       const group = articleIndexes.map((index) => articles[index]);
       const groupProfiles = articleIndexes.map((index) => profiles[index]);
 
@@ -302,13 +327,170 @@ async function loadStoryClustersByKey(storyKeys: string[]) {
   return clusters;
 }
 
+async function loadRecentStoryClusters(now: Date) {
+  const supabase = createSupabaseAdminClient();
+  const cutoff = new Date(now.getTime() - HISTORICAL_MATCH_WINDOW_DAYS * 86_400_000).toISOString();
+  const { data, error } = await supabase
+    .from("story_clusters")
+    .select("*")
+    .gte("last_seen_at", cutoff)
+    .order("last_seen_at", { ascending: false })
+    .limit(2_000);
+
+  if (error) throw error;
+  return data || [];
+}
+
+function matchStoriesToHistory(stories: GroupedStory[], historicalClusters: StoryClusterRow[]) {
+  const historicalProfiles = historicalClusters.map((cluster) => ({
+    cluster,
+    profile: buildDedupeProfile({
+      canonicalUrl: cluster.canonical_url,
+      category: cluster.category,
+      id: cluster.id,
+      publishedAt: cluster.latest_published_at || cluster.last_seen_at,
+      source: cluster.source,
+      summary: cluster.latest_summary,
+      title: cluster.canonical_title,
+    }),
+  }));
+  const usedClusterIds = new Set<string>();
+
+  return stories.map((story) => {
+    const historicalMatch = historicalProfiles
+      .flatMap(({ cluster, profile }) => {
+        if (usedClusterIds.has(cluster.id)) return [];
+        const matching = story.profiles
+          .map((currentProfile) => duplicateDecision(profile, currentProfile))
+          .filter((decision) => decision.duplicate)
+          .sort((left, right) => right.score - left.score)[0];
+
+        return matching ? [{ cluster, reason: matching.reason, score: matching.score }] : [];
+      })
+      .sort((left, right) => right.score - left.score)[0];
+
+    if (!historicalMatch) return story;
+    usedClusterIds.add(historicalMatch.cluster.id);
+    return { ...story, historicalMatch, storyKey: historicalMatch.cluster.story_key };
+  });
+}
+
+async function persistStoryArticleAssociations(
+  digestRunId: string,
+  stories: GroupedStory[],
+  savedClusters: Map<string, StoryClusterRow>,
+) {
+  const supabase = createSupabaseAdminClient();
+  const clusterIds = stories.flatMap((story) => {
+    const cluster = savedClusters.get(story.storyKey);
+    return cluster ? [cluster.id] : [];
+  });
+  const { data: existingRows, error: existingError } = clusterIds.length
+    ? await supabase
+        .from("story_cluster_articles")
+        .select("story_cluster_id, article_id, first_seen_at, first_seen_digest_run_id")
+        .in("story_cluster_id", clusterIds)
+    : { data: [], error: null };
+
+  if (existingError) throw existingError;
+  const existingByKey = new Map((existingRows || []).map((row) => [`${row.story_cluster_id}:${row.article_id}`, row]));
+  const now = new Date().toISOString();
+  const rows: StoryClusterArticleInsert[] = [];
+
+  for (const story of stories) {
+    const cluster = savedClusters.get(story.storyKey);
+    const canonical = bestArticleForGroup(story.group);
+    if (!cluster) continue;
+
+    for (const article of story.group) {
+      const edge = story.duplicateEdges
+        .filter((candidate) => candidate.leftArticleId === article.id || candidate.rightArticleId === article.id)
+        .sort((left, right) => right.score - left.score)[0];
+      const existing = existingByKey.get(`${cluster.id}:${article.id}`);
+
+      rows.push({
+        algorithm_version: STORY_CLUSTERING_ALGORITHM_VERSION,
+        article_id: article.id,
+        first_seen_at: existing?.first_seen_at || now,
+        first_seen_digest_run_id: existing?.first_seen_digest_run_id || digestRunId,
+        is_canonical: false,
+        last_seen_at: now,
+        last_seen_digest_run_id: digestRunId,
+        match_reason: story.historicalMatch
+          ? `history:${story.historicalMatch.reason}`
+          : edge?.reason || (article.id === canonical.id ? "new_story" : "group_member"),
+        match_score: Number((story.historicalMatch?.score ?? edge?.score ?? 1).toFixed(3)),
+        story_cluster_id: cluster.id,
+      });
+    }
+  }
+
+  for (const rowBatch of chunk(rows, SUPABASE_WRITE_BATCH_SIZE)) {
+    const { error } = await supabase.from("story_cluster_articles").upsert(rowBatch, {
+      onConflict: "story_cluster_id,article_id",
+    });
+    if (error) throw error;
+  }
+
+  if (clusterIds.length) {
+    const { error } = await supabase.from("story_cluster_articles").update({ is_canonical: false }).in("story_cluster_id", clusterIds);
+    if (error) throw error;
+  }
+
+  for (const story of stories) {
+    const cluster = savedClusters.get(story.storyKey);
+    const canonical = bestArticleForGroup(story.group);
+    if (!cluster) continue;
+    const { error } = await supabase
+      .from("story_cluster_articles")
+      .update({ is_canonical: true })
+      .eq("story_cluster_id", cluster.id)
+      .eq("article_id", canonical.id);
+    if (error) throw error;
+  }
+}
+
+async function updateSourceStoryObservations(
+  digestRunId: string,
+  stories: GroupedStory[],
+  clusters: Map<string, StoryClusterRow>,
+) {
+  const supabase = createSupabaseAdminClient();
+  const sourceStats = new Map<string, { confirmed: Set<string>; stories: Set<string> }>();
+
+  for (const story of stories) {
+    const cluster = clusters.get(story.storyKey);
+    if (!cluster) continue;
+    const variants = sourceVariantsForGroup(story.group);
+    for (const variant of variants) {
+      if (!variant.sourceFeedUrl) continue;
+      const stats = sourceStats.get(variant.sourceFeedUrl) || { confirmed: new Set(), stories: new Set() };
+      stats.stories.add(cluster.id);
+      if (variants.length >= 2) stats.confirmed.add(cluster.id);
+      sourceStats.set(variant.sourceFeedUrl, stats);
+    }
+  }
+
+  await Promise.all(
+    [...sourceStats].map(async ([sourceUrl, stats]) => {
+      const { error } = await supabase
+        .from("source_run_observations")
+        .update({ confirmation_story_count: stats.confirmed.size, unique_story_count: stats.stories.size })
+        .eq("digest_run_id", digestRunId)
+        .eq("source_url", sourceUrl);
+      if (error) throw error;
+    }),
+  );
+}
+
 export const runStoryClusteringStage: StageRunner = async ({ digestRunId }) => {
   const articles = await loadRunArticles(digestRunId);
-  const { skippedDedupeCandidateCount, stories: groupedStories } = groupArticlesIntoStories(articles);
+  const { skippedDedupeCandidateCount, stories } = groupArticlesIntoStories(articles);
+  const groupedStories = matchStoriesToHistory(stories, await loadRecentStoryClusters(new Date()));
   const storyKeys = groupedStories.map(({ storyKey }) => storyKey);
   const existingStories = await loadExistingStoryClusters(storyKeys);
   const now = new Date().toISOString();
-  const clusters: StoryClusterInsert[] = groupedStories.map(({ duplicateEdges, group, profiles, storyKey }) => {
+  const clusters: StoryClusterInsert[] = groupedStories.map(({ duplicateEdges, group, historicalMatch, profiles, storyKey }) => {
     const canonical = bestArticleForGroup(group);
     const existing = existingStories.get(storyKey);
     const sourceVariants = sourceVariantsForGroup(group);
@@ -324,13 +506,10 @@ export const runStoryClusteringStage: StageRunner = async ({ digestRunId }) => {
       canonical_title: canonical.title,
       canonical_url: canonical.canonical_url,
       category: canonical.category,
-      confirmation_count:
-        jsonString(existing?.metadata ?? {}, "digestRunId") === digestRunId
-          ? existing?.confirmation_count || group.length
-          : (existing?.confirmation_count || 0) + group.length,
+      confirmation_count: Math.max(existing?.confirmation_count || 0, sourceVariants.length),
       first_seen_at: existing?.first_seen_at || canonical.first_seen_at || now,
       last_seen_at: now,
-      latest_duplicate_count: group.length,
+      latest_duplicate_count: sourceVariants.length,
       latest_published_at: canonical.last_seen_at,
       latest_summary: summary,
       metadata: {
@@ -338,6 +517,9 @@ export const runStoryClusteringStage: StageRunner = async ({ digestRunId }) => {
         canonicalArticleId: canonical.id,
         dedupe: dedupeMetadata(profiles, duplicateEdges),
         digestRunId,
+        historicalMatch: historicalMatch
+          ? { clusterId: historicalMatch.cluster.id, reason: historicalMatch.reason, score: historicalMatch.score }
+          : null,
         changedFields,
         sourceVariants,
         sourceUrls: group.map((article) => article.canonical_url),
@@ -357,6 +539,8 @@ export const runStoryClusteringStage: StageRunner = async ({ digestRunId }) => {
   }
 
   const savedClusters = await loadStoryClustersByKey(storyKeys);
+  await persistStoryArticleAssociations(digestRunId, groupedStories, savedClusters);
+  await updateSourceStoryObservations(digestRunId, groupedStories, savedClusters);
   const snapshots: StorySnapshotInsert[] = [];
 
   for (const { duplicateEdges, group, profiles, storyKey } of groupedStories) {
@@ -378,7 +562,7 @@ export const runStoryClusteringStage: StageRunner = async ({ digestRunId }) => {
 
     snapshots.push({
       digest_run_id: digestRunId,
-      duplicate_count: group.length,
+      duplicate_count: sourceVariants.length,
       changed_fields: changedFields,
       metadata: {
         articleIds: group.map((article) => article.id),
@@ -412,6 +596,7 @@ export const runStoryClusteringStage: StageRunner = async ({ digestRunId }) => {
     metrics: {
       articleCount: articles.length,
       duplicateEdgeCount: groupedStories.reduce((count, story) => count + story.duplicateEdges.length, 0),
+      historicalMatchCount: groupedStories.filter((story) => story.historicalMatch).length,
       skippedDedupeCandidateCount,
       storyCount: snapshots.length,
     },
