@@ -432,8 +432,8 @@ function SourceFields({
   return (
     <>
       {source ? <input type="hidden" name={sourceFieldName("id", fieldNamePrefix)} value={source.id} /> : null}
-      <div className="grid gap-3 lg:grid-cols-[1fr_1.2fr]">
-        <div className="grid gap-2">
+      <div className="grid min-w-0 gap-3 lg:grid-cols-[1fr_1.2fr]">
+        <div className="grid min-w-0 gap-2">
           <Label htmlFor={`source-name-${sourceFieldId}`}>Name</Label>
           <Input
             id={`source-name-${sourceFieldId}`}
@@ -443,7 +443,7 @@ function SourceFields({
             maxLength={200}
           />
         </div>
-        <div className="grid gap-2">
+        <div className="grid min-w-0 gap-2">
           <Label htmlFor={`source-url-${sourceFieldId}`}>Feed URL</Label>
           <Input
             id={`source-url-${sourceFieldId}`}
@@ -455,8 +455,8 @@ function SourceFields({
           />
         </div>
       </div>
-      <div className="grid gap-3 lg:grid-cols-[1fr_7rem_auto] lg:items-end">
-        <div className="grid gap-2">
+      <div className="grid min-w-0 gap-3 lg:grid-cols-[1fr_7rem_auto] lg:items-end">
+        <div className="grid min-w-0 gap-2">
           <Label htmlFor={`source-category-${sourceFieldId}`}>Category</Label>
           <Input
             id={`source-category-${sourceFieldId}`}
@@ -649,21 +649,21 @@ function SourceEditor({
   source: ReaderSource;
 }) {
   return (
-    <details className="group rounded-xl border bg-background/70 transition-colors open:bg-background">
-      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-3 [&::-webkit-details-marker]:hidden">
+    <details className="group min-w-0 rounded-xl border bg-background/70 transition-colors open:bg-background">
+      <summary className="grid min-w-0 cursor-pointer list-none grid-cols-1 gap-3 px-3 py-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center [&::-webkit-details-marker]:hidden">
         <div className="min-w-0">
           <h3 className="truncate text-sm font-semibold">{source.name}</h3>
           <p className="truncate text-xs text-muted-foreground">{source.category}</p>
         </div>
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="flex min-w-0 flex-wrap items-center gap-2 sm:justify-end">
           {quality ? <Badge variant={quality.recommendation === "keep" ? "secondary" : "outline"}>{quality.label}</Badge> : null}
           <SourceEnabledToggle defaultEnabled={source.enabled} name={sourceFieldName("enabled", fieldNamePrefix)} />
           <Badge variant="outline" className="hidden sm:inline-flex">Priority {source.priority}</Badge>
-          <span className="w-12 text-right text-xs font-medium text-muted-foreground group-open:hidden">Edit</span>
-          <span className="hidden w-12 text-right text-xs font-medium text-muted-foreground group-open:inline">Close</span>
+          <span className="ml-auto text-right text-xs font-medium text-muted-foreground group-open:hidden sm:ml-0 sm:w-12">Edit</span>
+          <span className="ml-auto hidden text-right text-xs font-medium text-muted-foreground group-open:inline sm:ml-0 sm:w-12">Close</span>
         </div>
       </summary>
-      <div className="grid gap-3 border-t p-3">
+      <div className="grid min-w-0 gap-3 border-t p-3">
         <p className="truncate text-xs text-muted-foreground">{source.url}</p>
         {quality ? (
           <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-5">
@@ -1028,8 +1028,8 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
               <Badge variant="outline">{SOURCE_FEEDS.find((feed) => feed.id === activeSourceFeed)?.label}</Badge>
             </div>
           </CardHeader>
-          <CardContent className={cn(SECTION_CONTENT_CLASS, "grid gap-5")}>
-            <section className="grid gap-3">
+          <CardContent className={cn(SECTION_CONTENT_CLASS, "grid min-w-0 gap-5")}>
+            <section className="grid min-w-0 gap-3">
               <div>
                 <h2 className="text-sm font-semibold">Choose a category</h2>
                 <p className="mt-1 text-xs text-muted-foreground">See every category at once and switch directly.</p>
@@ -1042,11 +1042,11 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
               />
             </section>
 
-            <form action={saveReaderSources} className="grid gap-3">
+            <form action={saveReaderSources} className="grid min-w-0 gap-3">
               <input type="hidden" name="sourceFeed" value={activeSourceFeed} />
               <input type="hidden" name="settingsTab" value="sources" />
               <input type="hidden" name="sourceCount" value={shownSourceCount} />
-              <section className="grid gap-3">
+              <section className="grid min-w-0 gap-3">
                 <div className="flex flex-wrap items-end justify-between gap-3">
                   <div>
                     <h2 className="text-sm font-semibold">
@@ -1055,11 +1055,11 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
                     <p className="mt-1 text-xs text-muted-foreground">Toggle sources now. Open Edit only when you need URL or priority settings.</p>
                   </div>
                 </div>
-                <div className="grid gap-3">
+                <div className="grid min-w-0 gap-3">
                   {shownSourceGroups.map((group) =>
                     group.sources.length ? (
-                      <section key={group.id} className="grid gap-2">
-                        <div className="grid gap-2">
+                      <section key={group.id} className="grid min-w-0 gap-2">
+                        <div className="grid min-w-0 gap-2">
                           {group.sources.map((source) => {
                             const fieldNamePrefix = `sources.${sourceFieldIndex}`;
                             sourceFieldIndex += 1;
