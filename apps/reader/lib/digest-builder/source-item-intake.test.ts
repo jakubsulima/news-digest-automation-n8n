@@ -140,33 +140,32 @@ describe("parseSourceFeed", () => {
 });
 
 describe("fetchSourceItemsForRun", () => {
+  const publicLookup = async () => [{ address: "8.8.8.8", family: 4 }];
+
   it("keeps successful Source Items and reports failed feeds", async () => {
     const fetchImpl = vi.fn(async (url: string | URL | Request) => {
       const value = String(url);
 
       if (value.includes("good")) {
-        return {
-          ok: true,
+        return new Response(
+          `<rss><channel><item>
+            <title>Good</title>
+            <link>https://example.com/good</link>
+            <pubDate>Sat, 20 Jun 2026 09:00:00 GMT</pubDate>
+          </item></channel></rss>`,
+          {
           status: 200,
-          text: async () =>
-            `<rss><channel><item>
-              <title>Good</title>
-              <link>https://example.com/good</link>
-              <pubDate>Sat, 20 Jun 2026 09:00:00 GMT</pubDate>
-            </item></channel></rss>`,
-        } as Response;
+          },
+        );
       }
 
-      return {
-        ok: false,
-        status: 503,
-        text: async () => "",
-      } as Response;
+      return new Response("", { status: 503 });
     });
 
     const result = await fetchSourceItemsForRun({
       digestRunId: "run-5",
       fetchImpl: fetchImpl as unknown as typeof fetch,
+      lookup: publicLookup,
       now: new Date("2026-06-20T12:00:00.000Z"),
       sources: [
         { ...source, name: "Good Source", url: "https://feeds.example.test/good" },
@@ -192,38 +191,38 @@ describe("fetchSourceItemsForRun", () => {
   });
 
   it("keeps only items published today or yesterday in Warsaw time", async () => {
-    const fetchImpl = vi.fn(async () => {
-      return {
-        ok: true,
-        status: 200,
-        text: async () =>
-          `<rss><channel>
-            <item>
-              <title>Today</title>
-              <link>https://example.com/today</link>
-              <pubDate>Sat, 20 Jun 2026 08:00:00 GMT</pubDate>
-            </item>
-            <item>
-              <title>Yesterday</title>
-              <link>https://example.com/yesterday</link>
-              <pubDate>Fri, 19 Jun 2026 18:30:00 GMT</pubDate>
-            </item>
-            <item>
-              <title>Old</title>
-              <link>https://example.com/old</link>
-              <pubDate>Thu, 18 Jun 2026 18:30:00 GMT</pubDate>
-            </item>
-            <item>
-              <title>Undated</title>
-              <link>https://example.com/undated</link>
-            </item>
-          </channel></rss>`,
-      } as Response;
-    });
+    const fetchImpl = vi.fn(async () =>
+      new Response(
+        `<rss><channel>
+          <item>
+            <title>Today</title>
+            <link>https://example.com/today</link>
+            <pubDate>Sat, 20 Jun 2026 08:00:00 GMT</pubDate>
+          </item>
+          <item>
+            <title>Yesterday</title>
+            <link>https://example.com/yesterday</link>
+            <pubDate>Fri, 19 Jun 2026 18:30:00 GMT</pubDate>
+          </item>
+          <item>
+            <title>Old</title>
+            <link>https://example.com/old</link>
+            <pubDate>Thu, 18 Jun 2026 18:30:00 GMT</pubDate>
+          </item>
+          <item>
+            <title>Undated</title>
+            <link>https://example.com/undated</link>
+          </item>
+        </channel></rss>`,
+        {
+          status: 200,
+        },
+      ));
 
     const result = await fetchSourceItemsForRun({
       digestRunId: "run-6",
       fetchImpl: fetchImpl as unknown as typeof fetch,
+      lookup: publicLookup,
       now: new Date("2026-06-20T12:00:00.000Z"),
       sources: [{ ...source, name: "Recent Source", url: "https://feeds.example.test/recent" }],
     });
@@ -239,5 +238,37 @@ describe("fetchSourceItemsForRun", () => {
         "Recent Source": 2,
       },
     });
+  });
+
+  it("rejects a runtime feed redirect to a private address", async () => {
+    const result = await fetchSourceItemsForRun({
+      digestRunId: "run-7",
+      fetchImpl: async () => new Response(null, {
+        headers: { location: "http://127.0.0.1/internal" },
+        status: 302,
+      }),
+      lookup: publicLookup,
+      now: new Date("2026-06-20T12:00:00.000Z"),
+      sources: [{ ...source, name: "Redirect Source", url: "https://feeds.example.test/redirect" }],
+    });
+
+    expect(result.metrics.sourcesFailed).toBe(1);
+    expect(result.metrics.errors[0]).toMatch(/private|local|reserved/i);
+  });
+
+  it("rejects a runtime feed response above the bounded size", async () => {
+    const result = await fetchSourceItemsForRun({
+      digestRunId: "run-8",
+      fetchImpl: async () => new Response(null, {
+        headers: { "content-length": String(2 * 1024 * 1024 + 1) },
+        status: 200,
+      }),
+      lookup: publicLookup,
+      now: new Date("2026-06-20T12:00:00.000Z"),
+      sources: [{ ...source, name: "Large Source", url: "https://feeds.example.test/large" }],
+    });
+
+    expect(result.metrics.sourcesFailed).toBe(1);
+    expect(result.metrics.errors[0]).toMatch(/2 MB limit/i);
   });
 });

@@ -46,6 +46,14 @@ function pageItems(page: ReaderFeedPage) {
   return [page.grouped.top, page.grouped.actionable, page.grouped.worthKnowing, page.grouped.more].flat();
 }
 
+function sourceAttributionMetadata(item: RankedNewsItem) {
+  const source = item.sourceVariants.find((variant) => variant.url === item.sourceUrl) || item.sourceVariants[0];
+  return {
+    readerSourceId: source?.readerSourceId ?? null,
+    sourceUrl: source?.sourceFeedUrl ?? item.sourceUrl,
+  };
+}
+
 async function apiBatchRead(itemIds: string[]) {
   return fetch("/api/news-items/state", {
     body: JSON.stringify({ action: "read", enabled: true, itemIds }),
@@ -59,8 +67,9 @@ function sendEvents(events: Array<Record<string, unknown>>) {
   return fetch("/api/feed-events", {
     body: JSON.stringify({ events }),
     headers: { "Content-Type": "application/json" },
+    keepalive: true,
     method: "POST",
-  }).then(() => undefined);
+  }).then(() => undefined).catch(() => undefined);
 }
 
 export function NewsFeed({
@@ -86,7 +95,7 @@ export function NewsFeed({
   const [error, setError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const sessionIdRef = useRef<string | null>(null);
-  const impressedItemIdsRef = useRef<Set<string>>(new Set());
+  const exposedRecommendationsRef = useRef<Set<string>>(new Set());
   const didRecordVisitRef = useRef(false);
   const items = useMemo(() => pageItems(page), [page]);
   const visibleUnreadItems = items.filter((item) => !item.readAt && !item.archivedAt);
@@ -97,27 +106,8 @@ export function NewsFeed({
       didRecordVisitRef.current = true;
       void fetch("/api/reader/visit", { method: "POST" });
     }
-
-    if (!sessionIdRef.current) return;
-    const newImpressions = items.flatMap((item, rank) => {
-      if (impressedItemIdsRef.current.has(item.id)) return [];
-      impressedItemIdsRef.current.add(item.id);
-      return [{ item, rank }];
-    });
-    void sendEvents(
-      newImpressions.map(({ item, rank }) => ({
-        eventType: "impression",
-        feed: selection.feed,
-        newsItemId: item.id,
-        rank,
-        sessionId: sessionIdRef.current,
-        sortMode: selection.sort,
-        storyClusterId: item.storyClusterId,
-      })),
-    );
-  }, [items, selection.feed, selection.period, selection.sort]);
-
-  useEffect(() => () => abortRef.current?.abort(), []);
+    return () => abortRef.current?.abort();
+  }, []);
 
   function writeUrl(next: FeedSelection) {
     const params = new URLSearchParams();
@@ -144,6 +134,8 @@ export function NewsFeed({
         view: next.view,
       });
       if (cursor) params.set("cursor", cursor);
+      if (cursor) params.set("rankedAt", page.rankedAt);
+      if (cursor) params.set("rankingContextId", page.rankingContextId);
       if (initialPage.previousVisitAt) params.set("since", initialPage.previousVisitAt);
       const response = await fetch(`/api/news-feed?${params}`, { signal: controller.signal });
       const payload = (await response.json().catch(() => null)) as ReaderFeedPage & { error?: string };
@@ -158,6 +150,8 @@ export function NewsFeed({
         setMoreExpanded(true);
       } else {
         setPage(payload);
+        setSelection(next);
+        writeUrl(next);
         setMoreExpanded(false);
       }
     } catch (loadError) {
@@ -170,9 +164,7 @@ export function NewsFeed({
 
   function changeSelection(patch: Partial<FeedSelection>) {
     const next = { ...selection, ...patch };
-    setSelection(next);
     setOpenFilter(null);
-    writeUrl(next);
     void loadFeed(next);
   }
 
@@ -188,18 +180,40 @@ export function NewsFeed({
     }));
   }
 
-  function trackInteraction(eventType: string, item: RankedNewsItem, rank: number, metadata?: Record<string, unknown>) {
+  function trackInteraction(
+    eventType: string,
+    item: RankedNewsItem,
+    rank: number,
+    metadata?: Record<string, unknown>,
+    interactionOrigin: "direct" | "bulk" | "automatic" = "direct",
+  ) {
     if (!sessionIdRef.current) return;
     void sendEvents([{
       eventType,
-      feed: selection.feed,
+      feed: page.selection.feed,
+      interactionOrigin,
+      isExploration: item.isExploration,
       metadata,
+      modelRank: item.modelRank,
       newsItemId: item.id,
+      policyVersion: item.policyVersion,
       rank,
+      rankingContextId: page.rankingContextId,
+      rankScore: item.rankScore,
+      recommendationReasons: item.rankingReasons,
+      scoreComponents: item.rankingScoreComponents,
       sessionId: sessionIdRef.current,
-      sortMode: selection.sort,
+      sortMode: page.selection.sort,
       storyClusterId: item.storyClusterId,
     }]);
+  }
+
+  function trackExposure(item: RankedNewsItem, rank: number) {
+    if (!item.storyClusterId) return;
+    const key = `${page.rankingContextId}:${item.storyClusterId}`;
+    if (exposedRecommendationsRef.current.has(key)) return;
+    exposedRecommendationsRef.current.add(key);
+    trackInteraction("impression", item, rank);
   }
 
   function updateItemState(
@@ -226,7 +240,13 @@ export function NewsFeed({
   ) {
     const previous = items.find((item) => item.id === itemId);
     updateItem(itemId, (item) => ({ ...item, feedback, feedbackReason: reason }));
-    if (previous) trackInteraction("feedback", previous, items.indexOf(previous), { feedback, reason });
+    if (previous) {
+      trackInteraction("feedback", previous, items.indexOf(previous), {
+        feedback,
+        reason,
+        ...(reason === "source" ? sourceAttributionMetadata(previous) : {}),
+      });
+    }
   }
 
   async function markVisibleAsRead() {
@@ -241,7 +261,7 @@ export function NewsFeed({
       const response = await apiBatchRead(visibleUnreadItems.map((item) => item.id));
       const payload = (await response.json().catch(() => null)) as { error?: string; ok?: boolean } | null;
       if (!response.ok || !payload?.ok) throw new Error(payload?.error || "Could not mark items read.");
-      visibleUnreadItems.forEach((item) => trackInteraction("read", item, items.indexOf(item)));
+      visibleUnreadItems.forEach((item) => trackInteraction("read", item, items.indexOf(item), undefined, "bulk"));
     } catch (markError) {
       setPage(previousPage);
       setError(markError instanceof Error ? markError.message : "Could not mark items read.");
@@ -325,13 +345,13 @@ export function NewsFeed({
       <div className={cn("grid gap-4 transition-opacity", isLoading && "pointer-events-none opacity-60")}>
         {items.length ? (
           <>
-            <NewsFeedSection label="Top stories" items={page.grouped.top} rankOffset={0} onFeedbackChange={updateFeedback} onItemStateChange={updateItemState} onFastRead={(item, rank) => trackInteraction("fast_read", item, rank)} onSourceOpen={(item, rank) => trackInteraction("source_open", item, rank)} />
-            <NewsFeedSection label="Act on this" items={page.grouped.actionable} rankOffset={actionableOffset} onFeedbackChange={updateFeedback} onItemStateChange={updateItemState} onFastRead={(item, rank) => trackInteraction("fast_read", item, rank)} onSourceOpen={(item, rank) => trackInteraction("source_open", item, rank)} />
-            <NewsFeedSection label="Worth knowing" items={page.grouped.worthKnowing} rankOffset={worthOffset} onFeedbackChange={updateFeedback} onItemStateChange={updateItemState} onFastRead={(item, rank) => trackInteraction("fast_read", item, rank)} onSourceOpen={(item, rank) => trackInteraction("source_open", item, rank)} />
+            <NewsFeedSection exposureContextId={page.rankingContextId} label="Top stories" items={page.grouped.top} rankOffset={0} onExposure={trackExposure} onFeedbackChange={updateFeedback} onItemStateChange={updateItemState} onFastRead={(item, rank) => trackInteraction("fast_read", item, rank)} onSourceOpen={(item, rank) => trackInteraction("source_open", item, rank, sourceAttributionMetadata(item))} />
+            <NewsFeedSection exposureContextId={page.rankingContextId} label="Act on this" items={page.grouped.actionable} rankOffset={actionableOffset} onExposure={trackExposure} onFeedbackChange={updateFeedback} onItemStateChange={updateItemState} onFastRead={(item, rank) => trackInteraction("fast_read", item, rank)} onSourceOpen={(item, rank) => trackInteraction("source_open", item, rank, sourceAttributionMetadata(item))} />
+            <NewsFeedSection exposureContextId={page.rankingContextId} label="Worth knowing" items={page.grouped.worthKnowing} rankOffset={worthOffset} onExposure={trackExposure} onFeedbackChange={updateFeedback} onItemStateChange={updateItemState} onFastRead={(item, rank) => trackInteraction("fast_read", item, rank)} onSourceOpen={(item, rank) => trackInteraction("source_open", item, rank, sourceAttributionMetadata(item))} />
             {page.grouped.more.length ? (
               <section className="grid gap-2">
                 <Button type="button" variant="outline" onClick={() => setMoreExpanded((value) => !value)}>{moreExpanded ? "Hide more stories" : `Show ${page.grouped.more.length} more stories`}</Button>
-                <NewsFeedSection label="More stories" items={moreItems} rankOffset={moreOffset} onFeedbackChange={updateFeedback} onItemStateChange={updateItemState} onFastRead={(item, rank) => trackInteraction("fast_read", item, rank)} onSourceOpen={(item, rank) => trackInteraction("source_open", item, rank)} />
+                <NewsFeedSection exposureContextId={page.rankingContextId} label="More stories" items={moreItems} rankOffset={moreOffset} onExposure={trackExposure} onFeedbackChange={updateFeedback} onItemStateChange={updateItemState} onFastRead={(item, rank) => trackInteraction("fast_read", item, rank)} onSourceOpen={(item, rank) => trackInteraction("source_open", item, rank, sourceAttributionMetadata(item))} />
               </section>
             ) : null}
             {page.nextCursor ? <Button type="button" variant="outline" disabled={isLoading} onClick={() => void loadFeed(selection, page.nextCursor, true)}>Load more</Button> : null}

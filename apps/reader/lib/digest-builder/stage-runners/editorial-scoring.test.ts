@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
 
-import { selectionReasonForStory } from "./editorial-scoring";
+import { eligibilityReasonsForStory, selectionReasonForStory } from "./editorial-scoring";
 
 const scores = {
   actionabilityScore: 8,
@@ -44,5 +44,53 @@ describe("selectionReasonForStory", () => {
     expect(softwareReason).toContain("github");
     expect(softwareReason).toContain("open source");
     expect(softwareReason).not.toBe(aiReason);
+  });
+});
+
+describe("eligibilityReasonsForStory", () => {
+  it("records every failed gate with stable reason codes", () => {
+    expect(eligibilityReasonsForStory({
+      ageHours: 80,
+      duplicateCount: 1,
+      editorialScore: 40,
+      feed: "security",
+      freshnessWindowHours: 48,
+      hasReadableVariant: false,
+      isDeveloperSecurity: false,
+      isExcluded: true,
+      isMajorSecurity: false,
+      minimumImportanceScore: 60,
+      minimumSourceCount: 2,
+      noveltyScore: 2,
+      readableOnly: true,
+      requireMajorSecurity: true,
+    })).toEqual([
+      "excluded_keyword",
+      "unreadable",
+      "stale",
+      "insufficient_sources",
+      "below_importance",
+      "insufficient_novelty",
+      "security_relevance",
+    ]);
+  });
+
+  it("returns no reasons for an eligible candidate", () => {
+    expect(eligibilityReasonsForStory({
+      ageHours: 12,
+      duplicateCount: 3,
+      editorialScore: 80,
+      feed: "ai",
+      freshnessWindowHours: 48,
+      hasReadableVariant: true,
+      isDeveloperSecurity: false,
+      isExcluded: false,
+      isMajorSecurity: false,
+      minimumImportanceScore: 60,
+      minimumSourceCount: 2,
+      noveltyScore: 7,
+      readableOnly: true,
+      requireMajorSecurity: true,
+    })).toEqual([]);
   });
 });

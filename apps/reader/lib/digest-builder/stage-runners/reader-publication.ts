@@ -259,6 +259,15 @@ export const runReaderPublicationStage: StageRunner = async ({ digestRunId }) =>
     if (upsertError) {
       throw upsertError;
     }
+
+    await Promise.all(rows.map(async (row) => {
+      if (!row.story_cluster_id) return;
+      const { error: clusterTagError } = await supabase
+        .from("story_clusters")
+        .update({ entity_tags: row.entity_tags, topic_tags: row.topic_tags })
+        .eq("id", row.story_cluster_id);
+      if (clusterTagError) throw clusterTagError;
+    }));
   }
 
   const brief = await digestBriefWithNvidia({

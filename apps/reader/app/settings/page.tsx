@@ -11,7 +11,18 @@ import { KeywordGroupManager } from "@/components/keyword-group-manager";
 import { Label } from "@/components/ui/label";
 import { SourceEnabledToggle } from "@/components/source-enabled-toggle";
 import { ThemeToggle } from "@/components/theme-toggle";
-import { resetPersonalization, saveReaderDigestSettings, saveReaderSource, saveReaderSourcePreset, saveReaderSources } from "@/lib/actions";
+import {
+  applyPortfolioSuggestion,
+  confirmSourceDiscovery,
+  dismissPortfolioSuggestion,
+  resetPersonalization,
+  saveReaderDigestSettings,
+  saveReaderSource,
+  saveReaderSourcePreset,
+  saveReaderSources,
+  startSourceDiscovery,
+  updateReaderSourceMode,
+} from "@/lib/actions";
 import { hasNvidiaSummaryConfig } from "@/lib/ai-summary";
 import { requireCurrentReader } from "@/lib/auth";
 import {
@@ -21,8 +32,11 @@ import {
 import { READER_FEEDS, normalizeReaderFeedId, readerFeedForCategory, type ReaderFeedId } from "@/lib/feed-categories";
 import { getReaderFeedInsights } from "@/lib/feed-events";
 import { getFeedbackProfileForUser, summarizeFeedbackProfile } from "@/lib/reader-feedback";
+import { getRecommendationPolicyGate } from "@/lib/recommendation-policy-server";
 import { getReaderSources, SOURCE_PRESETS, type ReaderSource } from "@/lib/reader-sources";
 import { getSourceQualityInsights, type SourceQualityInsight } from "@/lib/source-quality";
+import { getSourceAutopilotGate, getSourcePortfolioSuggestions } from "@/lib/source-portfolio";
+import { discoverReaderSource } from "@/lib/source-discovery";
 import { cn } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -30,16 +44,20 @@ export const dynamic = "force-dynamic";
 const STATUS_COPY = {
   "migration-required": "Settings cannot be saved until the reader_digest_settings Supabase migration is applied.",
   "personalization-reset": "Learned preferences and interaction signals were reset.",
+  "policy-gate-pending": "Recommendation Policy v2 remains in shadow mode until all ten-run activation criteria pass.",
   "save-failed": "Settings could not be saved. Check the server log for the database error.",
   saved: "Settings saved.",
   "source-invalid": "Source could not be saved. Check the URL, name, category, and priority.",
+  "source-discovered": "Discovered source saved in Auto mode. It will be evaluated as a probe before normal selection.",
+  "source-discovery-failed": "The source changed, already exists, or failed safety validation during confirmation.",
+  "source-discovery-invalid": "Enter a valid HTTP or HTTPS website, article, RSS, or Atom URL.",
   "source-preset-saved": "Source preset applied.",
   "source-save-failed": "Source could not be saved. Check the server log for the database error.",
   "source-saved": "Source saved.",
   "sources-saved": "Sources saved.",
 } as const;
 
-const SUCCESS_STATUSES = new Set(["saved", "personalization-reset", "source-preset-saved", "source-saved", "sources-saved"]);
+const SUCCESS_STATUSES = new Set(["saved", "personalization-reset", "source-discovered", "source-preset-saved", "source-saved", "sources-saved"]);
 const PRESET_CARD_CLASS =
   "h-auto min-h-20 w-full flex-col items-start gap-1 whitespace-normal px-3 py-2 text-left";
 const SECTION_CARD_CLASS = "border-border/70 bg-card/70 shadow-sm ring-0";
@@ -165,6 +183,7 @@ type SettingsTabId = "general" | "advanced" | "sources";
 type SettingsPageProps = {
   searchParams?: Promise<{
     avoidKeywordGroup?: string | string[];
+    discoveryUrl?: string | string[];
     preset?: string | string[];
     preferKeywordGroup?: string | string[];
     settingsTab?: string | string[];
@@ -385,8 +404,17 @@ function HiddenDigestAdvancedFields({ settings }: { settings: ReaderDigestSettin
       <input type="hidden" name="readableOnly" value={settings.readableOnly ? "on" : "off"} />
       <input type="hidden" name="personalizationEnabled" value={settings.personalizationEnabled ? "on" : "off"} />
       <input type="hidden" name="implicitPersonalizationEnabled" value={settings.implicitPersonalizationEnabled ? "on" : "off"} />
+      <input type="hidden" name="recommendationPolicyMode" value={settings.recommendationPolicyMode} />
       <input type="hidden" name="summaryMaxChars" value={settings.summaryMaxChars} />
       <input type="hidden" name="useAiSummaries" value={settings.useAiSummaries ? "on" : "off"} />
+      <input type="hidden" name="sourcePortfolioMode" value={settings.sourcePortfolioMode} />
+      <input type="hidden" name="sourceBudget" value={settings.sourceBudget} />
+      <input type="hidden" name="sourceProbeCount" value={settings.sourceProbeCount} />
+      <input type="hidden" name="sourceMinimumGeopolitics" value={settings.sourceCategoryMinimums.geopolitics} />
+      <input type="hidden" name="sourceMinimumBusiness" value={settings.sourceCategoryMinimums.business} />
+      <input type="hidden" name="sourceMinimumAi" value={settings.sourceCategoryMinimums.ai} />
+      <input type="hidden" name="sourceMinimumSoftware" value={settings.sourceCategoryMinimums.software} />
+      <input type="hidden" name="sourceMinimumSecurity" value={settings.sourceCategoryMinimums.security} />
     </>
   );
 }
@@ -455,7 +483,7 @@ function SourceFields({
           />
         </div>
       </div>
-      <div className="grid min-w-0 gap-3 lg:grid-cols-[1fr_7rem_auto] lg:items-end">
+      <div className="grid min-w-0 gap-3 lg:grid-cols-[1fr_7rem_10rem_auto] lg:items-end">
         <div className="grid min-w-0 gap-2">
           <Label htmlFor={`source-category-${sourceFieldId}`}>Category</Label>
           <Input
@@ -474,6 +502,19 @@ function SourceFields({
           max={5}
           defaultValue={source?.priority ?? 3}
         />
+        <div className="grid gap-2">
+          <Label htmlFor={`source-mode-${sourceFieldId}`}>Portfolio mode</Label>
+          <select
+            id={`source-mode-${sourceFieldId}`}
+            name={sourceFieldName("selectionMode", fieldNamePrefix)}
+            className="h-9 rounded-lg border border-input bg-transparent px-3 text-sm shadow-xs"
+            defaultValue={source?.selectionMode ?? "auto"}
+          >
+            <option value="always_on">Always on</option>
+            <option value="auto">Auto</option>
+            <option value="blocked">Blocked</option>
+          </select>
+        </div>
         {showEnabled ? (
           <label className="flex h-8 items-center gap-2 text-sm font-medium">
             <input
@@ -657,6 +698,8 @@ function SourceEditor({
         </div>
         <div className="flex min-w-0 flex-wrap items-center gap-2 sm:justify-end">
           {quality ? <Badge variant={quality.recommendation === "keep" ? "secondary" : "outline"}>{quality.label}</Badge> : null}
+          <Badge variant={source.validationStatus === "valid" ? "secondary" : "outline"}>{source.validationStatus}</Badge>
+          <Badge variant="outline">{source.selectionMode.replace("_", " ")}</Badge>
           <SourceEnabledToggle defaultEnabled={source.enabled} name={sourceFieldName("enabled", fieldNamePrefix)} />
           <Badge variant="outline" className="hidden sm:inline-flex">Priority {source.priority}</Badge>
           <span className="ml-auto text-right text-xs font-medium text-muted-foreground group-open:hidden sm:ml-0 sm:w-12">Edit</span>
@@ -693,15 +736,36 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
   const activeSettingsTab = normalizeSettingsTabId(rawSearchParams?.settingsTab);
   const activeSourceFeed = normalizeSettingsSourceFeed(rawSearchParams?.sourceFeed);
   const activePreset = normalizeDigestPresetId(rawSearchParams?.preset);
+  const discoveryUrl = firstSearchValue(rawSearchParams?.discoveryUrl)?.slice(0, 2_000) || "";
   const queryKeywordGroups: ActiveKeywordGroups = {
     avoid: normalizeKeywordGroupIds("avoid", rawSearchParams?.avoidKeywordGroup),
     prefer: normalizeKeywordGroupIds("prefer", rawSearchParams?.preferKeywordGroup),
   };
-  const [savedSettings, sources, insights, sourceQuality] = await Promise.all([
+  const [savedSettings, sources, insights, sourceQuality, sourceSuggestions, autopilotGate, recommendationGate, discoveryResult] = await Promise.all([
     getReaderDigestSettings(user.id),
     getReaderSources(),
     getReaderFeedInsights(user.id),
     getSourceQualityInsights(user.id),
+    getSourcePortfolioSuggestions().catch(() => []),
+    getSourceAutopilotGate().catch(() => ({ automaticRunCount: 0, criteria: null, passed: false })),
+    getRecommendationPolicyGate().catch(() => ({
+      deterministicTieBreaks: false,
+      eligibilityViolationCount: 0,
+      explanationCoverage: 0,
+      feedParity: false,
+      pairedRunCount: 0,
+      passed: false,
+      reasons: ["Recommendation decision migration or shadow evidence is not available"],
+      top20Overlap: 0,
+    })),
+    discoveryUrl
+      ? discoverReaderSource(discoveryUrl)
+          .then((proposal) => ({ error: null, proposal }))
+          .catch((error: unknown) => ({
+            error: error instanceof Error ? error.message : "Source discovery failed.",
+            proposal: null,
+          }))
+      : Promise.resolve({ error: null, proposal: null }),
   ]);
   const learnedPreferences = summarizeFeedbackProfile(
     await getFeedbackProfileForUser(user.id, {
@@ -774,13 +838,15 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
               <CardDescription>Private engagement signals from the last 180 days.</CardDescription>
             </CardHeader>
             <CardContent className={cn(SECTION_CONTENT_CLASS, "grid gap-3")}>
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7">
                 {[
                   ["Impressions", String(insights.impressions)],
                   ["Open rate", `${Math.round(insights.openRate * 100)}%`],
                   ["Save rate", `${Math.round(insights.saveRate * 100)}%`],
                   ["Feedback rate", `${Math.round(insights.feedbackRate * 100)}%`],
                   ["Unread after 24h", String(insights.unreadAfter24Hours)],
+                  ["Legacy events", String(insights.legacyEventCount)],
+                  ["Unattributed outcomes", String(insights.unattributedOutcomeCount)],
                 ].map(([label, value]) => (
                   <div key={label} className="rounded-md border p-3">
                     <p className="text-xs text-muted-foreground">{label}</p>
@@ -944,6 +1010,80 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
 
           <Card className={SECTION_CARD_CLASS}>
             <CardHeader className={SECTION_HEADER_CLASS}>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <CardTitle>Source Portfolio</CardTitle>
+                <Badge variant={autopilotGate.passed ? "secondary" : "outline"}>
+                  {autopilotGate.passed ? "10-run gate passed" : `${autopilotGate.automaticRunCount}/10 automatic runs`}
+                </Badge>
+              </div>
+              <CardDescription>Keep source selection manual, inspect shadow suggestions, or opt into guarded automatic selection.</CardDescription>
+            </CardHeader>
+            <CardContent className={cn(SECTION_CONTENT_CLASS, "grid gap-4")}>
+              <div className="grid gap-4 sm:grid-cols-3">
+                <div className="grid gap-2">
+                  <Label htmlFor="sourcePortfolioMode">Portfolio behavior</Label>
+                  <select
+                    id="sourcePortfolioMode"
+                    name="sourcePortfolioMode"
+                    className="h-9 rounded-lg border border-input bg-transparent px-3 text-sm shadow-xs"
+                    defaultValue={settings.sourcePortfolioMode}
+                  >
+                    <option value="manual">Manual</option>
+                    <option value="advisory">Advisory (shadow)</option>
+                    <option value="automatic">Automatic (opt-in)</option>
+                  </select>
+                </div>
+                <NumberField name="sourceBudget" label="Source budget" min={5} max={200} defaultValue={settings.sourceBudget} />
+                <NumberField name="sourceProbeCount" label="Probe slots" min={0} max={10} defaultValue={settings.sourceProbeCount} />
+              </div>
+              <div className="grid gap-3 sm:grid-cols-5">
+                <NumberField name="sourceMinimumGeopolitics" label="Geopolitics min." min={0} max={50} defaultValue={settings.sourceCategoryMinimums.geopolitics} />
+                <NumberField name="sourceMinimumBusiness" label="Business min." min={0} max={50} defaultValue={settings.sourceCategoryMinimums.business} />
+                <NumberField name="sourceMinimumAi" label="AI min." min={0} max={50} defaultValue={settings.sourceCategoryMinimums.ai} />
+                <NumberField name="sourceMinimumSoftware" label="Software min." min={0} max={50} defaultValue={settings.sourceCategoryMinimums.software} />
+                <NumberField name="sourceMinimumSecurity" label="Security min." min={0} max={50} defaultValue={settings.sourceCategoryMinimums.security} />
+              </div>
+              <p className="text-xs leading-relaxed text-muted-foreground">
+                Automatic mode changes at most 20% of the previous successful portfolio, preserves hard source modes and category minimums, and falls back safely if portfolio selection fails.
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card className={SECTION_CARD_CLASS}>
+            <CardHeader className={SECTION_HEADER_CLASS}>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <CardTitle>Recommendation Policy</CardTitle>
+                <Badge variant={recommendationGate.passed ? "secondary" : "outline"}>
+                  {recommendationGate.passed ? "v2 activation gate passed" : `${recommendationGate.pairedRunCount}/10 paired runs`}
+                </Badge>
+              </div>
+              <CardDescription>Run v2 beside v1, activate it after the evidence gate, or force the emergency v1 rollback.</CardDescription>
+            </CardHeader>
+            <CardContent className={cn(SECTION_CONTENT_CLASS, "grid gap-3")}>
+              <div className="grid gap-2">
+                <Label htmlFor="recommendationPolicyMode">Production policy</Label>
+                <select
+                  id="recommendationPolicyMode"
+                  name="recommendationPolicyMode"
+                  className="h-9 rounded-lg border border-input bg-transparent px-3 text-sm shadow-xs"
+                  defaultValue={settings.recommendationPolicyMode}
+                >
+                  <option value="shadow">v1 production + v2 shadow</option>
+                  <option value="v2" disabled={!recommendationGate.passed}>v2 production</option>
+                  <option value="v1">Emergency v1 rollback</option>
+                </select>
+              </div>
+              <p className="text-xs leading-relaxed text-muted-foreground">
+                Top-20 overlap {(recommendationGate.top20Overlap * 100).toFixed(0)}% · explanation coverage {(recommendationGate.explanationCoverage * 100).toFixed(0)}% · eligibility violations {recommendationGate.eligibilityViolationCount}. Personalization remains capped at +/−6 in digest selection and +/−9 in Reader ranking.
+              </p>
+              {!recommendationGate.passed && recommendationGate.reasons.length ? (
+                <p className="text-xs leading-relaxed text-muted-foreground">Waiting for: {recommendationGate.reasons.join("; ")}.</p>
+              ) : null}
+            </CardContent>
+          </Card>
+
+          <Card className={SECTION_CARD_CLASS}>
+            <CardHeader className={SECTION_HEADER_CLASS}>
               <CardTitle>Learned preferences</CardTitle>
               <CardDescription>Control how explicit feedback and reading behavior influence both the Digest Builder and Reader ranking.</CardDescription>
             </CardHeader>
@@ -1029,6 +1169,37 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
             </div>
           </CardHeader>
           <CardContent className={cn(SECTION_CONTENT_CLASS, "grid min-w-0 gap-5")}>
+            {sourceSuggestions.length ? (
+              <section className="grid gap-3 rounded-xl border bg-muted/20 p-3">
+                <div>
+                  <h2 className="text-sm font-semibold">Suggested changes</h2>
+                  <p className="mt-1 text-xs text-muted-foreground">Latest shadow proposal. Applying a suggestion changes the legacy manual switch; hard modes remain operator-owned.</p>
+                </div>
+                <div className="grid gap-2">
+                  {sourceSuggestions.map((suggestion) => (
+                    <div key={suggestion.decisionId} className="grid gap-2 rounded-lg border bg-background p-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium">{suggestion.action === "add" ? "Add" : "Remove"}: {suggestion.sourceName}</p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Score {suggestion.score.toFixed(1)} · confidence {Math.round(suggestion.confidence * 100)}% · {suggestion.runCount} runs · {suggestion.reasons.join("; ")}
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        <form action={applyPortfolioSuggestion}><input type="hidden" name="decisionId" value={suggestion.decisionId} /><Button type="submit" size="sm">Apply</Button></form>
+                        {(["always_on", "auto", "blocked"] as const).map((mode) => (
+                          <form key={mode} action={updateReaderSourceMode}>
+                            <input type="hidden" name="sourceId" value={suggestion.sourceId} />
+                            <input type="hidden" name="selectionMode" value={mode} />
+                            <Button type="submit" size="sm" variant="outline">{mode === "always_on" ? "Always on" : mode === "auto" ? "Auto" : "Block"}</Button>
+                          </form>
+                        ))}
+                        <form action={dismissPortfolioSuggestion}><input type="hidden" name="decisionId" value={suggestion.decisionId} /><Button type="submit" size="sm" variant="ghost">Dismiss</Button></form>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            ) : null}
             <section className="grid min-w-0 gap-3">
               <div>
                 <h2 className="text-sm font-semibold">Choose a category</h2>
@@ -1068,7 +1239,7 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
                               <SourceEditor
                                 key={source.id}
                                 fieldNamePrefix={fieldNamePrefix}
-                                quality={sourceQuality.get(source.url)}
+                                quality={sourceQuality.get(source.id) || sourceQuality.get(source.url)}
                                 source={source}
                               />
                             );
@@ -1092,6 +1263,51 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
             <section className="grid gap-2 border-t pt-5">
               <h2 className="text-sm font-semibold">Optional tools</h2>
               <div className="grid gap-2 lg:grid-cols-2">
+                <details className="rounded-xl border bg-muted/20" open={Boolean(discoveryUrl)}>
+                  <summary className="flex cursor-pointer list-none items-start gap-2 px-3 py-3 [&::-webkit-details-marker]:hidden">
+                    <Plus className="mt-0.5 size-4 text-primary" aria-hidden="true" />
+                    <span className="text-sm font-semibold">
+                      Discover RSS/Atom automatically
+                      <span className="mt-1 block text-xs font-normal text-muted-foreground">Paste a website, article, or feed URL. Nothing is saved before confirmation.</span>
+                    </span>
+                  </summary>
+                  <div className="grid gap-3 border-t p-3">
+                    <form action={startSourceDiscovery} className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
+                      <input type="hidden" name="sourceFeed" value={activeSourceFeed} />
+                      <input type="hidden" name="settingsTab" value="sources" />
+                      <div className="grid gap-2">
+                        <Label htmlFor="source-discovery-url">Website, article, RSS, or Atom URL</Label>
+                        <Input id="source-discovery-url" name="discoveryUrl" type="url" required maxLength={2000} defaultValue={discoveryUrl} placeholder="https://example.com/news" />
+                      </div>
+                      <Button type="submit" variant="outline">Discover</Button>
+                    </form>
+                    {discoveryResult.error ? (
+                      <Alert variant="destructive"><AlertDescription>{discoveryResult.error}</AlertDescription></Alert>
+                    ) : null}
+                    {discoveryResult.proposal ? (
+                      <form action={confirmSourceDiscovery} className="grid gap-3 rounded-lg border bg-background p-3">
+                        <input type="hidden" name="sourceFeed" value={activeSourceFeed} />
+                        <input type="hidden" name="settingsTab" value="sources" />
+                        <input type="hidden" name="discoveryUrl" value={discoveryUrl} />
+                        <input type="hidden" name="feedUrl" value={discoveryResult.proposal.feedUrl} />
+                        <div className="flex flex-wrap gap-2">
+                          <Badge variant="secondary">{discoveryResult.proposal.feedType.toUpperCase()}</Badge>
+                          <Badge variant="outline">{discoveryResult.proposal.language}</Badge>
+                          <Badge variant="outline">{discoveryResult.proposal.sampleItemCount} sample items</Badge>
+                          {discoveryResult.proposal.alreadyExists ? <Badge variant="destructive">Already exists</Badge> : null}
+                        </div>
+                        <p className="break-all text-xs text-muted-foreground">{discoveryResult.proposal.feedUrl}</p>
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          <div className="grid gap-2"><Label htmlFor="discovery-name">Name</Label><Input id="discovery-name" name="name" required maxLength={200} defaultValue={discoveryResult.proposal.name} /></div>
+                          <div className="grid gap-2"><Label htmlFor="discovery-category">Category</Label><Input id="discovery-category" name="category" required maxLength={200} defaultValue={discoveryResult.proposal.category} /></div>
+                        </div>
+                        <p className="text-xs text-muted-foreground">Confirmation repeats URL, DNS, redirect, size, and feed validation. The source is saved disabled in Auto mode and must pass probe evaluation.</p>
+                        <div className="flex justify-end"><Button type="submit" disabled={discoveryResult.proposal.alreadyExists}>Confirm and add source</Button></div>
+                      </form>
+                    ) : null}
+                  </div>
+                </details>
+
                 <details className="rounded-xl border bg-muted/20">
                   <summary className="cursor-pointer list-none px-3 py-3 text-sm font-semibold [&::-webkit-details-marker]:hidden">
                     Start from a preset

@@ -125,20 +125,32 @@ export function NewsItemFeedbackActions({
         {showLabels ? <span>Less</span> : null}
       </Button>
       {activeFeedback === "more" ? (
-        <Button
-          variant={activeReason === "source" ? "secondary" : "ghost"}
-          size="sm"
-          type="button"
-          disabled={pendingFeedback !== null}
-          onClick={() => void updateFeedback("more", activeReason === "source" ? "topic" : "source")}
-        >
-          {activeReason === "source" ? "From source" : "Prefer source"}
-        </Button>
+        <div className="flex flex-wrap gap-1" role="group" aria-label="What should be preferred?">
+          <Button
+            variant={activeReason === "source" ? "secondary" : "ghost"}
+            size="sm"
+            type="button"
+            disabled={pendingFeedback !== null}
+            onClick={() => void updateFeedback("more", "source")}
+          >
+            Prefer source
+          </Button>
+          <Button
+            variant={activeReason === "entity" ? "secondary" : "ghost"}
+            size="sm"
+            type="button"
+            disabled={pendingFeedback !== null}
+            onClick={() => void updateFeedback("more", "entity")}
+          >
+            Prefer entity
+          </Button>
+        </div>
       ) : null}
       {reasonMenuOpen ? (
         <div className="flex flex-wrap gap-1" role="group" aria-label="Why show fewer stories like this?">
           {([
             ["topic", "Topic"],
+            ["entity", "Entity"],
             ["source", "Source"],
             ["repetitive", "Repetitive"],
             ["quality", "Poor quality"],

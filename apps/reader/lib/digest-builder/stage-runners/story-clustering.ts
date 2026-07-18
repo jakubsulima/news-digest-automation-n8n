@@ -17,6 +17,7 @@ type StoryClusterInsert = Database["public"]["Tables"]["story_clusters"]["Insert
 type StoryClusterRow = Database["public"]["Tables"]["story_clusters"]["Row"];
 type StorySnapshotInsert = Database["public"]["Tables"]["story_snapshots"]["Insert"];
 type StoryClusterArticleInsert = Database["public"]["Tables"]["story_cluster_articles"]["Insert"];
+type StoryClusterSourceInsert = Database["public"]["Tables"]["story_cluster_sources"]["Insert"];
 
 type DuplicateEdge = { leftArticleId: string; reason: string; rightArticleId: string; score: number };
 
@@ -92,6 +93,20 @@ export function sourceVariantsForGroup(articles: ArticleRow[]): StorySourceVaria
       sourceFeedUrl: jsonString(article.metadata, "sourceUrl") || null,
       url: article.canonical_url,
     }));
+}
+
+export function sourceContributionsForGroup(articles: ArticleRow[]) {
+  const canonical = bestArticleForGroup(articles);
+  const canonicalSourceId = jsonString(canonical.metadata, "readerSourceId") || null;
+
+  return sourceVariantsForGroup(articles).flatMap((variant) =>
+    variant.readerSourceId
+      ? [{
+          contributionType: variant.readerSourceId === canonicalSourceId ? "canonical" as const : "confirmation" as const,
+          readerSourceId: variant.readerSourceId,
+        }]
+      : [],
+  );
 }
 
 export function detectStoryChanges(
@@ -450,13 +465,66 @@ async function persistStoryArticleAssociations(
   }
 }
 
+async function persistStorySourceAssociations(
+  digestRunId: string,
+  stories: GroupedStory[],
+  savedClusters: Map<string, StoryClusterRow>,
+) {
+  const supabase = createSupabaseAdminClient();
+  const clusterIds = stories.flatMap((story) => {
+    const cluster = savedClusters.get(story.storyKey);
+    return cluster ? [cluster.id] : [];
+  });
+  const { data: existingRows, error: existingError } = clusterIds.length
+    ? await supabase
+        .from("story_cluster_sources")
+        .select("story_cluster_id, reader_source_id, first_seen_at, first_seen_digest_run_id")
+        .in("story_cluster_id", clusterIds)
+    : { data: [], error: null };
+
+  if (existingError) throw existingError;
+  const existingByKey = new Map(
+    (existingRows || []).map((row) => [`${row.story_cluster_id}:${row.reader_source_id}`, row]),
+  );
+  const now = new Date().toISOString();
+  const rows: StoryClusterSourceInsert[] = [];
+
+  for (const story of stories) {
+    const cluster = savedClusters.get(story.storyKey);
+    if (!cluster) continue;
+
+    for (const contribution of sourceContributionsForGroup(story.group)) {
+      const existing = existingByKey.get(`${cluster.id}:${contribution.readerSourceId}`);
+      rows.push({
+        contribution_type: contribution.contributionType,
+        first_seen_at: existing?.first_seen_at || now,
+        first_seen_digest_run_id: existing?.first_seen_digest_run_id || digestRunId,
+        last_seen_at: now,
+        last_seen_digest_run_id: digestRunId,
+        reader_source_id: contribution.readerSourceId,
+        story_cluster_id: cluster.id,
+      });
+    }
+  }
+
+  for (const rowBatch of chunk(rows, SUPABASE_WRITE_BATCH_SIZE)) {
+    const { error } = await supabase.from("story_cluster_sources").upsert(rowBatch, {
+      onConflict: "story_cluster_id,reader_source_id",
+    });
+    if (error) throw error;
+  }
+}
+
 async function updateSourceStoryObservations(
   digestRunId: string,
   stories: GroupedStory[],
   clusters: Map<string, StoryClusterRow>,
 ) {
   const supabase = createSupabaseAdminClient();
-  const sourceStats = new Map<string, { confirmed: Set<string>; stories: Set<string> }>();
+  const sourceStats = new Map<
+    string,
+    { confirmed: Set<string>; readerSourceId: string | null; sourceUrl: string; stories: Set<string> }
+  >();
 
   for (const story of stories) {
     const cluster = clusters.get(story.storyKey);
@@ -464,20 +532,29 @@ async function updateSourceStoryObservations(
     const variants = sourceVariantsForGroup(story.group);
     for (const variant of variants) {
       if (!variant.sourceFeedUrl) continue;
-      const stats = sourceStats.get(variant.sourceFeedUrl) || { confirmed: new Set(), stories: new Set() };
+      const sourceKey = variant.readerSourceId ? `id:${variant.readerSourceId}` : `url:${variant.sourceFeedUrl}`;
+      const stats = sourceStats.get(sourceKey) || {
+        confirmed: new Set<string>(),
+        readerSourceId: variant.readerSourceId,
+        sourceUrl: variant.sourceFeedUrl,
+        stories: new Set<string>(),
+      };
       stats.stories.add(cluster.id);
       if (variants.length >= 2) stats.confirmed.add(cluster.id);
-      sourceStats.set(variant.sourceFeedUrl, stats);
+      sourceStats.set(sourceKey, stats);
     }
   }
 
   await Promise.all(
-    [...sourceStats].map(async ([sourceUrl, stats]) => {
-      const { error } = await supabase
+    [...sourceStats.values()].map(async (stats) => {
+      let update = supabase
         .from("source_run_observations")
         .update({ confirmation_story_count: stats.confirmed.size, unique_story_count: stats.stories.size })
-        .eq("digest_run_id", digestRunId)
-        .eq("source_url", sourceUrl);
+        .eq("digest_run_id", digestRunId);
+      update = stats.readerSourceId
+        ? update.eq("reader_source_id", stats.readerSourceId)
+        : update.eq("source_url", stats.sourceUrl);
+      const { error } = await update;
       if (error) throw error;
     }),
   );
@@ -540,6 +617,7 @@ export const runStoryClusteringStage: StageRunner = async ({ digestRunId }) => {
 
   const savedClusters = await loadStoryClustersByKey(storyKeys);
   await persistStoryArticleAssociations(digestRunId, groupedStories, savedClusters);
+  await persistStorySourceAssociations(digestRunId, groupedStories, savedClusters);
   await updateSourceStoryObservations(digestRunId, groupedStories, savedClusters);
   const snapshots: StorySnapshotInsert[] = [];
 

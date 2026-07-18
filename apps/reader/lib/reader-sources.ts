@@ -13,7 +13,12 @@ export type ReaderSource = {
   category: string;
   url: string;
   priority: number;
+  selectionMode: "auto" | "always_on" | "blocked";
   enabled: boolean;
+  feedType: "rss" | "atom" | "unknown";
+  language: string;
+  validationStatus: "unverified" | "valid" | "invalid" | "blocked";
+  lastValidatedAt: string | null;
 };
 
 export type ReaderSourceInput = {
@@ -22,6 +27,7 @@ export type ReaderSourceInput = {
   category: string;
   url: string;
   priority: number;
+  selectionMode: "auto" | "always_on" | "blocked";
   enabled: boolean;
 };
 
@@ -50,6 +56,7 @@ const sourceInputSchema = z.object({
   category: z.string().trim().min(1).max(200),
   url: z.string().trim().url().max(2000),
   priority: z.coerce.number().int().min(1).max(5),
+  selectionMode: z.enum(["auto", "always_on", "blocked"]),
   enabled: z.boolean(),
 });
 const sourceCountSchema = z.coerce.number().int().min(0).max(500);
@@ -127,13 +134,22 @@ function configuredSources(): SourceConfig[] {
 }
 
 function rowToSource(row: ReaderSourceRow): ReaderSource {
+  const feedType = row.feed_type === "rss" || row.feed_type === "atom" ? row.feed_type : "unknown";
+  const validationStatus = ["valid", "invalid", "blocked"].includes(row.validation_status)
+    ? row.validation_status
+    : "unverified";
   return {
     category: row.category,
     enabled: row.enabled,
+    feedType,
     id: row.id,
+    language: row.language || "unknown",
+    lastValidatedAt: row.last_validated_at || null,
     name: row.name,
     priority: row.priority,
+    selectionMode: row.selection_mode,
     url: row.feed_url,
+    validationStatus,
   };
 }
 
@@ -141,10 +157,15 @@ function fallbackSources(): ReaderSource[] {
   return configuredSources().map((source, index) => ({
     category: source.category,
     enabled: source.enabled ?? true,
+    feedType: "unknown",
     id: `fallback-${index}`,
+    language: "unknown",
+    lastValidatedAt: null,
     name: source.name,
     priority: source.priority ?? 3,
+    selectionMode: source.enabled === false ? "blocked" : "always_on",
     url: source.url,
+    validationStatus: "unverified",
   }));
 }
 
@@ -238,13 +259,15 @@ export async function getReaderSourcesForRun(): Promise<ReaderSource[]> {
 
 export function readerSourceFromFormData(formData: FormData): ReaderSourceInput {
   const id = String(formData.get("id") || "").trim();
+  const enabled = formData.get("enabled") === "on";
 
   return sourceInputSchema.parse({
     category: formData.get("category"),
-    enabled: formData.get("enabled") === "on",
+    enabled,
     id: id || undefined,
     name: formData.get("name"),
     priority: formData.get("priority"),
+    selectionMode: formData.get("selectionMode") || (enabled ? "always_on" : "blocked"),
     url: formData.get("url"),
   });
 }
@@ -255,13 +278,15 @@ export function readerSourcesFromFormData(formData: FormData): ReaderSourceInput
   return Array.from({ length: sourceCount }, (_, index) => {
     const fieldPrefix = `sources.${index}`;
     const id = String(formData.get(`${fieldPrefix}.id`) || "").trim();
+    const enabled = formData.get(`${fieldPrefix}.enabled`) === "on";
 
     return sourceInputSchema.parse({
       category: formData.get(`${fieldPrefix}.category`),
-      enabled: formData.get(`${fieldPrefix}.enabled`) === "on",
+      enabled,
       id: id || undefined,
       name: formData.get(`${fieldPrefix}.name`),
       priority: formData.get(`${fieldPrefix}.priority`),
+      selectionMode: formData.get(`${fieldPrefix}.selectionMode`) || (enabled ? "always_on" : "blocked"),
       url: formData.get(`${fieldPrefix}.url`),
     });
   });
@@ -269,14 +294,25 @@ export function readerSourcesFromFormData(formData: FormData): ReaderSourceInput
 
 export async function upsertReaderSource(source: ReaderSourceInput) {
   const supabase = createSupabaseAdminClient();
+  const enabled = source.selectionMode === "always_on"
+    ? true
+    : source.selectionMode === "blocked"
+      ? false
+      : source.enabled;
+  const sourceUrl = new URL(source.url);
+  sourceUrl.hash = "";
+  const normalizedFeedUrl = sourceUrl.toString();
 
   if (source.id) {
     const update: ReaderSourceUpdate = {
       category: source.category,
-      enabled: source.enabled,
+      enabled,
       feed_url: source.url,
+      canonical_host: sourceUrl.hostname.toLowerCase(),
+      normalized_feed_url: normalizedFeedUrl,
       name: source.name,
       priority: source.priority,
+      selection_mode: source.selectionMode,
     };
     const { error } = await supabase.from("reader_sources").update(update).eq("id", source.id);
 
@@ -289,16 +325,38 @@ export async function upsertReaderSource(source: ReaderSourceInput) {
 
   const insert: ReaderSourceInsert = {
     category: source.category,
-    enabled: source.enabled,
+    enabled,
     feed_url: source.url,
+    canonical_host: sourceUrl.hostname.toLowerCase(),
+    feed_type: "unknown",
+    language: "unknown",
+    normalized_feed_url: normalizedFeedUrl,
     name: source.name,
     priority: source.priority,
+    selection_mode: source.selectionMode,
+    validation_status: "unverified",
   };
   const { error } = await supabase.from("reader_sources").insert(insert);
 
   if (error) {
     throw error;
   }
+}
+
+export async function setReaderSourceSelectionMode(
+  sourceId: string,
+  selectionMode: ReaderSource["selectionMode"],
+) {
+  const supabase = createSupabaseAdminClient();
+  const enabled = selectionMode === "always_on" ? true : selectionMode === "blocked" ? false : undefined;
+  const { error } = await supabase
+    .from("reader_sources")
+    .update({
+      ...(enabled === undefined ? {} : { enabled }),
+      selection_mode: selectionMode,
+    })
+    .eq("id", sourceId);
+  if (error) throw error;
 }
 
 export async function upsertReaderSources(sources: ReaderSourceInput[]) {
@@ -310,11 +368,17 @@ export async function upsertReaderSources(sources: ReaderSourceInput[]) {
 export async function applyReaderSourcePreset(presetId: SourcePresetId) {
   const supabase = createSupabaseAdminClient();
   const rows: ReaderSourceInsert[] = configuredSources().map((source) => ({
+    canonical_host: new URL(source.url).hostname.toLowerCase(),
     category: source.category,
     enabled: isSourceEnabledForPreset(source, presetId),
     feed_url: source.url,
+    feed_type: "unknown",
+    language: "unknown",
     name: source.name,
+    normalized_feed_url: source.url,
     priority: source.priority ?? 3,
+    selection_mode: isSourceEnabledForPreset(source, presetId) ? "always_on" : "blocked",
+    validation_status: "unverified",
   }));
 
   const { error } = await supabase.from("reader_sources").upsert(rows, { onConflict: "feed_url" });

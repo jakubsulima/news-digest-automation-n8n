@@ -1,7 +1,7 @@
 import { readerFeedForCategory, type ReaderFeedId } from "./feed-categories";
 
 export type FeedbackSentiment = "more" | "less";
-export type FeedbackReason = "topic" | "source" | "repetitive" | "quality";
+export type FeedbackReason = "topic" | "entity" | "source" | "repetitive" | "quality";
 
 export type FeedbackBasis = {
   category: string;
@@ -29,6 +29,20 @@ export type FeedbackProfile = {
 };
 
 const FEEDBACK_HALF_LIFE_DAYS = 45;
+const IMPLICIT_EVENT_WEIGHTS = {
+  fast_read: 0.5,
+  read: 1.25,
+  save: 2,
+  source_open: 0.75,
+} as const;
+type ImplicitPreferenceEventType = keyof typeof IMPLICIT_EVENT_WEIGHTS;
+type ImplicitPreferenceEvent = {
+  createdAt: string;
+  eventType: ImplicitPreferenceEventType;
+  interactionOrigin: "direct" | "bulk" | "automatic" | null;
+  sessionId: string;
+  storyClusterId: string;
+};
 const STOP_WORDS = new Set([
   "about", "after", "also", "amid", "from", "have", "into", "more", "over", "said", "that", "their",
   "this", "with", "will", "would", "your", "oraz", "jest", "jako", "przez", "tego", "tych", "dla", "się",
@@ -40,7 +54,7 @@ export function parseFeedbackSentiment(value: unknown): FeedbackSentiment | null
 }
 
 export function parseFeedbackReason(value: unknown): FeedbackReason | undefined {
-  return value === "topic" || value === "source" || value === "repetitive" || value === "quality"
+  return value === "topic" || value === "entity" || value === "source" || value === "repetitive" || value === "quality"
     ? value
     : undefined;
 }
@@ -71,6 +85,39 @@ export function extractFeedbackKeywords(text: string) {
   ).slice(0, 40);
 }
 
+export function implicitEventWeight(eventType: ImplicitPreferenceEventType) {
+  return IMPLICIT_EVENT_WEIGHTS[eventType];
+}
+
+function strongestImplicitEvents(
+  events: ImplicitPreferenceEvent[],
+  keyFor: (event: ImplicitPreferenceEvent) => string,
+) {
+  const strongestByKey = new Map<string, ImplicitPreferenceEvent>();
+  for (const event of events) {
+    const key = keyFor(event);
+    const existing = strongestByKey.get(key);
+    if (!existing || implicitEventWeight(event.eventType) > implicitEventWeight(existing.eventType)) {
+      strongestByKey.set(key, event);
+    }
+  }
+  return [...strongestByKey.values()];
+}
+
+export function selectImplicitPreferenceEvents(events: ImplicitPreferenceEvent[]) {
+  const directEvents = events.filter(
+    (event) => event.interactionOrigin === null || event.interactionOrigin === "direct",
+  );
+  const strongestBySessionStory = strongestImplicitEvents(
+    directEvents,
+    (event) => `${event.sessionId}:${event.storyClusterId}`,
+  );
+  return strongestImplicitEvents(
+    strongestBySessionStory,
+    (event) => `${event.createdAt.slice(0, 10)}:${event.storyClusterId}`,
+  );
+}
+
 export function buildFeedbackProfile(items: FeedbackBasis[]): FeedbackProfile {
   const profile: FeedbackProfile = {
     evidenceCount: items.length,
@@ -88,6 +135,7 @@ export function buildFeedbackProfile(items: FeedbackBasis[]): FeedbackProfile {
     const weight = recencyWeight * Math.max(0, item.weight ?? 1);
     const appliesToSource = !item.reason || item.reason === "source" || item.reason === "quality";
     const appliesToTopic = !item.reason || item.reason === "topic";
+    const appliesToKeywords = appliesToTopic || item.reason === "entity";
 
     if (item.reason === "repetitive" && item.sentiment === "less" && item.storyClusterId) {
       profile.repetitiveStoryIds.add(item.storyClusterId);
@@ -95,7 +143,7 @@ export function buildFeedbackProfile(items: FeedbackBasis[]): FeedbackProfile {
     if (appliesToSource) addCount(profile.sources, item.source.toLowerCase(), item.sentiment, weight);
     if (appliesToTopic) addCount(profile.feeds, readerFeedForCategory(item.category), item.sentiment, weight);
 
-    if (appliesToTopic) {
+    if (appliesToKeywords) {
       const signals = `${item.title} ${item.summary} ${(item.topicTags || []).join(" ")} ${(item.entityTags || []).join(" ")}`;
       for (const keyword of extractFeedbackKeywords(signals)) addCount(profile.keywords, keyword, item.sentiment, weight);
     }

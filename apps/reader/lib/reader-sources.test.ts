@@ -47,6 +47,7 @@ const row = {
   id: "source-1",
   name: "Example Source",
   priority: 4,
+  selection_mode: "always_on",
   updated_at: "2026-06-20T10:00:00.000Z",
 };
 
@@ -65,10 +66,15 @@ describe("reader sources", () => {
       {
         category: "Software / IT",
         enabled: true,
+        feedType: "unknown",
         id: "source-1",
+        language: "unknown",
+        lastValidatedAt: null,
         name: "Example Source",
         priority: 4,
+        selectionMode: "always_on",
         url: "https://example.com/rss",
+        validationStatus: "unverified",
       },
     ]);
     expect(state.operations[0]).toMatchObject({
@@ -119,6 +125,7 @@ describe("reader sources", () => {
         id: "11111111-1111-4111-8111-111111111111",
         name: "Enabled Source",
         priority: 5,
+        selectionMode: "always_on",
         url: "https://example.com/enabled.xml",
       },
       {
@@ -127,6 +134,7 @@ describe("reader sources", () => {
         id: "22222222-2222-4222-8222-222222222222",
         name: "Disabled Source",
         priority: 2,
+        selectionMode: "blocked",
         url: "https://example.com/disabled.xml",
       },
     ]);

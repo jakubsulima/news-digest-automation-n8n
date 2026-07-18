@@ -2,17 +2,27 @@ import { readerFeedForCategory, type ReaderFeedId } from "./feed-categories";
 import type { NewsItemWithState } from "./news";
 import { feedbackScoreAdjustment, type FeedbackProfile } from "./reader-feedback-scoring";
 import { itemMatchesReaderView, type ReaderViewId } from "./reader-feed-filters";
+import {
+  rankReaderRecommendations,
+  READER_RECOMMENDATION_POLICY_VERSION,
+  type RecommendationPolicyMode,
+} from "./recommendation-policy";
 
 export const FEED_SORTS = ["for-you", "top", "latest"] as const;
 export const FEED_PERIODS = ["latest", "since-visit", "history"] as const;
+export const READER_RANKING_POLICY_VERSION = "reader-ranking-v1";
 
 export type FeedSort = (typeof FEED_SORTS)[number];
 export type FeedPeriod = (typeof FEED_PERIODS)[number];
 
 export type RankedNewsItem = NewsItemWithState & {
+  isExploration: boolean;
   isNew: boolean;
   isUpdated: boolean;
-  rankScore: number;
+  modelRank: number;
+  policyVersion: string;
+  rankingScoreComponents: Record<string, number | string | boolean>;
+  rankScore: number | null;
   rankingReasons: string[];
 };
 
@@ -97,8 +107,17 @@ function withRanking(
 
   return {
     ...item,
+    isExploration: false,
     isNew,
     isUpdated,
+    modelRank: -1,
+    policyVersion: READER_RANKING_POLICY_VERSION,
+    rankingScoreComponents: {
+      editorial: item.editorialScore,
+      preference,
+      freshness,
+      update,
+    },
     rankScore: item.editorialScore + preference + freshness + update,
     rankingReasons,
   };
@@ -123,6 +142,7 @@ function applyExploration(items: RankedNewsItem[], dateKey: string) {
     [ordered[slot], ordered[candidateIndex]] = [ordered[candidateIndex], ordered[slot]];
     ordered[slot] = {
       ...ordered[slot],
+      isExploration: true,
       rankingReasons: [...ordered[slot].rankingReasons, "Exploration pick"],
     };
   }
@@ -136,27 +156,69 @@ export function rankReaderItems(
   sort: FeedSort,
   previousVisitAt: string | null,
   now = Date.now(),
+  policyMode: RecommendationPolicyMode = "shadow",
 ) {
   const ranked = items.map((item) => withRanking(item, profile, previousVisitAt, now));
+  if (policyMode === "v2") {
+    const itemById = new Map(ranked.map((item) => [item.id, item]));
+    return rankReaderRecommendations(
+      ranked.map((item) => ({
+        editorialScore: item.editorialScore,
+        freshness: Number(item.rankingScoreComponents.freshness || 0),
+        id: item.id,
+        preferenceAdjustment: Number(item.rankingScoreComponents.preference || 0),
+        selectedAt: item.lastSelectedAt || item.publishedAt,
+        sourceCount: item.sourceCount,
+        update: Number(item.rankingScoreComponents.update || 0),
+      })),
+      sort,
+      new Date(now).toISOString().slice(0, 10),
+    ).flatMap((decision) => {
+      const item = itemById.get(decision.id);
+      return item ? [{
+        ...item,
+        isExploration: decision.isExploration,
+        modelRank: decision.modelRank,
+        policyVersion: READER_RECOMMENDATION_POLICY_VERSION,
+        rankingReasons: decision.reasons,
+        rankingScoreComponents: decision.scoreComponents,
+        rankScore: decision.rankScore,
+      }] : [];
+    });
+  }
+  let ordered: RankedNewsItem[];
 
   if (sort === "latest") {
-    return ranked.sort(
+    ordered = ranked.sort(
       (left, right) =>
         timestamp(right.lastSelectedAt || right.publishedAt) - timestamp(left.lastSelectedAt || left.publishedAt) ||
         left.id.localeCompare(right.id),
-    );
-  }
-
-  if (sort === "top") {
-    return ranked.sort(
+    ).map((item) => ({
+      ...item,
+      rankScore: null,
+      rankingReasons: ["Most recently selected"],
+      rankingScoreComponents: { selectedAt: item.lastSelectedAt || item.publishedAt || "" },
+    }));
+  } else if (sort === "top") {
+    ordered = ranked.sort(
       (left, right) => right.editorialScore - left.editorialScore || left.id.localeCompare(right.id),
+    ).map((item) => ({
+      ...item,
+      rankScore: item.editorialScore,
+      rankingReasons: [
+        item.editorialScore >= 70 ? "High editorial importance" : "Editorial importance",
+        item.sourceCount >= 3 ? `Confirmed by ${item.sourceCount} sources` : null,
+      ].filter((reason): reason is string => Boolean(reason)),
+      rankingScoreComponents: { editorial: item.editorialScore },
+    }));
+  } else {
+    const personalized = ranked.sort(
+      (left, right) => (right.rankScore || 0) - (left.rankScore || 0) || left.id.localeCompare(right.id),
     );
+    ordered = applyExploration(personalized, new Date(now).toISOString().slice(0, 10));
   }
 
-  const personalized = ranked.sort(
-    (left, right) => right.rankScore - left.rankScore || left.id.localeCompare(right.id),
-  );
-  return applyExploration(personalized, new Date(now).toISOString().slice(0, 10));
+  return ordered.map((item, modelRank) => ({ ...item, modelRank }));
 }
 
 export function filterFeedItems(
