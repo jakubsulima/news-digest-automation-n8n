@@ -1,12 +1,15 @@
 import type { FeedbackReason, FeedbackSentiment } from "@/lib/reader-feedback";
 import type { RankedNewsItem } from "@/lib/reader-feed-ranking";
 import { NewsItemCard } from "@/components/news-item-card";
+import { RecommendationExposure } from "@/components/recommendation-exposure";
 
 type NewsFeedSectionProps = {
+  exposureContextId: string;
   items: RankedNewsItem[];
   label: string;
   onFeedbackChange: (itemId: string, feedback: FeedbackSentiment | null, reason: FeedbackReason | null) => void;
   onFastRead: (item: RankedNewsItem, rank: number) => void;
+  onExposure: (item: RankedNewsItem, rank: number) => void;
   onItemStateChange: (
     itemId: string,
     state: Pick<RankedNewsItem, "archivedAt" | "readAt" | "savedAt">,
@@ -16,10 +19,12 @@ type NewsFeedSectionProps = {
 };
 
 export function NewsFeedSection({
+  exposureContextId,
   items,
   label,
   onFeedbackChange,
   onFastRead,
+  onExposure,
   onItemStateChange,
   onSourceOpen,
   rankOffset,
@@ -35,15 +40,16 @@ export function NewsFeedSection({
       {items.map((item, index) => {
         const rank = rankOffset + index;
         return (
-          <NewsItemCard
-            key={item.id}
-            density="compact"
-            item={item}
-            onFastRead={() => onFastRead(item, rank)}
-            onFeedbackChange={onFeedbackChange}
-            onItemStateChange={onItemStateChange}
-            onSourceOpen={() => onSourceOpen(item, rank)}
-          />
+          <RecommendationExposure key={`${exposureContextId}:${item.id}`} onExposure={() => onExposure(item, rank)}>
+            <NewsItemCard
+              density="compact"
+              item={item}
+              onFastRead={() => onFastRead(item, rank)}
+              onFeedbackChange={onFeedbackChange}
+              onItemStateChange={onItemStateChange}
+              onSourceOpen={() => onSourceOpen(item, rank)}
+            />
+          </RecommendationExposure>
         );
       })}
     </section>

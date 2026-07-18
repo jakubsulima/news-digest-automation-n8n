@@ -34,6 +34,18 @@ The Vercel cron endpoint that advances one bounded unit of pipeline work.
 **Digest State**
 The Supabase record of runs, stages, source items, articles, story clusters, snapshots, and reader items.
 
+**Recommendation Decision**
+A versioned explanation of why a Story Cluster was eligible, selected, ranked, or explored.
+
+**Exposure**
+A Reader Item that was actually visible to the Operator long enough to count as recommendation evidence.
+
+**Source Portfolio**
+The immutable source selection snapshot used by one digest run, including selected, exploration, probe, and skipped sources.
+
+**Preference Signal**
+Explicit or behavioral evidence about a topic, entity, source, repetition, or quality.
+
 ## Relationships
 
 - Hosted Production does not depend on local workflow automation.
@@ -42,3 +54,6 @@ The Supabase record of runs, stages, source items, articles, story clusters, sna
 - A Run Trigger starts a run; the Stage Executor advances it.
 - Source Items are per-run evidence before they become Pipeline Memory.
 - Reader Items are durable story-cluster projections retained for 90 days; saved items, Pipeline Memory, and run history are retained longer.
+- Recommendation Decisions are versioned so policy changes can run in shadow mode and be audited.
+- An Exposure is recorded from actual Reader visibility, not from inclusion in a feed response.
+- A Source Portfolio is frozen before a run fetches sources and is reused when that run retries.

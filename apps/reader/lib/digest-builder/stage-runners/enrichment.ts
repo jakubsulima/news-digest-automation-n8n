@@ -2,6 +2,8 @@ import "server-only";
 
 import type { Database } from "../../database.types";
 import { createSupabaseAdminClient } from "../../supabase";
+import { fetchBoundedText } from "../../source-discovery/bounded-fetch";
+import type { SourceDiscoveryDependencies } from "../../source-discovery/types";
 import { plainTextFromHtml } from "../../text";
 import { keywordHitCount } from "../../keyword-matching";
 import { analyzeReadableContent } from "../../readable-content";
@@ -18,6 +20,7 @@ import { jsonNumber, jsonStringArray, uniqueStrings } from "../utils";
 
 type ArticleRow = RunArticle;
 type EnrichmentRecordInsert = Database["public"]["Tables"]["enrichment_records"]["Insert"];
+type ArticleFetchDependencies = Pick<SourceDiscoveryDependencies, "fetchImpl" | "lookup">;
 const READER_COPY_VERSION = 2;
 
 function jsonRecord(value: Database["public"]["Tables"]["articles"]["Row"]["metadata"]) {
@@ -71,20 +74,16 @@ function archivedArticleText(value: string) {
   return text.length > 200_000 ? `${text.slice(0, 199_999).trimEnd()}…` : text;
 }
 
-async function fetchArticleEnrichment(article: ArticleRow) {
+export async function fetchArticleEnrichment(
+  article: ArticleRow,
+  dependencies: ArticleFetchDependencies = {},
+) {
   try {
-    const response = await fetch(article.canonical_url, {
-      headers: {
-        "user-agent": USER_AGENT,
-      },
-      signal: AbortSignal.timeout(ARTICLE_FETCH_TIMEOUT_MS),
+    const { body: html } = await fetchBoundedText(article.canonical_url, {
+      ...dependencies,
+      timeoutMs: ARTICLE_FETCH_TIMEOUT_MS,
+      userAgent: USER_AGENT,
     });
-
-    if (!response.ok) {
-      return { error: `HTTP ${response.status}`, status: "fetch_error" };
-    }
-
-    const html = await response.text();
     const description = extractHtmlDescription(html);
     const pageAnalysis = analyzeReadableContent(html);
     const feedAnalysis = analyzeReadableContent(article.raw_summary);

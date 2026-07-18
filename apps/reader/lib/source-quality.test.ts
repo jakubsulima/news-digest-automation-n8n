@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
 
-import { sourceQualityFromObservations } from "./source-quality";
+import { readerValueBySourceIdentity, sourceQualityFromObservations } from "./source-quality";
 
 function observation(overrides: Record<string, unknown> = {}) {
   return {
@@ -11,6 +11,7 @@ function observation(overrides: Record<string, unknown> = {}) {
     parsed_item_count: 20,
     selected_story_count: 3,
     source_name: "Source",
+    reader_source_id: "source-1",
     source_url: "https://example.test/feed",
     status: "succeeded" as const,
     unique_story_count: 5,
@@ -42,5 +43,26 @@ describe("source quality", () => {
     );
 
     expect(insight.recommendation).toBe("consider_pausing");
+  });
+
+  it("attributes direct source value by stable identity and divides shared story value", () => {
+    const storySources = [
+      { contribution_type: "canonical" as const, reader_source_id: "source-1", story_cluster_id: "story-1" },
+      { contribution_type: "confirmation" as const, reader_source_id: "source-2", story_cluster_id: "story-1" },
+    ];
+    const common = {
+      interaction_origin: "direct" as const,
+      metadata: {},
+      story_cluster_id: "story-1",
+    };
+    const values = readerValueBySourceIdentity([
+      { ...common, event_type: "source_open", metadata: { readerSourceId: "source-2" } },
+      { ...common, event_type: "save" },
+      { ...common, event_type: "read", interaction_origin: "bulk" },
+      { ...common, event_type: "feedback", metadata: { feedback: "more", readerSourceId: "source-1", reason: "source" } },
+    ], storySources);
+
+    expect(values.get("source-1")).toBe(3.5);
+    expect(values.get("source-2")).toBe(2.5);
   });
 });

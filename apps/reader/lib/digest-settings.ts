@@ -10,6 +10,8 @@ export type DigestFeedTargets = {
   software: number;
   security: number;
 };
+export type SourcePortfolioMode = "manual" | "advisory" | "automatic";
+export type RecommendationPolicyMode = "shadow" | "v2" | "v1";
 
 export type ReaderDigestSettings = {
   excludedKeywords: string[];
@@ -20,11 +22,16 @@ export type ReaderDigestSettings = {
   minimumImportanceScore: number;
   minimumSourceCount: number;
   personalizationEnabled: boolean;
+  recommendationPolicyMode: RecommendationPolicyMode;
   preferredKeywords: string[];
   publishTopN: number;
   readableOnly: boolean;
   requireMajorSecurity: boolean;
   summaryMaxChars: number;
+  sourceBudget: number;
+  sourceCategoryMinimums: DigestFeedTargets;
+  sourcePortfolioMode: SourcePortfolioMode;
+  sourceProbeCount: number;
   useAiSummaries: boolean;
 };
 
@@ -63,6 +70,7 @@ export const DEFAULT_DIGEST_SETTINGS: ReaderDigestSettings = {
   minimumImportanceScore: 55,
   minimumSourceCount: 1,
   personalizationEnabled: true,
+  recommendationPolicyMode: "shadow",
   preferredKeywords: [
     "ai",
     "llm",
@@ -95,6 +103,16 @@ export const DEFAULT_DIGEST_SETTINGS: ReaderDigestSettings = {
   readableOnly: true,
   requireMajorSecurity: true,
   summaryMaxChars: 500,
+  sourceBudget: 24,
+  sourceCategoryMinimums: {
+    geopolitics: 2,
+    business: 2,
+    ai: 2,
+    software: 2,
+    security: 2,
+  },
+  sourcePortfolioMode: "manual",
+  sourceProbeCount: 1,
   useAiSummaries: true,
 };
 
@@ -132,6 +150,14 @@ function parseFeedTargets(value: Json): DigestFeedTargets {
   };
 }
 
+function parseSourcePortfolioMode(value: unknown): SourcePortfolioMode {
+  return value === "advisory" || value === "automatic" ? value : "manual";
+}
+
+function parseRecommendationPolicyMode(value: unknown): RecommendationPolicyMode {
+  return value === "v2" || value === "v1" ? value : "shadow";
+}
+
 function normalizeSettings(row: SettingsRow | null): ReaderDigestSettings {
   if (!row) {
     return DEFAULT_DIGEST_SETTINGS;
@@ -147,11 +173,16 @@ function normalizeSettings(row: SettingsRow | null): ReaderDigestSettings {
     minimumImportanceScore: clampInteger(row.minimum_importance_score, 0, 100),
     minimumSourceCount: clampInteger(row.minimum_source_count ?? DEFAULT_DIGEST_SETTINGS.minimumSourceCount, 1, 10),
     personalizationEnabled: row.personalization_enabled ?? DEFAULT_DIGEST_SETTINGS.personalizationEnabled,
+    recommendationPolicyMode: parseRecommendationPolicyMode(row.recommendation_policy_mode),
     preferredKeywords: jsonStringArray(row.preferred_keywords),
     publishTopN: clampInteger(row.publish_top_n, 5, 100),
     readableOnly: row.readable_only ?? DEFAULT_DIGEST_SETTINGS.readableOnly,
     requireMajorSecurity: row.require_major_security,
     summaryMaxChars: clampInteger(row.summary_max_chars, 180, 5000),
+    sourceBudget: clampInteger(row.source_budget, 5, 200),
+    sourceCategoryMinimums: parseFeedTargets(row.source_category_minimums),
+    sourcePortfolioMode: parseSourcePortfolioMode(row.source_portfolio_mode),
+    sourceProbeCount: clampInteger(row.source_probe_count, 0, 10),
     useAiSummaries: row.use_ai_summaries,
   };
 }
@@ -214,11 +245,16 @@ export async function upsertReaderDigestSettings(userId: string, settings: Reade
     minimum_importance_score: settings.minimumImportanceScore,
     minimum_source_count: settings.minimumSourceCount,
     personalization_enabled: settings.personalizationEnabled,
+    recommendation_policy_mode: settings.recommendationPolicyMode,
     preferred_keywords: settings.preferredKeywords,
     publish_top_n: settings.publishTopN,
     readable_only: settings.readableOnly,
     require_major_security: settings.requireMajorSecurity,
     summary_max_chars: settings.summaryMaxChars,
+    source_budget: settings.sourceBudget,
+    source_category_minimums: settings.sourceCategoryMinimums,
+    source_portfolio_mode: settings.sourcePortfolioMode,
+    source_probe_count: settings.sourceProbeCount,
     use_ai_summaries: settings.useAiSummaries,
     user_id: userId,
   };
@@ -279,11 +315,22 @@ export function digestSettingsFromFormData(formData: FormData): ReaderDigestSett
       10,
     ),
     personalizationEnabled: formData.get("personalizationEnabled") === "on",
+    recommendationPolicyMode: parseRecommendationPolicyMode(formData.get("recommendationPolicyMode")),
     preferredKeywords: keywords("preferredKeywords"),
     publishTopN: numberValue("publishTopN", DEFAULT_DIGEST_SETTINGS.publishTopN, 5, 100),
     readableOnly: formData.get("readableOnly") === "on",
     requireMajorSecurity: formData.get("requireMajorSecurity") === "on",
     summaryMaxChars: numberValue("summaryMaxChars", DEFAULT_DIGEST_SETTINGS.summaryMaxChars, 180, 5000),
+    sourceBudget: numberValue("sourceBudget", DEFAULT_DIGEST_SETTINGS.sourceBudget, 5, 200),
+    sourceCategoryMinimums: {
+      geopolitics: numberValue("sourceMinimumGeopolitics", DEFAULT_DIGEST_SETTINGS.sourceCategoryMinimums.geopolitics, 0, 50),
+      business: numberValue("sourceMinimumBusiness", DEFAULT_DIGEST_SETTINGS.sourceCategoryMinimums.business, 0, 50),
+      ai: numberValue("sourceMinimumAi", DEFAULT_DIGEST_SETTINGS.sourceCategoryMinimums.ai, 0, 50),
+      software: numberValue("sourceMinimumSoftware", DEFAULT_DIGEST_SETTINGS.sourceCategoryMinimums.software, 0, 50),
+      security: numberValue("sourceMinimumSecurity", DEFAULT_DIGEST_SETTINGS.sourceCategoryMinimums.security, 0, 50),
+    },
+    sourcePortfolioMode: parseSourcePortfolioMode(formData.get("sourcePortfolioMode")),
+    sourceProbeCount: numberValue("sourceProbeCount", DEFAULT_DIGEST_SETTINGS.sourceProbeCount, 0, 10),
     useAiSummaries: formData.get("useAiSummaries") === "on",
   };
 }

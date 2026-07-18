@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { RunArticle } from "../run-articles";
-import { detectStoryChanges, sourceVariantsForGroup } from "./story-clustering";
+import { detectStoryChanges, sourceContributionsForGroup, sourceVariantsForGroup } from "./story-clustering";
 
 function article(overrides: Partial<RunArticle> & Pick<RunArticle, "id" | "source" | "canonical_url">): RunArticle {
   return {
@@ -57,5 +57,17 @@ describe("story change detection", () => {
 
     expect(variants).toHaveLength(2);
     expect(variants.map((variant) => variant.articleId)).toEqual(["b", "c"]);
+  });
+
+  it("keeps stable source identity for canonical and confirmation contributions", () => {
+    const contributions = sourceContributionsForGroup([
+      article({ canonical_url: "https://canonical.test/a", id: "a", metadata: { readerSourceId: "source-1", sourcePriority: 5 }, source: "Renamed publisher" }),
+      article({ canonical_url: "https://confirmation.test/a", id: "b", metadata: { readerSourceId: "source-2", sourcePriority: 3 }, source: "Confirmation" }),
+    ]);
+
+    expect(contributions).toEqual([
+      { contributionType: "canonical", readerSourceId: "source-1" },
+      { contributionType: "confirmation", readerSourceId: "source-2" },
+    ]);
   });
 });

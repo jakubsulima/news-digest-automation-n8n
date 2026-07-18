@@ -15,6 +15,8 @@ export async function GET(request: Request) {
   const since = params.get("since");
   const previousVisitAt = since && !Number.isNaN(Date.parse(since)) ? new Date(since).toISOString() : undefined;
   const cursor = params.get("cursor");
+  const rankedAt = params.get("rankedAt");
+  const rankingContextId = params.get("rankingContextId");
 
   if (cursor && !decodeFeedCursor(cursor)) {
     return NextResponse.json({ error: "Invalid feed cursor." }, { status: 400 });
@@ -27,6 +29,8 @@ export async function GET(request: Request) {
       limit: Number.isFinite(parsedLimit) ? parsedLimit : undefined,
       period: normalizeFeedPeriod(params.get("period")),
       previousVisitAt,
+      rankedAt,
+      rankingContextId,
       sort: normalizeFeedSort(params.get("sort")),
       view: normalizeReaderViewId(params.get("view") || undefined),
     });

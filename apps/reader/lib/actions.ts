@@ -12,6 +12,7 @@ import {
 import { errorMessage } from "./digest-builder/utils";
 import { requireCurrentReader } from "./auth";
 import { requireCurrentOperator } from "./operator";
+import { getRecommendationPolicyGate } from "./recommendation-policy-server";
 import { resetReaderPersonalization } from "./reader-feedback";
 import {
   applyReaderSourcePreset,
@@ -22,7 +23,13 @@ import {
   sourcePresetFromFormData,
   upsertReaderSource,
   upsertReaderSources,
+  setReaderSourceSelectionMode,
 } from "./reader-sources";
+import {
+  applySourcePortfolioSuggestion,
+  dismissSourcePortfolioSuggestion,
+} from "./source-portfolio";
+import { confirmReaderSourceDiscovery } from "./source-discovery";
 
 function sourceSettingsRedirect(status: string, formData: FormData) {
   const sourceFeed = String(formData.get("sourceFeed") || "all");
@@ -43,7 +50,15 @@ export async function saveReaderDigestSettings(formData: FormData) {
   let status = "saved";
 
   try {
-    await upsertReaderDigestSettings(user.id, digestSettingsFromFormData(formData));
+    const settings = digestSettingsFromFormData(formData);
+    if (settings.recommendationPolicyMode === "v2") {
+      const gate = await getRecommendationPolicyGate();
+      if (!gate.passed) {
+        settings.recommendationPolicyMode = "shadow";
+        status = "policy-gate-pending";
+      }
+    }
+    await upsertReaderDigestSettings(user.id, settings);
     revalidatePath("/");
     revalidatePath("/settings");
   } catch (error) {
@@ -116,5 +131,67 @@ export async function saveReaderSourcePreset(formData: FormData) {
     status = isReaderSourcesSchemaError(error) ? "source-invalid" : "source-save-failed";
   }
 
+  sourceSettingsRedirect(status, formData);
+}
+
+export async function updateReaderSourceMode(formData: FormData) {
+  await requireCurrentOperator();
+  const sourceId = String(formData.get("sourceId") || "");
+  const selectionMode = String(formData.get("selectionMode") || "");
+  if (!sourceId || !["auto", "always_on", "blocked"].includes(selectionMode)) {
+    throw new Error("Invalid source mode update.");
+  }
+  await setReaderSourceSelectionMode(
+    sourceId,
+    selectionMode as "auto" | "always_on" | "blocked",
+  );
+  revalidatePath("/settings");
+}
+
+export async function applyPortfolioSuggestion(formData: FormData) {
+  await requireCurrentOperator();
+  await applySourcePortfolioSuggestion(String(formData.get("decisionId") || ""));
+  revalidatePath("/settings");
+}
+
+export async function dismissPortfolioSuggestion(formData: FormData) {
+  await requireCurrentOperator();
+  await dismissSourcePortfolioSuggestion(String(formData.get("decisionId") || ""));
+  revalidatePath("/settings");
+}
+
+export async function startSourceDiscovery(formData: FormData) {
+  await requireCurrentOperator();
+  const rawUrl = String(formData.get("discoveryUrl") || "").trim();
+  try {
+    const url = new URL(rawUrl);
+    if (rawUrl.length > 2_000 || !["http:", "https:"].includes(url.protocol)) throw new Error("Invalid URL");
+  } catch {
+    sourceSettingsRedirect("source-discovery-invalid", formData);
+  }
+  const params = new URLSearchParams({
+    discoveryUrl: rawUrl,
+    settingsTab: "sources",
+    sourceFeed: String(formData.get("sourceFeed") || "geopolitics"),
+  });
+  redirect(`/settings?${params.toString()}`);
+}
+
+export async function confirmSourceDiscovery(formData: FormData) {
+  await requireCurrentOperator();
+  let status = "source-discovered";
+  try {
+    await confirmReaderSourceDiscovery({
+      category: String(formData.get("category") || ""),
+      feedUrl: String(formData.get("feedUrl") || ""),
+      name: String(formData.get("name") || ""),
+      rawUrl: String(formData.get("discoveryUrl") || ""),
+    });
+    revalidatePath("/");
+    revalidatePath("/settings");
+  } catch (error) {
+    console.error("Failed to confirm discovered source:", errorMessage(error));
+    status = "source-discovery-failed";
+  }
   sourceSettingsRedirect(status, formData);
 }

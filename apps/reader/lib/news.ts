@@ -22,6 +22,8 @@ export type NewsSourceVariant = {
   name: string;
   priority: number;
   publishedAt: string | null;
+  readerSourceId: string | null;
+  sourceFeedUrl: string | null;
   url: string;
 };
 
@@ -138,8 +140,12 @@ function sourceVariantsFromJson(value: Json): NewsSourceVariant[] {
     const url = jsonString(record.url);
     const priority = typeof record.priority === "number" ? record.priority : 0;
     const publishedAt = jsonString(record.publishedAt);
+    const readerSourceId = jsonString(record.readerSourceId);
+    const sourceFeedUrl = jsonString(record.sourceFeedUrl);
 
-    return articleId && name && url ? [{ articleId, name, priority, publishedAt, url }] : [];
+    return articleId && name && url
+      ? [{ articleId, name, priority, publishedAt, readerSourceId, sourceFeedUrl, url }]
+      : [];
   });
 }
 

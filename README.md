@@ -1,30 +1,62 @@
 # Daily News Digest
 
-Daily News Digest is a private Vercel-hosted news reader. It fetches configured RSS sources, builds a staged digest pipeline, stores state in Supabase, and shows the latest reader-facing digest behind Supabase Auth.
+Daily News Digest is a private Vercel-hosted news reader. It fetches configured RSS/Atom sources, builds a staged digest pipeline, stores state in Supabase, and shows a personalized reader feed behind Supabase Auth.
 
 ## Architecture
 
 ```text
 Vercel Cron -> /api/digest-runs/advance -> Supabase digest state
-Reader UI -> /api/digest-runs -> Supabase status/feed data
-RSS sources -> staged TypeScript pipeline -> durable, ranked news_items
+Reader UI -> reader/API routes -> Supabase feed and preference data
+RSS/Atom sources -> staged TypeScript pipeline -> durable, ranked news_items
 ```
 
 The active runtime is:
 
 - `apps/reader`: Next.js App Router reader and API routes.
-- `infra/supabase/migrations`: Supabase schema, RLS, and hosted pipeline tables.
-- `config/rss-sources.json`: RSS source list used by the hosted pipeline.
+- `infra/supabase/migrations`: Supabase schema, RLS, indexes, and hosted pipeline tables.
+- `config/rss-sources.json`: bootstrap RSS source list.
 - `vercel.json`: Vercel build settings and cron schedule.
 
-`news_items` are durable story-cluster projections retained for 90 days, while saved items remain until unsaved. Pipeline memory remains in `articles`, `story_clusters`, `story_updates`, `digest_runs`, and stage tables. Reader feedback is cluster-backed so publication cleanup cannot erase personalization.
+`news_items` are durable Story Cluster projections retained for 90 days, while saved items remain until unsaved. Pipeline state remains in `articles`, `story_clusters`, `story_updates`, `digest_runs`, and stage tables.
+
+## Recommendation And Source Automation
+
+The current implementation includes:
+
+- visible-card Exposure tracking with versioned Recommendation Decisions;
+- stable source identity and contribution attribution;
+- a frozen Source Portfolio per digest run with advisory and opt-in automatic modes;
+- versioned recommendation policies with shadow evaluation and rollback to version one;
+- explicit and behavioral Preference Signals for topics, entities, sources, repetition, and quality;
+- safe RSS/Atom discovery from websites, article URLs, or direct feed URLs;
+- operator controls for source suggestions, probes, blocking, and automation.
+
+### Safety And Activation Rules
+
+- Hard quality and eligibility rules take precedence over personalization.
+- Bulk and automatic state changes do not train preferences.
+- Missing interaction is not treated as negative feedback.
+- Source Portfolio decisions are immutable for a digest run and reused on retry.
+- Automatic source changes require an explicit operator opt-in and sufficient real-run evidence.
+- Recommendation policy changes remain versioned and can run in shadow mode before activation.
+- Newly discovered sources start disabled in `auto` mode and enter probe evaluation before publication.
+
+Remote source requests validate DNS results and every redirect, reject private or local destinations, pin the approved address for the connection, and enforce redirect, timeout, and response-size limits.
+
+### Architecture Decisions
+
+The domain language is defined in `CONTEXT.md`. Load-bearing decisions are recorded in:
+
+- `docs/adr/0005-version-recommendation-decisions.md`;
+- `docs/adr/0006-freeze-source-portfolio-per-run.md`;
+- `docs/adr/0007-multi-dimensional-preference-signals.md`.
 
 ## Requirements
 
 - Node.js `>=20.9.0`
 - pnpm `>=10.30.1`
 - Supabase project with Auth enabled
-- Vercel project connected to this GitHub repo
+- Vercel project connected to this GitHub repository
 
 ## Environment
 
@@ -49,14 +81,14 @@ DIGEST_RUN_RETENTION_LIMIT=100
 
 Notes:
 
-- `SUPABASE_SERVICE_ROLE_KEY`, `INGEST_SECRET`, and `CRON_SECRET` must stay server-side.
+- `SUPABASE_SERVICE_ROLE_KEY`, `INGEST_SECRET`, and `CRON_SECRET` must remain server-side.
 - `ALLOWED_READER_EMAILS` is a comma-separated login allowlist.
-- Set `NEXT_PUBLIC_APP_URL` to the Vercel production URL after deploy.
-- `DIGEST_RUN_RETENTION_LIMIT` is optional; it keeps the newest completed digest runs and deletes older completed runs. Queued and running runs are never pruned.
+- Set `NEXT_PUBLIC_APP_URL` to the production Vercel URL after deployment.
+- `DIGEST_RUN_RETENTION_LIMIT` is optional. Queued and running runs are never pruned.
 
 ## Supabase Setup
 
-Run migrations in order:
+Apply migrations in numeric order:
 
 ```text
 infra/supabase/migrations/001_reader_schema.sql
@@ -70,17 +102,21 @@ infra/supabase/migrations/009_add_digest_summaries.sql
 infra/supabase/migrations/010_durable_personalized_feed.sql
 infra/supabase/migrations/011_digest_quality_controls.sql
 infra/supabase/migrations/012_digest_intelligence_foundation.sql
+infra/supabase/migrations/013_recommendation_observability.sql
+infra/supabase/migrations/014_source_identity_and_attribution.sql
+infra/supabase/migrations/015_source_portfolio.sql
+infra/supabase/migrations/016_reader_preference_signals.sql
+infra/supabase/migrations/017_source_discovery.sql
+infra/supabase/migrations/018_post_migration_advisor_fixes.sql
 ```
 
-Migration `010` must be applied before deploying reader code that selects the new ranking columns. Deploy in this order: apply the migration, deploy the application, complete at least one successful digest, verify durable feedback and stable story IDs, then remove legacy `reader_item_feedback` compatibility in a later migration.
+Apply all migrations before deploying the current reader code. Migration `018` contains the RLS and index optimizations required after migrations `013`–`017`.
 
-Migration `011` adds per-reader controls for story freshness, minimum source confirmation, and source diversity. Apply it before saving the new controls from the Advanced settings tab.
+Then:
 
-Migration `012` adds written-content classification, stable Story Cluster article membership, per-run source observations, and personalization controls. Apply it before deploying code that reads source quality or writes content modes. New Pipeline tables have RLS enabled; only source-quality observations receive an authenticated read policy, while technical cluster membership remains server-only.
-
-Then insert your reader email into `private.allowed_reader_emails` and create a Supabase Auth user for that email.
-
-Add callback URLs in Supabase Auth settings:
+1. Insert the reader email into `private.allowed_reader_emails`.
+2. Create a Supabase Auth user for that email.
+3. Add the callback URLs in Supabase Auth settings:
 
 ```text
 http://127.0.0.1:3000/auth/callback
@@ -95,23 +131,21 @@ pnpm install --frozen-lockfile
 pnpm dev:reader
 ```
 
-Or run the reader through Docker Compose:
+Or use Docker Compose:
 
 ```bash
 docker compose up --build reader
 ```
 
-Open:
-
-```text
-http://127.0.0.1:3000
-```
+Open `http://127.0.0.1:3000`.
 
 ## Validation
 
 ```bash
-pnpm typecheck
-pnpm build
+pnpm test:reader
+pnpm typecheck:reader
+pnpm build:reader
+pnpm knip
 ```
 
 The Vercel build uses:
@@ -126,43 +160,36 @@ The Vercel build uses:
 
 ## Vercel Deployment
 
-1. Import the GitHub repo into Vercel.
+1. Import the GitHub repository into Vercel.
 2. Use the repository root containing `vercel.json`.
 3. Set the environment variables listed above.
 4. Deploy from `main`.
 
-Pushes to non-`main` branches are ignored by Vercel. Merge into `main` or push to `main` to deploy.
+Pushes to non-`main` branches are ignored by Vercel.
 
 Vercel Cron invokes:
 
 ```text
 GET /api/digest-runs/advance
-```
-
-The route requires:
-
-```text
 Authorization: Bearer $CRON_SECRET
 ```
 
 The configured schedule is once daily at 06:00 UTC:
 
-```json
-"0 6 * * *"
+```text
+0 6 * * *
 ```
-
-Vercel Hobby supports daily cron jobs. Upgrade the plan before using shorter intervals such as once per minute.
 
 ## Operations
 
-Start a digest from the reader UI with `Run digest`. The UI only creates/observes runs; Vercel Cron advances the pipeline.
+Start a digest from the reader UI with `Run digest`. The UI creates and observes runs; Vercel Cron advances the pipeline.
 
-Completed digest runs are pruned automatically when starting a new run and after a run finishes. The default keeps the newest 100 completed runs; set `DIGEST_RUN_RETENTION_LIMIT` to a different positive number if you need more or less history.
+Completed digest runs are pruned automatically when a run starts or finishes. The default keeps the newest 100 completed runs.
 
-Sanitize existing stored text after changing HTML cleanup logic:
+To sanitize existing stored text after changing HTML cleanup logic:
 
 ```bash
 pnpm --dir apps/reader cleanup:text
 ```
 
-Only run that command against the Supabase project you intend to mutate.
+Run cleanup commands only against the intended Supabase project.

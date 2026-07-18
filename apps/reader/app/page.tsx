@@ -82,7 +82,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
       </header>
 
       <NewsFeed
-        briefingSlot={brief ? <DigestBriefCard brief={brief} /> : null}
+        briefingSlot={brief ? <DigestBriefCard key="digest-brief" brief={brief} /> : null}
         initialFeed={activeFeed}
         initialPage={feedPage}
         initialPeriod={activePeriod}
@@ -90,6 +90,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
         initialView={activeView}
         digestSlot={
           <DigestRunPanel
+            key="digest-run"
             initialRun={digestRun}
             retrySlot={
               digestRun?.status === "failed" ? (

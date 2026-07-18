@@ -1,6 +1,6 @@
 import "server-only";
 
-import type { Database } from "./database.types";
+import type { Database, Json } from "./database.types";
 import { createSupabaseAdminClient } from "./supabase";
 
 type Observation = Pick<
@@ -9,10 +9,20 @@ type Observation = Pick<
   | "eligible_item_count"
   | "parsed_item_count"
   | "selected_story_count"
+  | "reader_source_id"
   | "source_name"
   | "source_url"
   | "status"
   | "unique_story_count"
+>;
+
+type SourceValueEvent = Pick<
+  Database["public"]["Tables"]["reader_feed_events"]["Row"],
+  "event_type" | "interaction_origin" | "metadata" | "story_cluster_id"
+>;
+type StorySource = Pick<
+  Database["public"]["Tables"]["story_cluster_sources"]["Row"],
+  "contribution_type" | "reader_source_id" | "story_cluster_id"
 >;
 
 export type SourceQualityInsight = {
@@ -31,6 +41,54 @@ function percentage(numerator: number, denominator: number) {
   return denominator > 0 ? Math.round(Math.min(1, numerator / denominator) * 100) : 0;
 }
 
+function jsonRecord(value: Json): Record<string, Json | undefined> {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
+
+export function readerValueBySourceIdentity(events: SourceValueEvent[], storySources: StorySource[]) {
+  const sourceIdsByStory = new Map<string, string[]>();
+  const canonicalSourceIdByStory = new Map<string, string>();
+  for (const source of storySources) {
+    sourceIdsByStory.set(source.story_cluster_id, [
+      ...(sourceIdsByStory.get(source.story_cluster_id) || []),
+      source.reader_source_id,
+    ]);
+    if (source.contribution_type === "canonical") {
+      canonicalSourceIdByStory.set(source.story_cluster_id, source.reader_source_id);
+    }
+  }
+
+  const values = new Map<string, number>();
+  const addValue = (sourceId: string, value: number) =>
+    values.set(sourceId, (values.get(sourceId) || 0) + value);
+
+  for (const event of events) {
+    if (event.interaction_origin === "bulk" || event.interaction_origin === "automatic") continue;
+    const metadata = jsonRecord(event.metadata);
+    const targetSourceId = typeof metadata.readerSourceId === "string" ? metadata.readerSourceId : null;
+    const storySourceIds = event.story_cluster_id ? sourceIdsByStory.get(event.story_cluster_id) || [] : [];
+
+    if (event.event_type === "source_open") {
+      const sourceId = targetSourceId || (event.story_cluster_id ? canonicalSourceIdByStory.get(event.story_cluster_id) : null);
+      if (sourceId) addValue(sourceId, 1);
+      continue;
+    }
+
+    if (event.event_type === "feedback" && metadata.reason === "source") {
+      const sourceId = targetSourceId || (event.story_cluster_id ? canonicalSourceIdByStory.get(event.story_cluster_id) : null);
+      if (sourceId) addValue(sourceId, metadata.feedback === "less" ? -2 : 2);
+      continue;
+    }
+
+    const totalValue = event.event_type === "save" ? 3 : event.event_type === "read" ? 2 : 0;
+    if (!totalValue || !storySourceIds.length) continue;
+    const dividedValue = totalValue / storySourceIds.length;
+    for (const sourceId of storySourceIds) addValue(sourceId, dividedValue);
+  }
+
+  return values;
+}
+
 export function sourceQualityFromObservations(observations: Observation[], readerValueCount = 0): SourceQualityInsight {
   const runCount = observations.length;
   const succeeded = observations.filter((observation) => observation.status === "succeeded").length;
@@ -44,7 +102,7 @@ export function sourceQualityFromObservations(observations: Observation[], reade
   const uniqueYield = percentage(unique, eligible);
   const selectionValue = percentage(selected, unique);
   const confirmationValue = percentage(confirmed, unique);
-  const readerValue = Math.min(100, Math.round((readerValueCount / Math.max(1, selected)) * 25));
+  const readerValue = Math.max(0, Math.min(100, Math.round((readerValueCount / Math.max(1, selected)) * 25)));
   let label: SourceQualityInsight["label"] = "Needs review";
 
   if (runCount < 5) label = "Collecting data";
@@ -74,48 +132,40 @@ export async function getSourceQualityInsights(userId: string) {
     supabase.from("source_run_observations").select("*").gte("created_at", cutoff).order("created_at", { ascending: false }).limit(5_000),
     supabase
       .from("reader_feed_events")
-      .select("news_item_id, event_type")
+      .select("story_cluster_id, event_type, interaction_origin, metadata")
       .eq("user_id", userId)
-      .in("event_type", ["source_open", "read", "save"])
-      .not("news_item_id", "is", null)
+      .in("event_type", ["source_open", "read", "save", "feedback"])
+      .not("story_cluster_id", "is", null)
       .gte("created_at", cutoff)
       .limit(2_000),
   ]);
   if (observationError) throw observationError;
   if (eventError) throw eventError;
 
-  const newsItemIds = [...new Set((events || []).flatMap((event) => event.news_item_id ? [event.news_item_id] : []))];
-  const sourceByNewsItemId = new Map<string, string>();
-  for (let index = 0; index < newsItemIds.length; index += 40) {
+  const storyClusterIds = [...new Set((events || []).flatMap((event) => event.story_cluster_id ? [event.story_cluster_id] : []))];
+  const storySources: StorySource[] = [];
+  for (let index = 0; index < storyClusterIds.length; index += 40) {
     const { data, error } = await supabase
-      .from("news_items")
-      .select("id, source")
-      .in("id", newsItemIds.slice(index, index + 40));
+      .from("story_cluster_sources")
+      .select("story_cluster_id, reader_source_id, contribution_type")
+      .in("story_cluster_id", storyClusterIds.slice(index, index + 40));
     if (error) throw error;
-    for (const item of data || []) sourceByNewsItemId.set(item.id, item.source.trim().toLocaleLowerCase("und"));
+    storySources.push(...(data || []));
   }
+  const readerValueBySource = readerValueBySourceIdentity(events || [], storySources);
 
-  const readerValueBySource = new Map<string, number>();
-  for (const event of events || []) {
-    if (!event.news_item_id) continue;
-    const source = sourceByNewsItemId.get(event.news_item_id);
-    if (!source) continue;
-    const weight = event.event_type === "save" ? 3 : event.event_type === "read" ? 2 : 1;
-    readerValueBySource.set(source, (readerValueBySource.get(source) || 0) + weight);
-  }
-
-  const byUrl = new Map<string, Observation[]>();
+  const bySource = new Map<string, Observation[]>();
   for (const observation of observations || []) {
-    byUrl.set(observation.source_url, [...(byUrl.get(observation.source_url) || []), observation]);
+    const key = observation.reader_source_id ? `id:${observation.reader_source_id}` : `url:${observation.source_url}`;
+    bySource.set(key, [...(bySource.get(key) || []), observation]);
   }
 
-  return new Map(
-    [...byUrl].map(([sourceUrl, rows]) => [
-      sourceUrl,
-      sourceQualityFromObservations(
-        rows,
-        readerValueBySource.get(rows[0]?.source_name.trim().toLocaleLowerCase("und") || "") || 0,
-      ),
-    ]),
-  );
+  const insights = new Map<string, SourceQualityInsight>();
+  for (const rows of bySource.values()) {
+    const sourceId = rows[0]?.reader_source_id;
+    const insight = sourceQualityFromObservations(rows, sourceId ? readerValueBySource.get(sourceId) || 0 : 0);
+    if (sourceId) insights.set(sourceId, insight);
+    for (const row of rows) insights.set(row.source_url, insight);
+  }
+  return insights;
 }

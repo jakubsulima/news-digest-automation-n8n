@@ -27,7 +27,7 @@ export async function PATCH(request: Request, { params }: RouteContext) {
     const sentiment = parseFeedbackSentiment(payload.sentiment);
     const reason = payload.reason === undefined ? "topic" : parseFeedbackReason(payload.reason);
 
-    if (sentiment === undefined || !reason || (sentiment === "more" && reason !== "topic" && reason !== "source")) {
+    if (sentiment === undefined || !reason || (sentiment === "more" && !["topic", "entity", "source"].includes(reason))) {
       return NextResponse.json({ ok: false, error: "Invalid item feedback." }, { status: 400 });
     }
 

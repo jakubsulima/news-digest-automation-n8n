@@ -5,6 +5,13 @@ import { getDigestSettingsForRun, type ReaderDigestSettings } from "../../digest
 import { readerFeedForCategory, type ReaderFeedId } from "../../feed-categories";
 import { keywordHitCount, matchingKeywords, textMatchesAnyKeyword } from "../../keyword-matching";
 import { feedbackScoreAdjustment, getFeedbackProfileForUser } from "../../reader-feedback";
+import {
+  DIGEST_RECOMMENDATION_POLICY_VERSION,
+  hardEligibilityReasons,
+  selectDigestRecommendations,
+  type DigestRecommendationDecision,
+} from "../../recommendation-policy";
+import { getRecommendationPolicyGate } from "../../recommendation-policy-server";
 import { createSupabaseAdminClient } from "../../supabase";
 import { buildDedupeProfile, duplicateDecision } from "../dedupe";
 import {
@@ -24,6 +31,7 @@ type ArticleRow = Database["public"]["Tables"]["articles"]["Row"];
 type ContentFeed = Exclude<ReaderFeedId, "all">;
 
 const FEED_SELECTION_ORDER: ContentFeed[] = ["geopolitics", "business", "ai", "software", "security"];
+const DIGEST_SELECTION_POLICY_VERSION = "digest-selection-v1";
 
 type PracticalBucket =
   | "build_opportunity"
@@ -421,6 +429,25 @@ function scoreSnapshot(snapshot: StorySnapshotRow, settings: ReaderDigestSetting
   };
 }
 
+export function eligibilityReasonsForStory(input: {
+  ageHours: number;
+  duplicateCount: number;
+  editorialScore: number;
+  feed: ContentFeed;
+  freshnessWindowHours: number;
+  hasReadableVariant: boolean;
+  isDeveloperSecurity: boolean;
+  isExcluded: boolean;
+  isMajorSecurity: boolean;
+  minimumImportanceScore: number;
+  minimumSourceCount: number;
+  noveltyScore: number;
+  readableOnly: boolean;
+  requireMajorSecurity: boolean;
+}) {
+  return hardEligibilityReasons(input);
+}
+
 export const runEditorialScoringStage: StageRunner = async ({ digestRunId }) => {
   const supabase = createSupabaseAdminClient();
   const [settings, snapshots] = await Promise.all([
@@ -437,6 +464,10 @@ export const runEditorialScoringStage: StageRunner = async ({ digestRunId }) => 
         includeImplicit: settings.implicitPersonalizationEnabled,
       })
     : null;
+  const recommendationGate = settings.recommendationPolicyMode === "v2"
+    ? await getRecommendationPolicyGate().catch(() => null)
+    : null;
+  const recommendationV2Active = settings.recommendationPolicyMode === "v2" && recommendationGate?.passed === true;
   const clusterIds = snapshots.map((snapshot) => snapshot.story_cluster_id);
   const { data: clusterRows, error: clusterError } = clusterIds.length
     ? await supabase.from("story_clusters").select("id, latest_scores").in("id", clusterIds)
@@ -520,41 +551,32 @@ export const runEditorialScoringStage: StageRunner = async ({ digestRunId }) => 
       };
     })
     .sort((left, right) => right.selectionScore - left.selectionScore);
-  const candidates = scored.filter((item) => {
-    if (item.isExcluded) {
-      return false;
-    }
-
-    if (settings.readableOnly && !item.hasReadableVariant) {
-      return false;
-    }
-
-    if (item.scores.ageHours > settings.freshnessWindowHours) {
-      return false;
-    }
-
-    if (item.snapshot.duplicate_count < settings.minimumSourceCount) {
-      return false;
-    }
-
-    if (item.scores.editorialScore < settings.minimumImportanceScore) {
-      return false;
-    }
-
-    if (item.scores.noveltyScore <= 2 && !item.isMajorSecurity && item.snapshot.duplicate_count < 3) {
-      return false;
-    }
-
-    return (
-      item.feed !== "security" ||
-      !settings.requireMajorSecurity ||
-      item.isMajorSecurity ||
-      item.isDeveloperSecurity
-    );
-  });
+  const eligibilityReasonsBySnapshotId = new Map(
+    scored.map((item) => [
+      item.snapshot.id,
+      eligibilityReasonsForStory({
+        ageHours: item.scores.ageHours,
+        duplicateCount: item.snapshot.duplicate_count,
+        editorialScore: item.scores.editorialScore,
+        feed: item.feed,
+        freshnessWindowHours: settings.freshnessWindowHours,
+        hasReadableVariant: item.hasReadableVariant,
+        isDeveloperSecurity: item.isDeveloperSecurity,
+        isExcluded: item.isExcluded,
+        isMajorSecurity: item.isMajorSecurity,
+        minimumImportanceScore: settings.minimumImportanceScore,
+        minimumSourceCount: settings.minimumSourceCount,
+        noveltyScore: item.scores.noveltyScore,
+        readableOnly: settings.readableOnly,
+        requireMajorSecurity: settings.requireMajorSecurity,
+      }),
+    ]),
+  );
+  const candidates = scored.filter((item) => !eligibilityReasonsBySnapshotId.get(item.snapshot.id)?.length);
   const selectedIds = new Set<string>();
   const selectedItems: typeof scored = [];
   const suppressedDuplicates = new Map<string, { duplicateOfSnapshotId: string; reason: string; score: number }>();
+  const selectionReasonsBySnapshotId = new Map<string, string[]>();
   const selectedCounts: Record<ContentFeed, number> = {
     geopolitics: 0,
     business: 0,
@@ -564,8 +586,18 @@ export const runEditorialScoringStage: StageRunner = async ({ digestRunId }) => 
   };
   const selectedSourceCounts = new Map<string, number>();
 
-  function selectItem(item: (typeof scored)[number]) {
-    if (selectedIds.size >= settings.publishTopN || selectedIds.has(item.snapshot.id)) {
+  function addSelectionReason(snapshotId: string, reason: string) {
+    const reasons = selectionReasonsBySnapshotId.get(snapshotId) || [];
+    if (!reasons.includes(reason)) reasons.push(reason);
+    selectionReasonsBySnapshotId.set(snapshotId, reasons);
+  }
+
+  function selectItem(item: (typeof scored)[number], selectedReason: "feed_target" | "global_rank") {
+    if (selectedIds.has(item.snapshot.id)) {
+      return;
+    }
+    if (selectedIds.size >= settings.publishTopN) {
+      addSelectionReason(item.snapshot.id, "capacity");
       return;
     }
 
@@ -573,6 +605,7 @@ export const runEditorialScoringStage: StageRunner = async ({ digestRunId }) => 
       item.normalizedSource &&
       (selectedSourceCounts.get(item.normalizedSource) ?? 0) >= settings.maxStoriesPerSource
     ) {
+      addSelectionReason(item.snapshot.id, "publisher_cap");
       return;
     }
 
@@ -585,12 +618,14 @@ export const runEditorialScoringStage: StageRunner = async ({ digestRunId }) => 
           reason: decision.reason,
           score: Number(decision.score.toFixed(3)),
         });
+        addSelectionReason(item.snapshot.id, "duplicate_suppression");
         return;
       }
     }
 
     selectedIds.add(item.snapshot.id);
     selectedItems.push(item);
+    addSelectionReason(item.snapshot.id, selectedReason);
     selectedCounts[item.feed] += 1;
     if (item.normalizedSource) {
       selectedSourceCounts.set(item.normalizedSource, (selectedSourceCounts.get(item.normalizedSource) ?? 0) + 1);
@@ -605,37 +640,182 @@ export const runEditorialScoringStage: StageRunner = async ({ digestRunId }) => 
         break;
       }
 
-      selectItem(item);
+      selectItem(item, "feed_target");
     }
   }
 
   for (const item of candidates) {
+    if (selectedIds.has(item.snapshot.id)) {
+      continue;
+    }
     if (item.feed === "security" && selectedCounts.security >= settings.feedTargets.security) {
+      addSelectionReason(item.snapshot.id, "security_quota");
       continue;
     }
 
-    selectItem(item);
+    selectItem(item, "global_rank");
   }
 
-  const selectedStoriesBySourceUrl = new Map<string, Set<string>>();
+  const selectionRankBySnapshotId = new Map(selectedItems.map((item, index) => [item.snapshot.id, index]));
+  const recommendationDecisions: Database["public"]["Tables"]["digest_recommendation_decisions"]["Insert"][] =
+    scored.map((item, candidateRank) => {
+      const eligibilityReasons = eligibilityReasonsBySnapshotId.get(item.snapshot.id) || [];
+      return {
+        candidate_rank: candidateRank,
+        digest_run_id: digestRunId,
+        eligibility_reasons: eligibilityReasons,
+        eligible: eligibilityReasons.length === 0,
+        policy_version: DIGEST_SELECTION_POLICY_VERSION,
+        recommendation_reasons: [selectionReasonForStory({
+          bucket: item.practicalBucket,
+          feed: item.feed,
+          feedbackAdjustment: item.feedbackAdjustment,
+          feedAdjustment: item.feedAdjustment,
+          geopoliticsIsRelevant: item.geopoliticsIsRelevant,
+          isDeveloperSecurity: item.isDeveloperSecurity,
+          isMajorSecurity: item.isMajorSecurity,
+          scores: item.scores,
+          text: `${jsonString(item.snapshot.metadata, "title")} ${jsonString(item.snapshot.metadata, "summary")} ${jsonString(item.snapshot.metadata, "category")}`,
+        }).replace(/^Selected as/, "Scored as")],
+        score: item.selectionScore,
+        score_components: {
+          actionability: item.scores.actionabilityScore,
+          confirmation: item.scores.confirmationScore,
+          editorial: item.scores.editorialScore,
+          feedbackAdjustment: item.feedbackAdjustment,
+          feed: item.feed,
+          feedAdjustment: item.feedAdjustment,
+          impact: item.scores.impactScore,
+          novelty: item.scores.noveltyScore,
+          scopeFit: item.scores.scopeFitScore,
+          urgency: item.scores.urgencyScore,
+        },
+        selected: selectedIds.has(item.snapshot.id),
+        selection_rank: selectionRankBySnapshotId.get(item.snapshot.id) ?? null,
+        selection_reasons: selectionReasonsBySnapshotId.get(item.snapshot.id) || [],
+        story_cluster_id: item.snapshot.story_cluster_id,
+      };
+    });
+
+  const v2Selection = selectDigestRecommendations({
+    candidates: scored.map((item) => ({
+      dedupeProfile: item.dedupeProfile,
+      eligibilityReasons: eligibilityReasonsBySnapshotId.get(item.snapshot.id) || [],
+      feed: item.feed,
+      feedAdjustment: item.feedAdjustment,
+      id: item.snapshot.id,
+      normalizedSource: item.normalizedSource,
+      objectiveComponents: {
+        actionability: item.scores.actionabilityScore,
+        confirmation: item.scores.confirmationScore,
+        editorial: item.scores.editorialScore,
+        impact: item.scores.impactScore,
+        novelty: item.scores.noveltyScore,
+        scopeFit: item.scores.scopeFitScore,
+        urgency: item.scores.urgencyScore,
+      },
+      objectiveReasons: [selectionReasonForStory({
+        bucket: item.practicalBucket,
+        feed: item.feed,
+        feedbackAdjustment: 0,
+        feedAdjustment: item.feedAdjustment,
+        geopoliticsIsRelevant: item.geopoliticsIsRelevant,
+        isDeveloperSecurity: item.isDeveloperSecurity,
+        isMajorSecurity: item.isMajorSecurity,
+        scores: item.scores,
+        text: `${jsonString(item.snapshot.metadata, "title")} ${jsonString(item.snapshot.metadata, "summary")} ${jsonString(item.snapshot.metadata, "category")}`,
+      }).replace(/^Selected as/, "Scored as")],
+      objectiveScore: item.scores.editorialScore,
+      preferenceAdjustment: item.feedbackAdjustment,
+      storyClusterId: item.snapshot.story_cluster_id,
+    })),
+    feedTargets: settings.feedTargets,
+    maxStoriesPerSource: settings.maxStoriesPerSource,
+    publishTopN: settings.publishTopN,
+  });
+  const v2DecisionBySnapshotId = new Map(v2Selection.decisions.map((decision) => [decision.id, decision]));
+  const v2RecommendationDecisions: Database["public"]["Tables"]["digest_recommendation_decisions"]["Insert"][] =
+    v2Selection.decisions.map((decision) => ({
+      candidate_rank: decision.candidateRank,
+      digest_run_id: digestRunId,
+      eligibility_reasons: decision.eligibilityReasons,
+      eligible: decision.eligible,
+      policy_version: DIGEST_RECOMMENDATION_POLICY_VERSION,
+      recommendation_reasons: decision.recommendationReasons,
+      score: decision.score,
+      score_components: decision.scoreComponents,
+      selected: decision.selected,
+      selection_rank: decision.selectionRank,
+      selection_reasons: decision.selectionReasons,
+      story_cluster_id: decision.storyClusterId,
+    }));
+
+  if (recommendationV2Active) {
+    selectedIds.clear();
+    selectedItems.splice(0, selectedItems.length);
+    selectionReasonsBySnapshotId.clear();
+    suppressedDuplicates.clear();
+    for (const feed of FEED_SELECTION_ORDER) selectedCounts[feed] = v2Selection.selectedFeedCounts[feed];
+    const scoredById = new Map(scored.map((item) => [item.snapshot.id, item]));
+    for (const snapshotId of v2Selection.orderedSelectedIds) {
+      const item = scoredById.get(snapshotId);
+      if (!item) continue;
+      selectedIds.add(snapshotId);
+      selectedItems.push(item);
+    }
+    for (const decision of v2Selection.decisions) {
+      selectionReasonsBySnapshotId.set(decision.id, decision.selectionReasons);
+      if (decision.duplicateOfCandidateId && decision.duplicateReason && decision.duplicateScore !== null) {
+        suppressedDuplicates.set(decision.id, {
+          duplicateOfSnapshotId: decision.duplicateOfCandidateId,
+          reason: decision.duplicateReason,
+          score: decision.duplicateScore,
+        });
+      }
+    }
+  }
+
+  for (const decisionBatch of chunk(
+    [...recommendationDecisions, ...v2RecommendationDecisions],
+    SUPABASE_WRITE_BATCH_SIZE,
+  )) {
+    const { error: decisionError } = await supabase
+      .from("digest_recommendation_decisions")
+      .upsert(decisionBatch, { onConflict: "digest_run_id,story_cluster_id,policy_version" });
+    if (decisionError) throw decisionError;
+  }
+
+  const selectedStoriesBySource = new Map<
+    string,
+    { readerSourceId: string | null; sourceUrl: string; storyIds: Set<string> }
+  >();
   for (const item of selectedItems) {
     const sourceVariants = jsonRecord(item.snapshot.metadata).sourceVariants;
     if (!Array.isArray(sourceVariants)) continue;
     for (const variant of sourceVariants) {
       const sourceFeedUrl = jsonString(variant, "sourceFeedUrl");
       if (!sourceFeedUrl) continue;
-      const storyIds = selectedStoriesBySourceUrl.get(sourceFeedUrl) || new Set<string>();
-      storyIds.add(item.snapshot.story_cluster_id);
-      selectedStoriesBySourceUrl.set(sourceFeedUrl, storyIds);
+      const readerSourceId = jsonString(variant, "readerSourceId") || null;
+      const sourceKey = readerSourceId ? `id:${readerSourceId}` : `url:${sourceFeedUrl}`;
+      const source = selectedStoriesBySource.get(sourceKey) || {
+        readerSourceId,
+        sourceUrl: sourceFeedUrl,
+        storyIds: new Set<string>(),
+      };
+      source.storyIds.add(item.snapshot.story_cluster_id);
+      selectedStoriesBySource.set(sourceKey, source);
     }
   }
   await Promise.all(
-    [...selectedStoriesBySourceUrl].map(async ([sourceUrl, storyIds]) => {
-      const { error } = await supabase
+    [...selectedStoriesBySource.values()].map(async (source) => {
+      let update = supabase
         .from("source_run_observations")
-        .update({ selected_story_count: storyIds.size })
-        .eq("digest_run_id", digestRunId)
-        .eq("source_url", sourceUrl);
+        .update({ selected_story_count: source.storyIds.size })
+        .eq("digest_run_id", digestRunId);
+      update = source.readerSourceId
+        ? update.eq("reader_source_id", source.readerSourceId)
+        : update.eq("source_url", source.sourceUrl);
+      const { error } = await update;
       if (error) throw error;
     }),
   );
@@ -659,6 +839,11 @@ export const runEditorialScoringStage: StageRunner = async ({ digestRunId }) => 
       snapshot,
     }) => {
       const duplicateSuppression = suppressedDuplicates.get(snapshot.id);
+      const activeV2Decision: DigestRecommendationDecision | undefined = recommendationV2Active
+        ? v2DecisionBySnapshotId.get(snapshot.id)
+        : undefined;
+      const effectiveFeedbackAdjustment = activeV2Decision?.preferenceAdjustment ?? feedbackAdjustment;
+      const effectiveSelectionScore = activeV2Decision?.score ?? selectionScore;
 
       return {
         ...snapshot,
@@ -680,7 +865,7 @@ export const runEditorialScoringStage: StageRunner = async ({ digestRunId }) => 
             actionability: scores.actionabilityScore,
             confirmation: scores.confirmationScore,
             editorial: scores.editorialScore,
-            feedbackAdjustment,
+            feedbackAdjustment: effectiveFeedbackAdjustment,
             personalizationEvidenceCount: feedbackProfile?.evidenceCount || 0,
             feed,
             feedAdjustment,
@@ -688,14 +873,14 @@ export const runEditorialScoringStage: StageRunner = async ({ digestRunId }) => 
             impact: scores.impactScore,
             novelty: scores.noveltyScore,
             scopeFit: scores.scopeFitScore,
-            selection: selectionScore,
+            selection: effectiveSelectionScore,
             sourcePriority: Math.max(0, Math.min(5, jsonNumber(snapshot.metadata, "sourcePriority"))),
             urgency: scores.urgencyScore,
           },
           whyInteresting: selectionReasonForStory({
             bucket: practicalBucket,
             feed,
-            feedbackAdjustment,
+            feedbackAdjustment: effectiveFeedbackAdjustment,
             feedAdjustment,
             geopoliticsIsRelevant,
             isDeveloperSecurity,
@@ -762,7 +947,9 @@ export const runEditorialScoringStage: StageRunner = async ({ digestRunId }) => 
               editorial: item.scores.editorialScore,
               impact: item.scores.impactScore,
               novelty: item.scores.noveltyScore,
-              selection: item.selectionScore,
+              selection: recommendationV2Active
+                ? v2DecisionBySnapshotId.get(item.snapshot.id)?.score ?? item.selectionScore
+                : item.selectionScore,
             },
             latest_summary: jsonString(item.snapshot.metadata, "summary"),
             source: jsonString(item.snapshot.metadata, "source"),
@@ -790,6 +977,11 @@ export const runEditorialScoringStage: StageRunner = async ({ digestRunId }) => 
 
   return {
     metrics: {
+      activeRecommendationPolicy: recommendationV2Active
+        ? DIGEST_RECOMMENDATION_POLICY_VERSION
+        : DIGEST_SELECTION_POLICY_VERSION,
+      recommendationPolicyMode: settings.recommendationPolicyMode,
+      recommendationV2GatePassed: recommendationGate?.passed ?? false,
       selectedCount: selectedIds.size,
       selectedFeedCounts: selectedCounts,
       suppressedDuplicateCount: suppressedDuplicates.size,

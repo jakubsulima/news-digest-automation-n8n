@@ -4,10 +4,17 @@ import { createSupabaseAdminClient } from "./supabase";
 import { plainTextFromHtml } from "./text";
 import {
   buildFeedbackProfile,
+  implicitEventWeight,
+  selectImplicitPreferenceEvents,
   type FeedbackProfile,
   type FeedbackReason,
   type FeedbackSentiment,
 } from "./reader-feedback-scoring";
+import {
+  deletePreferenceSignals,
+  getPreferenceSignalBasis,
+  setExplicitPreferenceSignal,
+} from "./preference-signals";
 
 export {
   buildFeedbackProfile,
@@ -15,6 +22,7 @@ export {
   feedbackScoreAdjustment,
   parseFeedbackReason,
   parseFeedbackSentiment,
+  selectImplicitPreferenceEvents,
 } from "./reader-feedback-scoring";
 export type { FeedbackBasis, FeedbackProfile, FeedbackReason, FeedbackSentiment } from "./reader-feedback-scoring";
 type SupabaseError = {
@@ -36,13 +44,7 @@ export function isReaderFeedbackSchemaError(error: unknown) {
   );
 }
 
-const IMPLICIT_EVENT_WEIGHTS = {
-  fast_read: 0.5,
-  read: 1.25,
-  save: 2,
-  source_open: 0.75,
-} as const;
-const IMPLICIT_EVENT_TYPES = Object.keys(IMPLICIT_EVENT_WEIGHTS) as Array<keyof typeof IMPLICIT_EVENT_WEIGHTS>;
+const IMPLICIT_EVENT_TYPES = ["fast_read", "read", "save", "source_open"] as const;
 const IMPLICIT_COLD_START_STORIES = 5;
 
 export async function getFeedbackProfileForUser(
@@ -51,6 +53,15 @@ export async function getFeedbackProfileForUser(
 ): Promise<FeedbackProfile> {
   if (!userId) {
     return buildFeedbackProfile([]);
+  }
+
+  const preferenceSignalBasis = await getPreferenceSignalBasis(userId);
+  if (preferenceSignalBasis) {
+    return buildFeedbackProfile(
+      options.includeImplicit
+        ? preferenceSignalBasis
+        : preferenceSignalBasis.filter((item) => item.origin !== "implicit"),
+    );
   }
 
   const supabase = createSupabaseAdminClient();
@@ -101,7 +112,7 @@ export async function getFeedbackProfileForUser(
 
     const { data: eventRows, error: eventError } = await supabase
       .from("reader_feed_events")
-      .select("session_id, story_cluster_id, event_type, created_at")
+      .select("session_id, story_cluster_id, event_type, interaction_origin, created_at")
       .eq("user_id", userId)
       .in("event_type", IMPLICIT_EVENT_TYPES)
       .not("story_cluster_id", "is", null)
@@ -109,33 +120,21 @@ export async function getFeedbackProfileForUser(
       .limit(1_000);
 
     if (eventError) throw eventError;
-    const strongestBySessionStory = new Map<string, NonNullable<typeof eventRows>[number]>();
-
-    for (const event of eventRows || []) {
-      if (!event.story_cluster_id || !(event.event_type in IMPLICIT_EVENT_WEIGHTS)) continue;
-      const key = `${event.session_id}:${event.story_cluster_id}`;
-      const existing = strongestBySessionStory.get(key);
-      const weight = IMPLICIT_EVENT_WEIGHTS[event.event_type as keyof typeof IMPLICIT_EVENT_WEIGHTS];
-      const existingWeight = existing
-        ? IMPLICIT_EVENT_WEIGHTS[existing.event_type as keyof typeof IMPLICIT_EVENT_WEIGHTS]
-        : -1;
-      if (!existing || weight > existingWeight) strongestBySessionStory.set(key, event);
-    }
-
-    const cappedByDayStory = new Map<string, NonNullable<typeof eventRows>[number]>();
-    for (const event of strongestBySessionStory.values()) {
-      if (!event.story_cluster_id) continue;
-      const key = `${event.created_at.slice(0, 10)}:${event.story_cluster_id}`;
-      const existing = cappedByDayStory.get(key);
-      const weight = IMPLICIT_EVENT_WEIGHTS[event.event_type as keyof typeof IMPLICIT_EVENT_WEIGHTS];
-      const existingWeight = existing
-        ? IMPLICIT_EVENT_WEIGHTS[existing.event_type as keyof typeof IMPLICIT_EVENT_WEIGHTS]
-        : -1;
-      if (!existing || weight > existingWeight) cappedByDayStory.set(key, event);
-    }
-
-    const implicitEvents = [...cappedByDayStory.values()];
-    const implicitClusterIds = [...new Set(implicitEvents.flatMap((event) => event.story_cluster_id ? [event.story_cluster_id] : []))];
+    const implicitEvents = selectImplicitPreferenceEvents(
+      (eventRows || []).flatMap((event) => {
+        if (!event.story_cluster_id || !IMPLICIT_EVENT_TYPES.includes(event.event_type as (typeof IMPLICIT_EVENT_TYPES)[number])) {
+          return [];
+        }
+        return [{
+          createdAt: event.created_at,
+          eventType: event.event_type as (typeof IMPLICIT_EVENT_TYPES)[number],
+          interactionOrigin: event.interaction_origin,
+          sessionId: event.session_id,
+          storyClusterId: event.story_cluster_id,
+        }];
+      }),
+    );
+    const implicitClusterIds = [...new Set(implicitEvents.map((event) => event.storyClusterId))];
 
     if (implicitClusterIds.length < IMPLICIT_COLD_START_STORIES) {
       return buildFeedbackProfile(explicitBasis);
@@ -148,8 +147,8 @@ export async function getFeedbackProfileForUser(
     if (implicitClusterError) throw implicitClusterError;
     const clustersById = new Map((implicitClusters || []).map((cluster) => [cluster.id, cluster]));
     const implicitBasis = implicitEvents.flatMap((event) => {
-      const cluster = event.story_cluster_id ? clustersById.get(event.story_cluster_id) : null;
-      if (!cluster || !(event.event_type in IMPLICIT_EVENT_WEIGHTS)) return [];
+      const cluster = clustersById.get(event.storyClusterId);
+      if (!cluster) return [];
       return [{
         category: cluster.category,
         origin: "implicit" as const,
@@ -158,8 +157,8 @@ export async function getFeedbackProfileForUser(
         storyClusterId: cluster.id,
         summary: plainTextFromHtml(cluster.latest_summary),
         title: plainTextFromHtml(cluster.canonical_title),
-        updatedAt: event.created_at,
-        weight: IMPLICIT_EVENT_WEIGHTS[event.event_type as keyof typeof IMPLICIT_EVENT_WEIGHTS],
+        updatedAt: event.createdAt,
+        weight: implicitEventWeight(event.eventType),
       }];
     });
 
@@ -243,6 +242,7 @@ export async function resetReaderPersonalization(userId: string) {
     supabase.from("reader_story_feedback").delete().eq("user_id", userId),
     supabase.from("reader_item_feedback").delete().eq("user_id", userId),
     supabase.from("reader_feed_events").delete().eq("user_id", userId),
+    deletePreferenceSignals(userId).then(() => ({ error: null })),
   ]);
   const error = results.find((result) => result.error)?.error;
   if (error) throw error;
@@ -262,6 +262,7 @@ export async function setReaderItemFeedback(
     .maybeSingle();
 
   if (newsItemError) throw newsItemError;
+  await setExplicitPreferenceSignal(userId, newsItemId, sentiment, reason);
 
   if (!sentiment) {
     const legacyDelete = supabase.from("reader_item_feedback").delete().eq("user_id", userId).eq("news_item_id", newsItemId);
@@ -282,7 +283,7 @@ export async function setReaderItemFeedback(
   if (newsItem?.story_cluster_id) {
     const { error: storyError } = await supabase.from("reader_story_feedback").upsert(
       {
-        reason,
+        reason: reason === "entity" ? "topic" : reason,
         sentiment,
         story_cluster_id: newsItem.story_cluster_id,
         user_id: userId,

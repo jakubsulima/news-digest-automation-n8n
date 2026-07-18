@@ -1,5 +1,7 @@
 import type { Database } from "../database.types";
 import { getWarsawDate } from "../date-utils";
+import { fetchBoundedText } from "../source-discovery/bounded-fetch";
+import type { DnsLookup } from "../source-discovery/types";
 import { cleanArticleSummary, decodeHtmlEntities, plainTextFromHtml } from "../text";
 import { FEED_FETCH_TIMEOUT_MS, USER_AGENT } from "./constants";
 
@@ -12,12 +14,14 @@ export type SourceConfig = {
   category: string;
   url: string;
   priority?: number;
+  portfolioRole?: "selected" | "explore" | "probe";
 };
 
 type FetchSourceItemsForRunOptions = {
   digestRunId: string;
   sources: SourceConfig[];
   fetchImpl?: typeof fetch;
+  lookup?: DnsLookup;
   now?: Date;
 };
 
@@ -184,6 +188,7 @@ function parseSourceFeedWithStats(
         publishedAt,
         rawXml: itemXml.slice(0, MAX_RAW_ITEM_XML_LENGTH),
         readerSourceId: databaseSourceId(source.id),
+        portfolioRole: source.portfolioRole ?? "selected",
         sourcePriority: source.priority ?? null,
         summary,
         title,
@@ -209,22 +214,24 @@ export function parseSourceFeed(feedXml: string, source: SourceConfig, digestRun
 async function fetchSource(
   source: SourceConfig,
   digestRunId: string,
-  fetchImpl: typeof fetch,
+  fetchImpl: typeof fetch | undefined,
+  lookup: DnsLookup | undefined,
   allowedWarsawDates: Set<string>,
 ) {
   const startedAt = Date.now();
-  const response = await fetchImpl(source.url, {
-    headers: {
-      "user-agent": USER_AGENT,
-    },
-    signal: AbortSignal.timeout(FEED_FETCH_TIMEOUT_MS),
-  });
-
-  if (!response.ok) {
-    throw new Error(`${source.name}: HTTP ${response.status}`);
+  let feedXml: string;
+  try {
+    feedXml = (await fetchBoundedText(source.url, {
+      fetchImpl,
+      lookup,
+      timeoutMs: FEED_FETCH_TIMEOUT_MS,
+      userAgent: USER_AGENT,
+    })).body;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const httpStatus = message.match(/HTTP\s+(\d{3})/i)?.[1];
+    throw new Error(httpStatus ? `${source.name}: HTTP ${httpStatus}` : `${source.name}: ${message}`);
   }
-
-  const feedXml = await response.text();
   const result = parseSourceFeedWithStats(feedXml, source, digestRunId, allowedWarsawDates);
 
   return {
@@ -246,7 +253,8 @@ function sourceErrorKind(error: unknown) {
 export async function fetchSourceItemsForRun({
   digestRunId,
   sources,
-  fetchImpl = fetch,
+  fetchImpl,
+  lookup,
   now = new Date(),
 }: FetchSourceItemsForRunOptions) {
   const allowedWarsawDates = recentWarsawDates(now);
@@ -256,7 +264,7 @@ export async function fetchSourceItemsForRun({
 
       try {
         return {
-          result: await fetchSource(source, digestRunId, fetchImpl, allowedWarsawDates),
+          result: await fetchSource(source, digestRunId, fetchImpl, lookup, allowedWarsawDates),
           source,
           status: "fulfilled" as const,
         };
@@ -292,6 +300,7 @@ export async function fetchSourceItemsForRun({
         eligible_item_count: result.result.items.length,
         parsed_item_count: result.result.parsedItemCount,
         reader_source_id: databaseSourceId(result.source.id),
+        metadata: { portfolioRole: result.source.portfolioRole ?? "selected" },
         skipped_old_item_count: result.result.skippedOldItemCount,
         skipped_undated_item_count: result.result.skippedUndatedItemCount,
         source_name: result.source.name,
@@ -309,6 +318,7 @@ export async function fetchSourceItemsForRun({
       duration_ms: result.durationMs,
       error_kind: sourceErrorKind(result.error),
       reader_source_id: databaseSourceId(result.source.id),
+      metadata: { portfolioRole: result.source.portfolioRole ?? "selected" },
       source_name: result.source.name,
       source_url: result.source.url,
       status: "failed",

@@ -6,6 +6,7 @@ import {
   feedbackScoreAdjustment,
   parseFeedbackSentiment,
   parseFeedbackReason,
+  selectImplicitPreferenceEvents,
 } from "./reader-feedback";
 
 describe("reader feedback scoring", () => {
@@ -52,6 +53,37 @@ describe("reader feedback scoring", () => {
       "chain",
       "breach",
     ]);
+  });
+
+  it("keeps the strongest direct implicit signal per session, story, and day", () => {
+    const common = {
+      createdAt: "2026-07-11T10:00:00.000Z",
+      interactionOrigin: "direct" as const,
+      storyClusterId: "story-1",
+    };
+    const selected = selectImplicitPreferenceEvents([
+      { ...common, eventType: "fast_read", sessionId: "session-1" },
+      { ...common, eventType: "save", sessionId: "session-1" },
+      { ...common, eventType: "read", sessionId: "session-2" },
+      { ...common, eventType: "save", interactionOrigin: "bulk", sessionId: "session-3" },
+      { ...common, eventType: "save", interactionOrigin: "automatic", sessionId: "session-4" },
+    ]);
+
+    expect(selected).toEqual([
+      expect.objectContaining({ eventType: "save", interactionOrigin: "direct", sessionId: "session-1" }),
+    ]);
+  });
+
+  it("treats legacy events without an origin as direct evidence", () => {
+    const selected = selectImplicitPreferenceEvents([{
+      createdAt: "2026-07-11T10:00:00.000Z",
+      eventType: "source_open",
+      interactionOrigin: null,
+      sessionId: "legacy-session",
+      storyClusterId: "story-1",
+    }]);
+
+    expect(selected).toHaveLength(1);
   });
 
   it("boosts matching source, feed, and keywords for positive feedback", () => {
