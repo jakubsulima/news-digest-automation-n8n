@@ -174,6 +174,14 @@ describe("fetchSourceItemsForRun", () => {
     });
 
     expect(result.sourceItems).toHaveLength(1);
+    expect(result.sourceObservations).toContainEqual(expect.objectContaining({
+      eligible_item_count: 0,
+      parsed_item_count: 0,
+      skipped_old_item_count: 0,
+      skipped_undated_item_count: 0,
+      source_name: "Bad Source",
+      status: "failed",
+    }));
     expect(result.metrics).toEqual({
       errors: ["Bad Source: HTTP 503"],
       fetchedItemCount: 1,
