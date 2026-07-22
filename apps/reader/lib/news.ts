@@ -9,6 +9,7 @@ import {
   type FeedbackReason,
   type FeedbackSentiment,
 } from "./reader-feedback";
+import { getReaderNoteCount, getReaderNoteCounts } from "./reader-notes";
 
 export type NewsItemPreview = {
   clickIf: string;
@@ -67,6 +68,7 @@ export type NewsItemWithState = {
   feedback: FeedbackSentiment | null;
   feedbackReason: FeedbackReason | null;
   whyInteresting: string | null;
+  noteCount: number;
   cachedArticle?: CachedArticle | null;
 };
 
@@ -186,8 +188,9 @@ function newsItemWithState(
   item: NewsItemRow,
   state: ReaderItemStateRow | null | undefined,
   feedback: { reason: FeedbackReason; sentiment: FeedbackSentiment } | null,
-  updateHistory: StoryUpdate[] = [],
+  options: { noteCount?: number; updateHistory?: StoryUpdate[] } = {},
 ): NewsItemWithState {
+  const { noteCount = 0, updateHistory = [] } = options;
   const title = plainTextFromHtml(item.title);
   const rawPayload = jsonRecord(item.raw_payload);
   const preview = previewFromPayload(item.raw_payload);
@@ -225,6 +228,7 @@ function newsItemWithState(
     feedback: feedback?.sentiment ?? null,
     feedbackReason: feedback?.reason ?? null,
     whyInteresting: jsonString(rawPayload.whyInteresting),
+    noteCount,
   };
 }
 
@@ -236,6 +240,7 @@ export async function getReaderNewsItems(userId: string): Promise<NewsItemWithSt
     { data: states, error: stateError },
     { data: storyFeedback, error: storyFeedbackError },
     { data: legacyFeedback, error: legacyFeedbackError },
+    noteCounts,
   ] = await Promise.all([
     supabase
       .from("news_items")
@@ -252,6 +257,7 @@ export async function getReaderNewsItems(userId: string): Promise<NewsItemWithSt
       .select("story_cluster_id, sentiment, reason")
       .eq("user_id", userId),
     supabase.from("reader_item_feedback").select("news_item_id, sentiment").eq("user_id", userId),
+    getReaderNoteCounts(userId),
   ]);
 
   if (itemError) {
@@ -283,6 +289,7 @@ export async function getReaderNewsItems(userId: string): Promise<NewsItemWithSt
         : legacySentiment
           ? { reason: "topic", sentiment: legacySentiment }
           : null,
+      { noteCount: noteCounts.get(item.id) || 0 },
     );
   });
 }
@@ -294,6 +301,7 @@ export async function getReaderNewsItem(itemId: string, userId: string): Promise
     { data: item, error: itemError },
     { data: state, error: stateError },
     { data: legacyFeedback, error: legacyFeedbackError },
+    noteCount,
   ] = await Promise.all([
     supabase
       .from("news_items")
@@ -312,6 +320,7 @@ export async function getReaderNewsItem(itemId: string, userId: string): Promise
       .eq("user_id", userId)
       .eq("news_item_id", itemId)
       .maybeSingle(),
+    getReaderNoteCount(userId, itemId),
   ]);
 
   if (itemError) {
@@ -364,7 +373,7 @@ export async function getReaderNewsItem(itemId: string, userId: string): Promise
       : null;
 
   return {
-    ...newsItemWithState(item, state, feedback, updateHistory),
+    ...newsItemWithState(item, state, feedback, { noteCount, updateHistory }),
     cachedArticle,
   };
 }

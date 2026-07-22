@@ -9,6 +9,7 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { NewsItemFeedbackActions } from "@/components/news-item-feedback-actions";
 import { NewsItemActions } from "@/components/news-item-actions";
+import { NewsNoteAction } from "@/components/news-note-action";
 import { NewsPreviewCard } from "@/components/news-preview-card";
 import type { NewsItemWithState } from "@/lib/news";
 import { formatPracticalBucket } from "@/lib/news-display";
@@ -77,6 +78,7 @@ export function NewsItemCard({
   const [expanded, setExpanded] = useState(false);
   const [actionsOpen, setActionsOpen] = useState(false);
   const [whyOpen, setWhyOpen] = useState(false);
+  const [noteCount, setNoteCount] = useState(item.noteCount);
   const isRead = Boolean(item.readAt);
   const isSaved = Boolean(item.savedAt);
   const isArchived = Boolean(item.archivedAt);
@@ -175,7 +177,7 @@ export function NewsItemCard({
         <div className="flex min-w-0 flex-wrap items-center gap-1">
           <div className="flex min-w-0 flex-1 items-center justify-end gap-1.5">
             {actionsOpen ? (
-              <div className="flex min-w-0 items-center gap-1.5 overflow-hidden rounded-lg duration-300 ease-out animate-in fade-in slide-in-from-right-4">
+              <div className="flex min-w-0 items-center gap-1.5 overflow-visible rounded-lg duration-300 ease-out animate-in fade-in slide-in-from-right-4">
                 <NewsItemFeedbackActions
                   buttonSize="icon-sm"
                   buttonClassName="border-transparent bg-muted/40 hover:bg-muted focus-visible:border-transparent focus-visible:ring-0"
@@ -192,6 +194,13 @@ export function NewsItemCard({
                   isSaved={isSaved}
                   isArchived={isArchived}
                   onStateChange={handleItemStateChange}
+                />
+                <NewsNoteAction
+                  buttonSize="icon-sm"
+                  buttonClassName="border-transparent bg-muted/40 hover:bg-muted focus-visible:border-transparent focus-visible:ring-0"
+                  initialCount={noteCount}
+                  itemId={item.id}
+                  onCreated={() => setNoteCount((value) => value + 1)}
                 />
                 <a
                   className={buttonVariants({

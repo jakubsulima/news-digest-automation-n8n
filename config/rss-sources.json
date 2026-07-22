@@ -72,6 +72,36 @@
     "priority": 4
   },
   {
+    "name": "Sky News World",
+    "category": "Świat / Geopolityka",
+    "url": "https://feeds.skynews.com/feeds/rss/world.xml",
+    "priority": 4
+  },
+  {
+    "name": "Euronews World",
+    "category": "Świat / Geopolityka / Europa",
+    "url": "https://www.euronews.com/rss?format=mrss&level=theme&name=news",
+    "priority": 4
+  },
+  {
+    "name": "ABC News International",
+    "category": "Świat / Geopolityka / USA",
+    "url": "https://feeds.abcnews.com/abcnews/internationalheadlines",
+    "priority": 3
+  },
+  {
+    "name": "CBS News World",
+    "category": "Świat / Geopolityka / USA",
+    "url": "https://www.cbsnews.com/latest/rss/world",
+    "priority": 3
+  },
+  {
+    "name": "SBS News Latest",
+    "category": "Świat / Geopolityka / Azja i Pacyfik",
+    "url": "https://www.sbs.com.au/news/topic/latest/feed",
+    "priority": 3
+  },
+  {
     "name": "UN News",
     "category": "Świat / Geopolityka / Organizacje",
     "url": "https://news.un.org/feed/subscribe/en/news/all/rss.xml",

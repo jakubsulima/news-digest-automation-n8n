@@ -70,9 +70,14 @@ export function readerExternalIdForStory(storyClusterId: string) {
   return `story:${storyClusterId}`;
 }
 
-export function deletableExpiredNewsItemIds(staleIds: string[], savedIds: Iterable<string>) {
+export function deletableExpiredNewsItemIds(
+  staleIds: string[],
+  savedIds: Iterable<string>,
+  notedIds: Iterable<string> = [],
+) {
   const saved = new Set(savedIds);
-  return staleIds.filter((id) => !saved.has(id));
+  const noted = new Set(notedIds);
+  return staleIds.filter((id) => !saved.has(id) && !noted.has(id));
 }
 
 export function deriveTopicTags(title: string, category: string, practicalBucket: string) {
@@ -112,6 +117,7 @@ async function cleanupExpiredReaderData() {
 
   const staleIds = (data || []).map((item) => item.id);
   const savedIds = new Set<string>();
+  const notedIds = new Set<string>();
 
   for (const staleBatch of chunk(staleIds, SUPABASE_WRITE_BATCH_SIZE)) {
     const { data: savedStates, error: savedError } = await supabase
@@ -122,9 +128,19 @@ async function cleanupExpiredReaderData() {
 
     if (savedError) throw savedError;
     for (const state of savedStates || []) savedIds.add(state.news_item_id);
+
+    const { data: notes, error: notesError } = await supabase
+      .from("reader_notes")
+      .select("news_item_id")
+      .in("news_item_id", staleBatch);
+
+    if (notesError) throw notesError;
+    for (const note of notes || []) {
+      if (note.news_item_id) notedIds.add(note.news_item_id);
+    }
   }
 
-  const deletableIds = deletableExpiredNewsItemIds(staleIds, savedIds);
+  const deletableIds = deletableExpiredNewsItemIds(staleIds, savedIds, notedIds);
 
   for (const staleBatch of chunk(deletableIds, SUPABASE_WRITE_BATCH_SIZE)) {
     const { error: deleteError } = await supabase.from("news_items").delete().in("id", staleBatch);

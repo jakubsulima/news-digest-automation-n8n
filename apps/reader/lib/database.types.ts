@@ -420,6 +420,72 @@ export type Database = {
         };
         Relationships: [];
       };
+      reader_notes: {
+        Row: {
+          id: string;
+          user_id: string;
+          story_cluster_id: string | null;
+          news_item_id: string | null;
+          article_id: string | null;
+          kind: "knowledge" | "research" | "thought";
+          status: "open" | "done";
+          note_text: string;
+          quote_text: string | null;
+          quote_prefix: string | null;
+          quote_suffix: string | null;
+          title_snapshot: string;
+          source_snapshot: string;
+          source_url_snapshot: string;
+          published_at_snapshot: string | null;
+          topic_tags_snapshot: Json;
+          entity_tags_snapshot: Json;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          story_cluster_id?: string | null;
+          news_item_id?: string | null;
+          article_id?: string | null;
+          kind: "knowledge" | "research" | "thought";
+          status?: "open" | "done";
+          note_text?: string;
+          quote_text?: string | null;
+          quote_prefix?: string | null;
+          quote_suffix?: string | null;
+          title_snapshot: string;
+          source_snapshot: string;
+          source_url_snapshot: string;
+          published_at_snapshot?: string | null;
+          topic_tags_snapshot?: Json;
+          entity_tags_snapshot?: Json;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          story_cluster_id?: string | null;
+          news_item_id?: string | null;
+          article_id?: string | null;
+          kind?: "knowledge" | "research" | "thought";
+          status?: "open" | "done";
+          note_text?: string;
+          quote_text?: string | null;
+          quote_prefix?: string | null;
+          quote_suffix?: string | null;
+          title_snapshot?: string;
+          source_snapshot?: string;
+          source_url_snapshot?: string;
+          published_at_snapshot?: string | null;
+          topic_tags_snapshot?: Json;
+          entity_tags_snapshot?: Json;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
       reader_item_states: {
         Row: {
           news_item_id: string;
