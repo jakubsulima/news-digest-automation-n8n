@@ -7,7 +7,9 @@ import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { NewsItemFeedbackActions } from "@/components/news-item-feedback-actions";
 import { NewsItemActions } from "@/components/news-item-actions";
+import { NewsNoteAction } from "@/components/news-note-action";
 import { NewsPreviewCard } from "@/components/news-preview-card";
+import { SelectableNoteRegion } from "@/components/selectable-note-region";
 import { requireCurrentReader } from "@/lib/auth";
 import { getReaderNewsItem } from "@/lib/news";
 import { formatPracticalBucket, formatScoreComponentLabel } from "@/lib/news-display";
@@ -60,6 +62,7 @@ export default async function NewsDetailPage({ params }: NewsDetailPageProps) {
           <ArrowLeft aria-hidden="true" />
         </Link>
         <div className="flex items-center gap-2">
+          <NewsNoteAction itemId={item.id} initialCount={item.noteCount} />
           <NewsItemActions itemId={item.id} isRead={isRead} isSaved={isSaved} isArchived={isArchived} />
           <NewsItemFeedbackActions itemId={item.id} feedback={item.feedback} feedbackReason={item.feedbackReason} />
         </div>
@@ -83,36 +86,38 @@ export default async function NewsDetailPage({ params }: NewsDetailPageProps) {
           </CardTitle>
         </CardHeader>
         <CardContent className="grid gap-5">
-          <NewsPreviewCard preview={item.preview} summary={item.summary} />
-          {!item.preview && (item.whyInteresting || item.recommendedAction) ? (
-            <section className="grid gap-2 rounded-md border border-border p-3 text-sm leading-6 text-muted-foreground">
-              {item.whyInteresting ? <p>{item.whyInteresting}</p> : null}
-              {item.recommendedAction ? <p>{item.recommendedAction}</p> : null}
-            </section>
-          ) : null}
-          {item.cachedArticle ? (
-            <section className="grid gap-4 border-t border-border pt-5">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <h2 className="text-lg font-semibold">Cached article</h2>
-                <span className="text-xs text-muted-foreground">
-                  {item.cachedArticle.wordCount.toLocaleString("en-US")} words
-                  {item.cachedArticle.source !== item.source ? ` · ${item.cachedArticle.source}` : ""}
-                </span>
-              </div>
-              <p className="text-xs leading-5 text-muted-foreground">
-                Reader copy captured when the article was publicly accessible. The source may have changed since then.
-              </p>
-              <div className="grid gap-4 text-[0.98rem] leading-7 text-foreground/90">
-                {item.cachedArticle.text.split(/\n{2,}/).map((paragraph, index) => (
-                  <p key={`${index}-${paragraph.slice(0, 32)}`}>{paragraph}</p>
-                ))}
-              </div>
-            </section>
-          ) : (
-            <section className="rounded-md border border-border bg-muted/30 p-3 text-sm leading-6 text-muted-foreground">
-              A full reader copy was not available when this story was collected. The source may require an account or subscription.
-            </section>
-          )}
+          <SelectableNoteRegion articleId={item.cachedArticle?.articleId} newsItemId={item.id}>
+            <NewsPreviewCard preview={item.preview} summary={item.summary} />
+            {!item.preview && (item.whyInteresting || item.recommendedAction) ? (
+              <section className="grid gap-2 rounded-md border border-border p-3 text-sm leading-6 text-muted-foreground">
+                {item.whyInteresting ? <p>{item.whyInteresting}</p> : null}
+                {item.recommendedAction ? <p>{item.recommendedAction}</p> : null}
+              </section>
+            ) : null}
+            {item.cachedArticle ? (
+              <section className="grid gap-4 border-t border-border pt-5">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <h2 className="text-lg font-semibold">Cached article</h2>
+                  <span className="text-xs text-muted-foreground">
+                    {item.cachedArticle.wordCount.toLocaleString("en-US")} words
+                    {item.cachedArticle.source !== item.source ? ` · ${item.cachedArticle.source}` : ""}
+                  </span>
+                </div>
+                <p className="text-xs leading-5 text-muted-foreground">
+                  Reader copy captured when the article was publicly accessible. The source may have changed since then.
+                </p>
+                <div className="grid gap-4 text-[0.98rem] leading-7 text-foreground/90">
+                  {item.cachedArticle.text.split(/\n{2,}/).map((paragraph, index) => (
+                    <p key={`${index}-${paragraph.slice(0, 32)}`}>{paragraph}</p>
+                  ))}
+                </div>
+              </section>
+            ) : (
+              <section className="rounded-md border border-border bg-muted/30 p-3 text-sm leading-6 text-muted-foreground">
+                A full reader copy was not available when this story was collected. The source may require an account or subscription.
+              </section>
+            )}
+          </SelectableNoteRegion>
           {scoreComponents.length ? (
             <section className="grid gap-2">
               <h2 className="text-sm font-semibold">Score components</h2>

@@ -19,6 +19,8 @@ The active runtime is:
 
 `news_items` are durable Story Cluster projections retained for 90 days, while saved items remain until unsaved. Pipeline state remains in `articles`, `story_clusters`, `story_updates`, `digest_runs`, and stage tables.
 
+Reader notes keep quoted source context, personal comments, and research status. Notes and their linked Reader Items are retained until the notes are removed.
+
 ## Recommendation And Source Automation
 
 The current implementation includes:
@@ -108,6 +110,7 @@ infra/supabase/migrations/015_source_portfolio.sql
 infra/supabase/migrations/016_reader_preference_signals.sql
 infra/supabase/migrations/017_source_discovery.sql
 infra/supabase/migrations/018_post_migration_advisor_fixes.sql
+infra/supabase/migrations/019_reader_notes.sql
 ```
 
 Apply all migrations before deploying the current reader code. Migration `018` contains the RLS and index optimizations required after migrations `013`–`017`.

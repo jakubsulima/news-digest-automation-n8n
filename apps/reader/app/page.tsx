@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { LogOut, RotateCcw, Settings } from "lucide-react";
+import { LogOut, NotebookPen, RotateCcw, Settings } from "lucide-react";
 
 import { Button, buttonVariants } from "@/components/ui/button";
 import { DigestRunPanel } from "@/components/digest-run-panel";
@@ -65,6 +65,14 @@ export default async function HomePage({ searchParams }: HomePageProps) {
         </div>
         <div className="flex items-center gap-2">
           <ThemeToggle compact />
+          <Link
+            className={buttonVariants({ variant: "outline", size: "icon-lg" })}
+            href="/notebook"
+            title="Notatnik"
+            aria-label="Notatnik"
+          >
+            <NotebookPen aria-hidden="true" />
+          </Link>
           <Link
             className={buttonVariants({ variant: "outline", size: "icon-lg" })}
             href="/settings"

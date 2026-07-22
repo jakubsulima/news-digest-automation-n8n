@@ -46,6 +46,9 @@ The immutable source selection snapshot used by one digest run, including select
 **Preference Signal**
 Explicit or behavioral evidence about a topic, entity, source, repetition, or quality.
 
+**Reader Note**
+Private, durable knowledge captured by the Operator from a Reader Item or Article and centered on its Story Cluster.
+
 ## Relationships
 
 - Hosted Production does not depend on local workflow automation.
@@ -57,3 +60,4 @@ Explicit or behavioral evidence about a topic, entity, source, repetition, or qu
 - Recommendation Decisions are versioned so policy changes can run in shadow mode and be audited.
 - An Exposure is recorded from actual Reader visibility, not from inclusion in a feed response.
 - A Source Portfolio is frozen before a run fetches sources and is reused when that run retries.
+- A Reader Note keeps source snapshots, survives Reader Item retention, and does not train Preference Signals.

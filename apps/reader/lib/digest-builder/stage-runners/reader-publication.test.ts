@@ -16,6 +16,10 @@ describe("durable reader publication", () => {
     expect(deletableExpiredNewsItemIds(["old", "saved"], ["saved"])).toEqual(["old"]);
   });
 
+  it("never deletes expired items with reader notes", () => {
+    expect(deletableExpiredNewsItemIds(["old", "noted"], [], ["noted"])).toEqual(["old"]);
+  });
+
   it("provides deterministic topic and entity fallbacks without AI", () => {
     expect(deriveTopicTags("OpenAI releases developer platform", "AI / Software", "build_opportunity")).toContain("build opportunity");
     expect(deriveEntityTags("OpenAI partners with Microsoft in Warsaw")).toEqual(["OpenAI", "Microsoft", "Warsaw"]);

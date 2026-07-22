@@ -26,6 +26,7 @@ function item(id: string, overrides: Partial<NewsItemWithState> = {}): NewsItemW
     importanceScore: 60,
     lastMaterialChangeAt: "2026-07-11T08:00:00.000Z",
     lastSelectedAt: "2026-07-11T08:00:00.000Z",
+    noteCount: 0,
     practicalBucket: "product_trend",
     preview: null,
     publishedAt: "2026-07-11T07:00:00.000Z",

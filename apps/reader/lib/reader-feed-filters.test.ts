@@ -19,6 +19,7 @@ function item(overrides: Partial<NewsItemWithState> = {}): NewsItemWithState {
     importanceScore: 50,
     lastMaterialChangeAt: null,
     lastSelectedAt: "2026-06-20T10:00:00.000Z",
+    noteCount: 0,
     practicalBucket: null,
     preview: null,
     publishedAt: "2026-06-20T10:00:00.000Z",
