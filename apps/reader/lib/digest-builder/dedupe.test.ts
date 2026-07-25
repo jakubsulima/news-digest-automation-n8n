@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { areLikelyDuplicateStories, buildDedupeProfile, duplicateDecision, titleFingerprint } from "./dedupe";
+import {
+  areLikelyDuplicateStories,
+  buildDedupeProfile,
+  duplicateDecision,
+  storyKeyForProfiles,
+  titleFingerprint,
+} from "./dedupe";
 
 describe("story dedupe", () => {
   it("normalizes reordered title words into the same fingerprint", () => {
@@ -72,5 +78,27 @@ describe("story dedupe", () => {
         },
       ),
     ).toBe(false);
+  });
+
+  it("assigns different keys to reused titles that are not duplicate stories", () => {
+    const olderStory = buildDedupeProfile({
+      canonicalUrl: "https://example.com/older-story",
+      category: "security",
+      id: "older-story",
+      publishedAt: "2026-06-10T08:00:00.000Z",
+      summary: "The first incident was patched after active exploitation.",
+      title: "Critical Kubernetes flaw exploited in the wild",
+    });
+    const newerStory = buildDedupeProfile({
+      canonicalUrl: "https://example.com/newer-story",
+      category: "security",
+      id: "newer-story",
+      publishedAt: "2026-06-20T08:00:00.000Z",
+      summary: "A separate incident affected a newly discovered component.",
+      title: "Critical Kubernetes flaw exploited in the wild",
+    });
+
+    expect(duplicateDecision(olderStory, newerStory).duplicate).toBe(false);
+    expect(storyKeyForProfiles([olderStory])).not.toBe(storyKeyForProfiles([newerStory]));
   });
 });
