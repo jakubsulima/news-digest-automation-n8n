@@ -22,7 +22,7 @@
   "pnpm": {
     "overrides": {
       "next>sharp": "0.35.3",
-      "postcss": ">=8.5.10"
+      "postcss": ">=8.5.18"
     }
   },
   "packageManager": "pnpm@10.30.1",
