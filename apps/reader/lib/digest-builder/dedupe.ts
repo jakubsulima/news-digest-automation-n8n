@@ -156,10 +156,15 @@ export function areLikelyDuplicateStories(left: DedupeInput, right: DedupeInput)
 }
 
 export function storyKeyForProfiles(profiles: DedupeProfile[]) {
-  const basis =
-    profiles
-      .map((profile) => `${profile.broadFeed}:${profile.fingerprint || profile.canonicalUrl || profile.id}`)
-      .sort()[0] || "";
+  const basis = profiles
+    .map((profile) =>
+      JSON.stringify([
+        profile.broadFeed,
+        profile.fingerprint,
+        profile.canonicalUrl || profile.id,
+      ]),
+    )
+    .sort();
 
-  return createHash("sha256").update(basis).digest("hex").slice(0, 32);
+  return createHash("sha256").update(JSON.stringify(basis)).digest("hex").slice(0, 32);
 }
