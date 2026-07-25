@@ -48,7 +48,7 @@ export function plainTextFromHtml(value: string) {
     text = decodeHtmlEntities(text).replace(/<[^>]+>/g, " ");
   }
 
-  return text.replace(/\s+/g, " ").trim();
+  return text.replaceAll("\u0000", " ").replace(/\s+/g, " ").trim();
 }
 
 function normalizedPlainText(value: string) {

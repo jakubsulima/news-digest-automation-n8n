@@ -53,4 +53,21 @@ describe("article enrichment outbound safety", () => {
       status: "enriched",
     });
   });
+
+  it("removes PostgreSQL-incompatible NUL characters from fetched article text", async () => {
+    const result = await fetchArticleEnrichment(article("https://example.test/nul"), {
+      fetchImpl: async () =>
+        new Response(
+          '<html><head><meta name="description" content="Useful\u0000 public article"></head><body><p>Story\u0000 text</p></body></html>',
+          { status: 200 },
+        ),
+      lookup: publicLookup,
+    });
+
+    expect(result).toMatchObject({
+      description: "Useful public article",
+      status: "enriched",
+      text: "Story text",
+    });
+  });
 });
