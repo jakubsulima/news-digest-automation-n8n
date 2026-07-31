@@ -1,6 +1,8 @@
 import "server-only";
 
+import type { Database } from "./database.types";
 import { createSupabaseAdminClient } from "./supabase";
+import { supabaseInFilterBatches } from "./supabase-batching";
 import { plainTextFromHtml } from "./text";
 import {
   buildFeedbackProfile,
@@ -29,6 +31,16 @@ type SupabaseError = {
   code?: string;
   message?: string;
 };
+
+type FeedbackCluster = Pick<
+  Database["public"]["Tables"]["story_clusters"]["Row"],
+  "canonical_title" | "category" | "id" | "latest_summary" | "source"
+>;
+
+type FeedbackNewsItem = Pick<
+  Database["public"]["Tables"]["news_items"]["Row"],
+  "category" | "id" | "source" | "summary" | "title"
+>;
 
 export function isReaderFeedbackSchemaError(error: unknown) {
   const supabaseError = error && typeof error === "object" ? (error as SupabaseError) : {};
@@ -78,16 +90,19 @@ export async function getFeedbackProfileForUser(
     const explicitBasis = [] as Parameters<typeof buildFeedbackProfile>[0];
 
     if (clusterIds.length) {
-      const { data: clusters, error: clusterError } = await supabase
-        .from("story_clusters")
-        .select("id, canonical_title, latest_summary, source, category")
-        .in("id", clusterIds);
-
-      if (clusterError) throw clusterError;
+      const clusters: FeedbackCluster[] = [];
+      for (const clusterIdBatch of supabaseInFilterBatches(clusterIds)) {
+        const { data, error } = await supabase
+          .from("story_clusters")
+          .select("id, canonical_title, latest_summary, source, category")
+          .in("id", clusterIdBatch);
+        if (error) throw error;
+        clusters.push(...(data || []));
+      }
 
       const feedbackByClusterId = new Map(storyFeedback.map((row) => [row.story_cluster_id, row]));
       explicitBasis.push(
-        ...(clusters || []).flatMap((cluster) => {
+        ...clusters.flatMap((cluster) => {
           const feedback = feedbackByClusterId.get(cluster.id);
           if (!feedback) return [];
 
@@ -140,12 +155,16 @@ export async function getFeedbackProfileForUser(
       return buildFeedbackProfile(explicitBasis);
     }
 
-    const { data: implicitClusters, error: implicitClusterError } = await supabase
-      .from("story_clusters")
-      .select("id, canonical_title, latest_summary, source, category")
-      .in("id", implicitClusterIds);
-    if (implicitClusterError) throw implicitClusterError;
-    const clustersById = new Map((implicitClusters || []).map((cluster) => [cluster.id, cluster]));
+    const implicitClusters: FeedbackCluster[] = [];
+    for (const clusterIdBatch of supabaseInFilterBatches(implicitClusterIds)) {
+      const { data, error } = await supabase
+        .from("story_clusters")
+        .select("id, canonical_title, latest_summary, source, category")
+        .in("id", clusterIdBatch);
+      if (error) throw error;
+      implicitClusters.push(...(data || []));
+    }
+    const clustersById = new Map(implicitClusters.map((cluster) => [cluster.id, cluster]));
     const implicitBasis = implicitEvents.flatMap((event) => {
       const cluster = clustersById.get(event.storyClusterId);
       if (!cluster) return [];
@@ -187,17 +206,18 @@ export async function getFeedbackProfileForUser(
     return buildFeedbackProfile([]);
   }
 
-  const { data: newsItems, error: itemError } = await supabase
-    .from("news_items")
-    .select("id, title, summary, source, category")
-    .in("id", itemIds);
-
-  if (itemError) {
-    throw itemError;
+  const newsItems: FeedbackNewsItem[] = [];
+  for (const itemIdBatch of supabaseInFilterBatches(itemIds)) {
+    const { data, error } = await supabase
+      .from("news_items")
+      .select("id, title, summary, source, category")
+      .in("id", itemIdBatch);
+    if (error) throw error;
+    newsItems.push(...(data || []));
   }
 
   const feedbackByItemId = new Map(feedback.map((row) => [row.news_item_id, row]));
-  const basis = (newsItems || []).flatMap((item) => {
+  const basis = newsItems.flatMap((item) => {
     const itemFeedback = feedbackByItemId.get(item.id);
 
     return itemFeedback

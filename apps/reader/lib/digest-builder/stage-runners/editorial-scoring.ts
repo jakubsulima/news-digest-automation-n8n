@@ -592,12 +592,16 @@ export const runEditorialScoringStage: StageRunner = async ({ digestRunId }) => 
     selectionReasonsBySnapshotId.set(snapshotId, reasons);
   }
 
-  function selectItem(item: (typeof scored)[number], selectedReason: "feed_target" | "global_rank") {
+  function selectItem(item: (typeof scored)[number]) {
     if (selectedIds.has(item.snapshot.id)) {
       return;
     }
     if (selectedIds.size >= settings.publishTopN) {
       addSelectionReason(item.snapshot.id, "capacity");
+      return;
+    }
+    if (selectedCounts[item.feed] >= settings.feedTargets[item.feed]) {
+      addSelectionReason(item.snapshot.id, "category_limit");
       return;
     }
 
@@ -625,35 +629,15 @@ export const runEditorialScoringStage: StageRunner = async ({ digestRunId }) => 
 
     selectedIds.add(item.snapshot.id);
     selectedItems.push(item);
-    addSelectionReason(item.snapshot.id, selectedReason);
+    addSelectionReason(item.snapshot.id, "global_rank");
     selectedCounts[item.feed] += 1;
     if (item.normalizedSource) {
       selectedSourceCounts.set(item.normalizedSource, (selectedSourceCounts.get(item.normalizedSource) ?? 0) + 1);
     }
   }
 
-  for (const feed of FEED_SELECTION_ORDER) {
-    const feedCandidates = candidates.filter((item) => item.feed === feed);
-
-    for (const item of feedCandidates) {
-      if (selectedCounts[feed] >= settings.feedTargets[feed]) {
-        break;
-      }
-
-      selectItem(item, "feed_target");
-    }
-  }
-
   for (const item of candidates) {
-    if (selectedIds.has(item.snapshot.id)) {
-      continue;
-    }
-    if (item.feed === "security" && selectedCounts.security >= settings.feedTargets.security) {
-      addSelectionReason(item.snapshot.id, "security_quota");
-      continue;
-    }
-
-    selectItem(item, "global_rank");
+    selectItem(item);
   }
 
   const selectionRankBySnapshotId = new Map(selectedItems.map((item, index) => [item.snapshot.id, index]));

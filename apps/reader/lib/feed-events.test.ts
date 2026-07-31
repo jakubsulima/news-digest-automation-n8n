@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const state = vi.hoisted(() => ({
+  from: null as null | ((table: string) => unknown),
   error: null as unknown,
   rows: [] as unknown[],
   options: null as { ignoreDuplicates: boolean; onConflict: string } | null,
@@ -8,14 +9,15 @@ const state = vi.hoisted(() => ({
 
 vi.mock("./supabase", () => ({
   createSupabaseAdminClient: () => ({
-    from: (table: string) => ({
-      async upsert(rows: unknown[], options: { ignoreDuplicates: boolean; onConflict: string }) {
-        expect(table).toBe("reader_feed_events");
-        state.rows = rows;
-        state.options = options;
-        return { error: state.error };
+    from: (table: string) =>
+      state.from?.(table) || {
+        async upsert(rows: unknown[], options: { ignoreDuplicates: boolean; onConflict: string }) {
+          expect(table).toBe("reader_feed_events");
+          state.rows = rows;
+          state.options = options;
+          return { error: state.error };
+        },
       },
-    }),
   }),
 }));
 
@@ -26,6 +28,7 @@ const userId = "44444444-4444-4444-8444-444444444444";
 
 describe("feed event validation", () => {
   beforeEach(() => {
+    state.from = null;
     state.error = null;
     state.rows = [];
     state.options = null;
@@ -144,5 +147,60 @@ describe("feed insight cohorts", () => {
     });
     expect(metrics.rankEngagement).toEqual([{ bucket: "1–5", impressions: 1, opens: 1 }]);
     expect(metrics.policyExposureCounts).toEqual([{ count: 1, policyVersion: "reader-ranking-v1" }]);
+  });
+
+  it("loads large insight cohorts without creating oversized Supabase filters", async () => {
+    const ids = Array.from({ length: 205 }, (_, index) => `${String(index).padStart(8, "0")}-0000-4000-8000-000000000000`);
+    const feedback = ids.map((id) => ({ reason: "topic", sentiment: "less", story_cluster_id: id }));
+    const olderItems = ids.map((id) => ({ id }));
+    const readIds = new Set(ids.slice(0, 5));
+
+    function query(data: unknown[] | ((selectedIds: string[]) => unknown[])) {
+      let selectedIds: string[] = [];
+      const builder = {
+        eq: () => builder,
+        gte: () => builder,
+        in: (_column: string, values: string[]) => {
+          if (values.length > 100) throw new Error(`oversized filter: ${values.length}`);
+          selectedIds = values;
+          return builder;
+        },
+        limit: () => builder,
+        lt: () => builder,
+        order: () => builder,
+        select: () => builder,
+        then: (
+          resolve: (value: { data: unknown[]; error: null }) => unknown,
+          reject: (reason: unknown) => unknown,
+        ) => Promise.resolve({
+          data: typeof data === "function" ? data(selectedIds) : data,
+          error: null,
+        }).then(resolve, reject),
+      };
+      return builder;
+    }
+
+    state.from = (table) => {
+      if (table === "reader_feed_events") return query([]);
+      if (table === "reader_story_feedback") return query(feedback);
+      if (table === "news_items") return query(olderItems);
+      if (table === "story_clusters") {
+        return query((selectedIds) => selectedIds.map((id) => ({ category: `Topic ${id}`, id, source: `Source ${id}` })));
+      }
+      if (table === "reader_item_states") {
+        return query((selectedIds) => selectedIds
+          .filter((id) => readIds.has(id))
+          .map((id) => ({ archived_at: null, news_item_id: id, read_at: "2026-07-30T00:00:00.000Z" })));
+      }
+      throw new Error(`Unexpected table: ${table}`);
+    };
+
+    const { getReaderFeedInsights } = await import("./feed-events");
+
+    await expect(getReaderFeedInsights(userId)).resolves.toMatchObject({
+      ignoredSources: expect.any(Array),
+      ignoredTopics: expect.any(Array),
+      unreadAfter24Hours: 200,
+    });
   });
 });

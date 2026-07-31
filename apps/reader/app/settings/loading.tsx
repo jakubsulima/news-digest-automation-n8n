@@ -1,5 +1,3 @@
-import { ArrowLeft } from "lucide-react";
-
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 
@@ -31,56 +29,32 @@ function SettingsCardSkeleton({ fields = 4, title }: { fields?: number; title: s
 
 export default function SettingsLoading() {
   return (
-    <main className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-4 py-5 sm:px-6 sm:py-7">
-      <header className="flex items-center justify-between gap-4">
-        <div className="inline-flex size-9 items-center justify-center rounded-lg border bg-background text-muted-foreground">
-          <ArrowLeft className="size-4" aria-hidden="true" />
-        </div>
-        <div className="grid min-w-0 justify-items-end gap-2">
-          <Skeleton className="h-8 w-48" />
-          <Skeleton className="h-4 w-56" />
+    <main className="mx-auto flex w-full max-w-5xl flex-col gap-4 px-4 py-5 sm:px-6 sm:py-7">
+      <header className="flex items-start gap-3">
+        <Skeleton className="size-9 shrink-0 rounded-lg" />
+        <div className="grid min-w-0 flex-1 gap-2 pt-0.5">
+          <Skeleton className="h-7 w-48" />
+          <Skeleton className="h-4 w-56 max-w-full" />
         </div>
       </header>
 
-      <SettingsCardSkeleton title="Selection" fields={7} />
+      <div className="grid grid-cols-3 gap-1 rounded-xl border bg-muted/30 p-1">
+        {[0, 1, 2].map((index) => <Skeleton key={index} className="h-10 w-full" />)}
+      </div>
 
-      <Card>
+      <Card className="bg-card/70">
         <CardHeader>
-          <CardTitle>Reading</CardTitle>
+          <CardTitle>Appearance</CardTitle>
         </CardHeader>
-        <CardContent className="grid gap-4">
-          <FieldSkeleton />
-          <FieldSkeleton wide />
-          <FieldSkeleton wide />
-          <div className="flex items-center gap-2">
-            <Skeleton className="size-4" />
-            <Skeleton className="h-4 w-44" />
-          </div>
+        <CardContent>
+          <Skeleton className="h-14 w-full" />
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Sources</CardTitle>
-        </CardHeader>
-        <CardContent className="grid gap-3">
-          {Array.from({ length: 3 }).map((_, index) => (
-            <div key={index} className="grid gap-3 rounded-lg border p-3">
-              <div className="flex items-center justify-between gap-3">
-                <div className="grid min-w-0 flex-1 gap-2">
-                  <Skeleton className="h-4 w-40" />
-                  <Skeleton className="h-3 w-full" />
-                </div>
-                <Skeleton className="h-5 w-16" />
-              </div>
-              <div className="grid gap-3 sm:grid-cols-[1fr_1.2fr]">
-                <FieldSkeleton />
-                <FieldSkeleton />
-              </div>
-            </div>
-          ))}
-        </CardContent>
-      </Card>
+      <Skeleton className="h-16 w-full rounded-xl" />
+
+      <SettingsCardSkeleton title="Digest presets" fields={5} />
+      <SettingsCardSkeleton title="Output limits" fields={2} />
     </main>
   );
 }

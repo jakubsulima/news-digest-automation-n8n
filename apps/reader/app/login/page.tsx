@@ -1,6 +1,7 @@
-import { LogIn } from "lucide-react";
+import { LogIn, Newspaper, Sparkles } from "lucide-react";
 import { redirect } from "next/navigation";
 
+import { ThemeToggle } from "@/components/theme-toggle";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -66,13 +67,28 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
   const errorMessage = params.error ? errorMessages[params.error] || "Access was not granted." : null;
 
   return (
-    <main className="grid min-h-screen place-items-center px-4 py-8">
-      <Card className="w-full max-w-md">
-        <CardHeader>
-          <CardTitle className="text-xl">Daily News Digest</CardTitle>
-          <CardDescription>Sign in with your allowed email address.</CardDescription>
+    <main className="relative grid min-h-screen place-items-center overflow-hidden px-4 py-8">
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,var(--color-primary)/0.12,transparent_35%),radial-gradient(circle_at_bottom_right,var(--color-accent)/0.18,transparent_38%)]" />
+      <div className="absolute right-4 top-4 sm:right-6 sm:top-6">
+        <ThemeToggle compact />
+      </div>
+      <Card className="relative w-full max-w-md border-border/70 bg-card/90 shadow-2xl backdrop-blur">
+        <CardHeader className="gap-4">
+          <div className="flex items-center gap-3">
+            <span className="grid size-11 place-items-center rounded-xl bg-primary text-primary-foreground shadow-sm">
+              <Newspaper aria-hidden="true" className="size-5" />
+            </span>
+            <div>
+              <CardTitle className="text-xl">Daily News Digest</CardTitle>
+              <CardDescription className="mt-1">Twój spokojny, prywatny przegląd najważniejszych wiadomości.</CardDescription>
+            </div>
+          </div>
         </CardHeader>
         <CardContent className="grid gap-4">
+          <div className="flex items-center gap-2 rounded-lg border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+            <Sparkles aria-hidden="true" className="size-4 shrink-0 text-primary" />
+            Zaloguj się adresem dopuszczonym do czytnika.
+          </div>
           <form className="grid gap-3" action={signInWithPassword}>
             <div className="grid gap-2">
               <Label htmlFor="email">Email</Label>
@@ -89,9 +105,9 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
                 disabled={!isConfigured}
               />
             </div>
-            <Button className="h-10" type="submit" disabled={!isConfigured}>
+            <Button className="mt-1 h-11" type="submit" disabled={!isConfigured}>
               <LogIn aria-hidden="true" />
-              Sign in
+              Zaloguj się
             </Button>
           </form>
 

@@ -7,9 +7,11 @@ import { cn } from "@/lib/utils";
 export function SourceEnabledToggle({
   defaultEnabled,
   name,
+  sourceName,
 }: {
   defaultEnabled: boolean;
   name: string;
+  sourceName: string;
 }) {
   const [enabled, setEnabled] = useState(defaultEnabled);
 
@@ -18,20 +20,32 @@ export function SourceEnabledToggle({
       <input type="hidden" name={name} value={enabled ? "on" : "off"} />
       <button
         type="button"
-        aria-pressed={enabled}
+        aria-label={`${enabled ? "Disable" : "Enable"} ${sourceName}`}
+        title={enabled ? "Active — click to disable" : "Off — click to enable"}
+        role="switch"
+        aria-checked={enabled}
         className={cn(
-          "inline-flex h-8 min-w-20 items-center justify-center rounded-full border px-3 text-xs font-semibold transition-colors",
+          "inline-flex h-8 shrink-0 items-center rounded-full border px-2 transition-[color,background-color,border-color,box-shadow] duration-300 ease-out focus-visible:ring-3 focus-visible:ring-ring/40",
           enabled
-            ? "border-emerald-500/50 bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
-            : "border-rose-500/45 bg-rose-500/10 text-rose-700 dark:text-rose-300",
+            ? "border-emerald-500/35 bg-emerald-500/10 text-emerald-800 hover:bg-emerald-500/15 dark:text-emerald-200"
+            : "border-border bg-muted/40 text-muted-foreground hover:bg-muted/70 hover:text-foreground",
         )}
-        onClick={(event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          setEnabled((current) => !current);
-        }}
+        onClick={() => setEnabled((current) => !current)}
       >
-        {enabled ? "Included" : "Paused"}
+        <span
+          aria-hidden="true"
+          className={cn(
+            "relative h-4 w-7 overflow-hidden rounded-full transition-colors duration-300 ease-out",
+            enabled ? "bg-emerald-500" : "bg-foreground/20",
+          )}
+        >
+          <span
+            className={cn(
+              "absolute left-0.5 top-0.5 size-3 rounded-full bg-white ring-1 ring-black/10 transition-transform duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]",
+              enabled ? "translate-x-3" : "translate-x-0",
+            )}
+          />
+        </span>
       </button>
     </>
   );

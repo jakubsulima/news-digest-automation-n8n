@@ -4,12 +4,18 @@ import type { Database, Json } from "./database.types";
 import type { FeedEventInput } from "./feed-events";
 import type { FeedbackBasis, FeedbackReason, FeedbackSentiment } from "./reader-feedback-scoring";
 import { createSupabaseAdminClient } from "./supabase";
+import { supabaseInFilterBatches } from "./supabase-batching";
 
 type PreferenceDimension = "topic" | "entity" | "source" | "repetition" | "quality";
 
 type SignalItem = Pick<
   Database["public"]["Tables"]["news_items"]["Row"],
   "category" | "entity_tags" | "id" | "source" | "source_variants" | "story_cluster_id" | "topic_tags"
+>;
+
+type PreferenceSignalCluster = Pick<
+  Database["public"]["Tables"]["story_clusters"]["Row"],
+  "canonical_title" | "category" | "entity_tags" | "id" | "latest_summary" | "source" | "topic_tags"
 >;
 
 type SupabaseError = { code?: string; message?: string };
@@ -183,12 +189,16 @@ export async function getPreferenceSignalBasis(userId: string): Promise<Feedback
   const usable = [...explicit, ...(behavioralStoryCount >= 5 ? behavioral : [])];
   if (!usable.length) return null;
   const clusterIds = [...new Set(usable.map((signal) => signal.story_cluster_id))];
-  const { data: clusters, error: clusterError } = await supabase
-    .from("story_clusters")
-    .select("id, category, source, canonical_title, latest_summary, topic_tags, entity_tags")
-    .in("id", clusterIds);
-  if (clusterError) throw clusterError;
-  const clusterById = new Map((clusters || []).map((cluster) => [cluster.id, cluster]));
+  const clusters: PreferenceSignalCluster[] = [];
+  for (const clusterIdBatch of supabaseInFilterBatches(clusterIds)) {
+    const { data, error } = await supabase
+      .from("story_clusters")
+      .select("id, category, source, canonical_title, latest_summary, topic_tags, entity_tags")
+      .in("id", clusterIdBatch);
+    if (error) throw error;
+    clusters.push(...(data || []));
+  }
+  const clusterById = new Map(clusters.map((cluster) => [cluster.id, cluster]));
 
   return usable.flatMap((signal) => {
     const cluster = clusterById.get(signal.story_cluster_id);

@@ -1,7 +1,7 @@
 "use client";
 
 import { AlertDialog } from "@base-ui/react/alert-dialog";
-import { Check, ExternalLink, Loader2, Pencil, RotateCcw, Trash2, X } from "lucide-react";
+import { Check, ExternalLink, Loader2, NotebookPen, Pencil, RotateCcw, Trash2, X } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 
@@ -28,10 +28,16 @@ export function NotebookNotes({ initialNotes }: NotebookNotesProps) {
 
   if (!notes.length) {
     return (
-      <Card>
-        <CardContent className="py-8 text-center text-muted-foreground">
-          <p>Brak notatek pasujących do tego widoku.</p>
-          <Link className={cn(buttonVariants({ variant: "outline" }), "mt-4")} href="/">Wróć do newsów</Link>
+      <Card className="border-dashed bg-card/60">
+        <CardContent className="grid justify-items-center gap-3 py-12 text-center">
+          <span className="grid size-12 place-items-center rounded-full bg-primary/10 text-primary">
+            <NotebookPen aria-hidden="true" className="size-6" />
+          </span>
+          <div>
+            <p className="font-medium text-foreground">Notatnik jest pusty</p>
+            <p className="mt-1 text-sm text-muted-foreground">Zmień filtry albo dodaj notatkę z wybranego newsa.</p>
+          </div>
+          <Link className={buttonVariants({ variant: "outline" })} href="/">Przejdź do newsów</Link>
         </CardContent>
       </Card>
     );

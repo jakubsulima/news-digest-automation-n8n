@@ -1,7 +1,16 @@
 import { describe, expect, it } from "vitest";
 
+import type { Database } from "../../database.types";
+import { buildDedupeProfile } from "../dedupe";
 import type { RunArticle } from "../run-articles";
-import { detectStoryChanges, sourceContributionsForGroup, sourceVariantsForGroup } from "./story-clustering";
+import {
+  detectStoryChanges,
+  matchStoriesToHistory,
+  sourceContributionsForGroup,
+  sourceVariantsForGroup,
+} from "./story-clustering";
+
+type StoryClusterRow = Database["public"]["Tables"]["story_clusters"]["Row"];
 
 function article(overrides: Partial<RunArticle> & Pick<RunArticle, "id" | "source" | "canonical_url">): RunArticle {
   return {
@@ -23,6 +32,28 @@ function article(overrides: Partial<RunArticle> & Pick<RunArticle, "id" | "sourc
     raw_summary: "Summary",
     title: "Story",
     updated_at: "2026-07-13T08:00:00.000Z",
+    ...overrides,
+  };
+}
+
+function storyCluster(overrides: Partial<StoryClusterRow> & Pick<StoryClusterRow, "id" | "story_key">): StoryClusterRow {
+  return {
+    canonical_title: "Central bank cuts rates",
+    canonical_url: "https://history.test/rates",
+    category: "economy",
+    confirmation_count: 1,
+    created_at: "2026-07-28T08:00:00.000Z",
+    entity_tags: [],
+    first_seen_at: "2026-07-28T08:00:00.000Z",
+    last_seen_at: "2026-07-28T08:00:00.000Z",
+    latest_duplicate_count: 1,
+    latest_published_at: "2026-07-28T08:00:00.000Z",
+    latest_scores: {},
+    latest_summary: "The central bank cut interest rates.",
+    metadata: {},
+    source: "History Source",
+    topic_tags: [],
+    updated_at: "2026-07-28T08:00:00.000Z",
     ...overrides,
   };
 }
@@ -69,5 +100,39 @@ describe("story change detection", () => {
       { contributionType: "canonical", readerSourceId: "source-1" },
       { contributionType: "confirmation", readerSourceId: "source-2" },
     ]);
+  });
+});
+
+describe("historical story matching", () => {
+  it("reserves exact recurring story keys before assigning fuzzy matches", () => {
+    const historical = storyCluster({ id: "historical-cluster", story_key: "exact-recurring-key" });
+    const matchingProfile = buildDedupeProfile({
+      canonicalUrl: historical.canonical_url,
+      category: historical.category,
+      id: "current-article",
+      publishedAt: historical.latest_published_at,
+      source: historical.source,
+      summary: historical.latest_summary,
+      title: historical.canonical_title,
+    });
+    const stories = [
+      {
+        duplicateEdges: [],
+        group: [],
+        profiles: [matchingProfile],
+        storyKey: "fuzzy-story-key",
+      },
+      {
+        duplicateEdges: [],
+        group: [],
+        profiles: [matchingProfile],
+        storyKey: historical.story_key,
+      },
+    ];
+
+    const matched = matchStoriesToHistory(stories, [historical]);
+
+    expect(matched.map((story) => story.storyKey)).toEqual(["fuzzy-story-key", "exact-recurring-key"]);
+    expect(matched[1].historicalMatch?.cluster.id).toBe(historical.id);
   });
 });

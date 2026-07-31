@@ -2,6 +2,7 @@ import "server-only";
 
 import type { Database, Json } from "./database.types";
 import { createSupabaseAdminClient } from "./supabase";
+import { supabaseInFilterBatches } from "./supabase-batching";
 
 const EVENT_TYPES = new Set(["impression", "fast_read", "source_open", "read", "save", "archive", "feedback"]);
 const SORT_MODES = new Set(["for-you", "top", "latest"]);
@@ -241,10 +242,18 @@ export async function getReaderFeedInsights(userId: string) {
   const metrics = buildReaderFeedInsightMetrics(rows);
 
   const clusterIds = (feedback || []).map((row) => row.story_cluster_id);
-  const { data: ignoredClusters, error: clusterError } = clusterIds.length
-    ? await supabase.from("story_clusters").select("id, source, category").in("id", clusterIds)
-    : { data: [], error: null };
-  if (clusterError) throw clusterError;
+  const ignoredClusters: Array<Pick<
+    Database["public"]["Tables"]["story_clusters"]["Row"],
+    "category" | "id" | "source"
+  >> = [];
+  for (const clusterIdBatch of supabaseInFilterBatches(clusterIds)) {
+    const { data, error } = await supabase
+      .from("story_clusters")
+      .select("id, source, category")
+      .in("id", clusterIdBatch);
+    if (error) throw error;
+    ignoredClusters.push(...(data || []));
+  }
 
   const unreadCutoff = new Date(Date.now() - 24 * 3_600_000).toISOString();
   const { data: olderItems, error: olderItemsError } = await supabase
@@ -254,16 +263,21 @@ export async function getReaderFeedInsights(userId: string) {
     .limit(1000);
   if (olderItemsError) throw olderItemsError;
   const olderItemIds = (olderItems || []).map((item) => item.id);
-  const { data: readStates, error: readStateError } = olderItemIds.length
-    ? await supabase
-        .from("reader_item_states")
-        .select("news_item_id, read_at, archived_at")
-        .eq("user_id", userId)
-        .in("news_item_id", olderItemIds)
-    : { data: [], error: null };
-  if (readStateError) throw readStateError;
+  const readStates: Array<Pick<
+    Database["public"]["Tables"]["reader_item_states"]["Row"],
+    "archived_at" | "news_item_id" | "read_at"
+  >> = [];
+  for (const itemIdBatch of supabaseInFilterBatches(olderItemIds)) {
+    const { data, error } = await supabase
+      .from("reader_item_states")
+      .select("news_item_id, read_at, archived_at")
+      .eq("user_id", userId)
+      .in("news_item_id", itemIdBatch);
+    if (error) throw error;
+    readStates.push(...(data || []));
+  }
   const clearedIds = new Set(
-    (readStates || []).filter((state) => state.read_at || state.archived_at).map((state) => state.news_item_id),
+    readStates.filter((state) => state.read_at || state.archived_at).map((state) => state.news_item_id),
   );
 
   const frequency = (values: string[]) =>
@@ -274,8 +288,8 @@ export async function getReaderFeedInsights(userId: string) {
 
   return {
     ...metrics,
-    ignoredSources: frequency((ignoredClusters || []).map((cluster) => cluster.source)),
-    ignoredTopics: frequency((ignoredClusters || []).map((cluster) => cluster.category)),
+    ignoredSources: frequency(ignoredClusters.map((cluster) => cluster.source)),
+    ignoredTopics: frequency(ignoredClusters.map((cluster) => cluster.category)),
     unreadAfter24Hours: olderItemIds.filter((id) => !clearedIds.has(id)).length,
   };
 }
