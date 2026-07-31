@@ -10,7 +10,9 @@ export function SourceEditorShell({
   category,
   children,
   defaultEnabled,
+  defaultSelectionMode,
   enabledFieldName,
+  selectionModeFieldName,
   sourceName,
   status,
   url,
@@ -18,7 +20,9 @@ export function SourceEditorShell({
   category: string;
   children: ReactNode;
   defaultEnabled: boolean;
+  defaultSelectionMode: "auto" | "always_on" | "blocked";
   enabledFieldName: string;
+  selectionModeFieldName: string;
   sourceName: string;
   status?: ReactNode;
   url: string;
@@ -54,7 +58,9 @@ export function SourceEditorShell({
 
         <SourceEnabledToggle
           defaultEnabled={defaultEnabled}
+          defaultSelectionMode={defaultSelectionMode}
           name={enabledFieldName}
+          selectionModeName={selectionModeFieldName}
           sourceName={sourceName}
         />
       </div>
