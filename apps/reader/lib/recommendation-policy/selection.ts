@@ -7,8 +7,6 @@ import type {
   RecommendationFeed,
 } from "./types";
 
-const FEED_SELECTION_ORDER: RecommendationFeed[] = ["geopolitics", "business", "ai", "software", "security"];
-
 function recommendationReasons(
   candidate: DigestRecommendationCandidate,
   preference: number,
@@ -62,11 +60,15 @@ export function selectDigestRecommendations(input: DigestRecommendationInput) {
     selectionReasons.set(id, reasons);
   };
 
-  const select = (item: (typeof ranked)[number], reason: "feed_target" | "global_rank") => {
+  const select = (item: (typeof ranked)[number]) => {
     const candidate = item.candidate;
     if (selectedIds.has(candidate.id)) return;
     if (selectedIds.size >= input.publishTopN) {
       addReason(candidate.id, "capacity");
+      return;
+    }
+    if (selectedFeedCounts[candidate.feed] >= input.feedTargets[candidate.feed]) {
+      addReason(candidate.id, "category_limit");
       return;
     }
     if (
@@ -96,23 +98,12 @@ export function selectDigestRecommendations(input: DigestRecommendationInput) {
         (selectedSourceCounts.get(candidate.normalizedSource) || 0) + 1,
       );
     }
-    addReason(candidate.id, reason);
+    addReason(candidate.id, "global_rank");
   };
 
   const eligible = ranked.filter((item) => item.candidate.eligibilityReasons.length === 0);
-  for (const feed of FEED_SELECTION_ORDER) {
-    for (const item of eligible.filter((candidate) => candidate.candidate.feed === feed)) {
-      if (selectedFeedCounts[feed] >= input.feedTargets[feed]) break;
-      select(item, "feed_target");
-    }
-  }
   for (const item of eligible) {
-    if (selectedIds.has(item.candidate.id)) continue;
-    if (item.candidate.feed === "security" && selectedFeedCounts.security >= input.feedTargets.security) {
-      addReason(item.candidate.id, "security_quota");
-      continue;
-    }
-    select(item, "global_rank");
+    select(item);
   }
 
   const selectionRank = new Map(selected.map((item, index) => [item.candidate.id, index]));

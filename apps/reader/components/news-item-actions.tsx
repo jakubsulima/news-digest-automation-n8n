@@ -1,6 +1,6 @@
 "use client";
 
-import { Archive, Bookmark, Check, Eye, Loader2 } from "lucide-react";
+import { Bookmark, Check, Eye, Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -8,18 +8,17 @@ import { cn } from "@/lib/utils";
 
 type NewsItemActionsProps = {
   buttonClassName?: string;
-  buttonSize?: "icon-sm" | "icon-lg";
+  buttonSize?: "sm" | "icon-sm" | "icon-lg" | "lg";
   className?: string;
   itemId: string;
   isRead: boolean;
   isSaved: boolean;
-  isArchived: boolean;
   onStateChange?: (state: ItemActionState) => void;
+  showLabels?: boolean;
 };
 
-type ItemAction = "archived" | "read" | "saved";
+type ItemAction = "read" | "saved";
 type ItemActionState = {
-  archived: boolean;
   read: boolean;
   saved: boolean;
 };
@@ -41,11 +40,10 @@ export function NewsItemActions({
   itemId,
   isRead,
   isSaved,
-  isArchived,
   onStateChange,
+  showLabels = false,
 }: NewsItemActionsProps) {
   const propState: ItemActionState = {
-    archived: isArchived,
     read: isRead,
     saved: isSaved,
   };
@@ -57,12 +55,11 @@ export function NewsItemActions({
   useEffect(() => {
     if (!onStateChange) {
       setLocalState({
-        archived: isArchived,
         read: isRead,
         saved: isSaved,
       });
     }
-  }, [isArchived, isRead, isSaved, onStateChange]);
+  }, [isRead, isSaved, onStateChange]);
 
   function applyState(nextState: ItemActionState) {
     if (onStateChange) {
@@ -119,6 +116,7 @@ export function NewsItemActions({
         ) : (
           <Eye aria-hidden="true" />
         )}
+        {showLabels ? <span>{state.read ? "Przeczytane" : "Oznacz jako przeczytane"}</span> : null}
       </Button>
       <Button
         variant="outline"
@@ -135,22 +133,7 @@ export function NewsItemActions({
         ) : (
           <Bookmark fill={state.saved ? "currentColor" : "none"} aria-hidden="true" />
         )}
-      </Button>
-      <Button
-        variant="outline"
-        size={buttonSize}
-        className={buttonClassName}
-        type="button"
-        title="Archive"
-        aria-label="Archive"
-        disabled={pendingAction !== null}
-        onClick={() => void updateItemState("archived")}
-      >
-        {pendingAction === "archived" ? (
-          <Loader2 className="animate-spin" aria-hidden="true" />
-        ) : (
-          <Archive aria-hidden="true" />
-        )}
+        {showLabels ? <span>{state.saved ? "Zapisano" : "Zapisz"}</span> : null}
       </Button>
       {error ? <span className="text-xs text-destructive">{error}</span> : null}
     </div>

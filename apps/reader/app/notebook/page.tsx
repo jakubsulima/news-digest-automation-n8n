@@ -1,7 +1,8 @@
-import { ArrowLeft, Search } from "lucide-react";
+import { Search } from "lucide-react";
 import Link from "next/link";
 
 import { NotebookNotes } from "@/components/notebook-notes";
+import { PageHeader } from "@/components/page-header";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { requireCurrentReader } from "@/lib/auth";
@@ -65,45 +66,42 @@ export default async function NotebookPage({ searchParams }: NotebookPageProps) 
 
   return (
     <main className="mx-auto flex w-full max-w-4xl flex-col gap-4 px-4 py-5 sm:px-6 sm:py-7">
-      <header className="flex items-center gap-3">
-        <Link className={buttonVariants({ variant: "outline", size: "icon-lg" })} href="/" title="Wróć" aria-label="Wróć">
-          <ArrowLeft aria-hidden="true" />
-        </Link>
-        <div>
-          <h1 className="text-xl font-semibold sm:text-2xl">Notatnik</h1>
-          <p className="text-sm text-muted-foreground">Wiedza, pytania i wnioski zapisane z newsów.</p>
-        </div>
-      </header>
+      <PageHeader
+        title="Notatnik"
+        description="Wiedza, pytania i wnioski zapisane z newsów."
+      />
 
-      <section className="grid gap-3 rounded-xl border bg-card p-3" aria-label="Filtry notatnika">
-        <form className="flex gap-2" action="/notebook">
+      <section className="grid gap-3 rounded-xl border bg-card/80 p-3 shadow-sm" aria-label="Filtry notatnika">
+        <form className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]" action="/notebook">
           {kind ? <input type="hidden" name="kind" value={kind} /> : null}
           <input type="hidden" name="status" value={status || "all"} />
           <Input name="q" defaultValue={query} maxLength={200} placeholder="Szukaj w notatkach, cytatach i tematach…" aria-label="Szukaj w notatkach" />
           <Button type="submit"><Search aria-hidden="true" /> Szukaj</Button>
         </form>
-        <nav className="flex flex-wrap gap-1.5" aria-label="Rodzaj notatki">
-          {KIND_OPTIONS.map((option) => (
-            <Link
-              key={option.id || "all"}
-              href={notebookHref({ kind: option.id, query, status })}
-              className={buttonVariants({ variant: kind === option.id ? "default" : "outline", size: "sm" })}
-            >
-              {option.label}
-            </Link>
-          ))}
-        </nav>
-        <nav className="flex flex-wrap gap-1.5" aria-label="Status notatki">
-          {STATUS_OPTIONS.map((option) => (
-            <Link
-              key={option.id || "all"}
-              href={notebookHref({ kind, query, status: option.id })}
-              className={buttonVariants({ variant: status === option.id ? "secondary" : "ghost", size: "sm" })}
-            >
-              {option.label}
-            </Link>
-          ))}
-        </nav>
+        <div className="grid gap-2 border-t pt-3">
+          <nav className="flex flex-wrap gap-1.5" aria-label="Rodzaj notatki">
+            {KIND_OPTIONS.map((option) => (
+              <Link
+                key={option.id || "all"}
+                href={notebookHref({ kind: option.id, query, status })}
+                className={buttonVariants({ variant: kind === option.id ? "default" : "outline", size: "sm" })}
+              >
+                {option.label}
+              </Link>
+            ))}
+          </nav>
+          <nav className="flex flex-wrap gap-1.5" aria-label="Status notatki">
+            {STATUS_OPTIONS.map((option) => (
+              <Link
+                key={option.id || "all"}
+                href={notebookHref({ kind, query, status: option.id })}
+                className={buttonVariants({ variant: status === option.id ? "secondary" : "ghost", size: "sm" })}
+              >
+                {option.label}
+              </Link>
+            ))}
+          </nav>
+        </div>
       </section>
 
       <NotebookNotes key={`${query}:${kind || "all"}:${status || "all"}:${currentPage}`} initialNotes={notes} />

@@ -36,5 +36,9 @@ export function RecommendationExposure({ children, onExposure }: RecommendationE
     };
   }, []);
 
-  return <div ref={elementRef}>{children}</div>;
+  return (
+    <div ref={elementRef} className="[contain-intrinsic-size:auto_280px] [content-visibility:auto]">
+      {children}
+    </div>
+  );
 }

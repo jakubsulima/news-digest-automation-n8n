@@ -235,6 +235,37 @@ export function DigestRunPanel({ initialRun, retrySlot }: DigestRunPanelProps) {
     };
   }, [active, advanceRun, isResetting, isStarting, refreshRun]);
 
+  if (!active && run?.status !== "failed") {
+    const digestReady = run?.status === "succeeded";
+
+    return (
+      <section
+        className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border bg-card/75 p-3 shadow-sm sm:p-4"
+        aria-label="Digest run"
+      >
+        <div className="flex min-w-0 items-center gap-3">
+          <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-accent text-accent-foreground">
+            {digestReady ? <Check className="size-4" aria-hidden="true" /> : <Sparkles className="size-4" aria-hidden="true" />}
+          </span>
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="text-sm font-semibold">{digestReady ? "Latest digest is ready" : "Create a fresh digest"}</h2>
+              {run ? <Badge variant="outline">{run.report_date}</Badge> : null}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {digestReady ? "All sources were processed successfully." : "Collect and rank the latest stories."}
+            </p>
+          </div>
+        </div>
+        <Button type="button" size="lg" onClick={startRun} disabled={isStarting}>
+          {isStarting ? <Loader2 className="animate-spin" aria-hidden="true" /> : <Play aria-hidden="true" />}
+          Run digest
+        </Button>
+        {clientError ? <p className="w-full text-sm text-destructive">{clientError}</p> : null}
+      </section>
+    );
+  }
+
   return (
     <section
       className="overflow-hidden rounded-2xl border bg-gradient-to-br from-card via-card to-primary/5 p-4 shadow-sm sm:p-5"
@@ -276,7 +307,7 @@ export function DigestRunPanel({ initialRun, retrySlot }: DigestRunPanelProps) {
               ) : null}
             </div>
 
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7">
+            <div className="flex flex-wrap gap-1.5">
               {displayStages.map((stage) => {
                 const copy = stageCopy(stage.stage_name);
                 const isCurrent = currentStage?.id === stage.id;
@@ -287,30 +318,22 @@ export function DigestRunPanel({ initialRun, retrySlot }: DigestRunPanelProps) {
                   <div
                     key={stage.id}
                     className={cn(
-                      "flex min-h-16 flex-col justify-between rounded-xl border bg-background/70 px-2.5 py-2.5 transition-colors",
+                      "inline-flex h-8 items-center gap-1.5 rounded-lg border bg-background/70 px-2.5 transition-colors",
                       isCurrent && active && "border-primary/50 bg-accent",
                       isDone && "border-primary/20",
                       isFailed && "border-destructive/30 bg-destructive/5",
                     )}
                   >
-                    <div className="flex items-center justify-between gap-1">
-                      <span className="truncate text-xs font-medium">{copy.label}</span>
-                      {isFailed ? (
-                        <X className="size-3.5 text-destructive" aria-hidden="true" />
-                      ) : isDone ? (
-                        <Check className="size-3.5 text-primary" aria-hidden="true" />
-                      ) : isCurrent && active ? (
-                        <Loader2 className="size-3.5 animate-spin text-primary" aria-hidden="true" />
-                      ) : (
-                        <Circle className="size-3 text-muted-foreground/50" aria-hidden="true" />
-                      )}
-                    </div>
-                    <div
-                      className={cn(
-                        "mt-3 h-1 rounded-full",
-                        isFailed ? "bg-destructive/70" : isDone ? "bg-primary" : isCurrent && active ? "bg-primary/50" : "bg-muted",
-                      )}
-                    />
+                    {isFailed ? (
+                      <X className="size-3.5 text-destructive" aria-hidden="true" />
+                    ) : isDone ? (
+                      <Check className="size-3.5 text-primary" aria-hidden="true" />
+                    ) : isCurrent && active ? (
+                      <Loader2 className="size-3.5 animate-spin text-primary" aria-hidden="true" />
+                    ) : (
+                      <Circle className="size-3 text-muted-foreground/50" aria-hidden="true" />
+                    )}
+                    <span className="text-xs font-medium">{copy.label}</span>
                   </div>
                 );
               })}

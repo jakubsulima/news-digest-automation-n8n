@@ -55,7 +55,7 @@ describe("Recommendation Policy v2", () => {
     expect(reader[0].preferenceAdjustment).toBe(9);
   });
 
-  it("preserves feed targets, publisher caps, duplicate suppression and deterministic ties", () => {
+  it("preserves category limits, publisher caps, duplicate suppression and deterministic ties", () => {
     const duplicate = candidate("duplicate", {
       dedupeProfile: buildDedupeProfile({ canonicalUrl: "https://same.test/story", id: "duplicate", title: "Same story" }),
       normalizedSource: "other",
@@ -69,16 +69,44 @@ describe("Recommendation Policy v2", () => {
         dedupeProfile: buildDedupeProfile({ id: "b", title: "Quarterly markets outlook" }),
         feed: "business",
       })],
-      feedTargets: { ai: 1, business: 1, geopolitics: 0, security: 0, software: 0 },
+      feedTargets: { ai: 2, business: 1, geopolitics: 0, security: 0, software: 0 },
       maxStoriesPerSource: 1,
       publishTopN: 3,
     };
     const first = selectDigestRecommendations(options);
     const second = selectDigestRecommendations(options);
     expect(first).toEqual(second);
-    expect(first.orderedSelectedIds).toEqual(["b", "original"]);
+    expect(first.orderedSelectedIds).toEqual(["original", "b"]);
     expect(first.decisions.find((decision) => decision.id === "duplicate")?.selectionReasons)
       .toContain("duplicate_suppression");
+  });
+
+  it("enforces every category limit during the final global ranking", () => {
+    const result = selectDigestRecommendations({
+      candidates: [
+        candidate("geo-1", { feed: "geopolitics", objectiveScore: 100 }),
+        candidate("geo-2", { feed: "geopolitics", objectiveScore: 99 }),
+        candidate("software-1", { feed: "software", objectiveScore: 98 }),
+        candidate("ai-1", { feed: "ai", objectiveScore: 80 }),
+        candidate("ai-2", { feed: "ai", objectiveScore: 70 }),
+      ],
+      feedTargets: { ai: 2, business: 0, geopolitics: 1, security: 0, software: 0 },
+      maxStoriesPerSource: 4,
+      publishTopN: 5,
+    });
+
+    expect(result.orderedSelectedIds).toEqual(["geo-1", "ai-1", "ai-2"]);
+    expect(result.selectedFeedCounts).toEqual({
+      ai: 2,
+      business: 0,
+      geopolitics: 1,
+      security: 0,
+      software: 0,
+    });
+    expect(result.decisions.find((decision) => decision.id === "geo-2")?.selectionReasons)
+      .toContain("category_limit");
+    expect(result.decisions.find((decision) => decision.id === "software-1")?.selectionReasons)
+      .toContain("category_limit");
   });
 
   it("records every hard eligibility failure", () => {

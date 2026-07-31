@@ -24,4 +24,23 @@ describe("digestSettingsFromFormData", () => {
     expect(settings.personalizationEnabled).toBe(true);
     expect(settings.implicitPersonalizationEnabled).toBe(false);
   });
+
+  it("parses per-category final feed limits, including exclusions", () => {
+    const formData = new FormData();
+    formData.set("feedTargetGeopolitics", "3");
+    formData.set("feedTargetBusiness", "0");
+    formData.set("feedTargetAi", "12");
+    formData.set("feedTargetSoftware", "51");
+    formData.set("feedTargetSecurity", "-1");
+
+    const settings = digestSettingsFromFormData(formData);
+
+    expect(settings.feedTargets).toEqual({
+      geopolitics: 3,
+      business: 0,
+      ai: 12,
+      software: 50,
+      security: 0,
+    });
+  });
 });

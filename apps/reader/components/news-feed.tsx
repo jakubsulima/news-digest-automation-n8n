@@ -1,6 +1,6 @@
 "use client";
 
-import { CheckCheck, ChevronDown, EyeOff, Inbox, Loader2 } from "lucide-react";
+import { CheckCheck, EyeOff, Inbox, Loader2, SlidersHorizontal } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { NewsFeedSection } from "@/components/news-feed-section";
@@ -41,6 +41,8 @@ const PERIOD_LABELS: Record<FeedPeriod, string> = {
   latest: "Latest digest",
   "since-visit": "Since last visit",
 };
+
+const VISIBLE_READER_VIEWS = READER_VIEWS.filter((view) => view.id !== "archived");
 
 function pageItems(page: ReaderFeedPage) {
   return [page.grouped.top, page.grouped.actionable, page.grouped.worthKnowing, page.grouped.more].flat();
@@ -88,7 +90,6 @@ export function NewsFeed({
     view: initialView,
   });
   const [page, setPage] = useState(initialPage);
-  const [openFilter, setOpenFilter] = useState<"feed" | "view" | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isMarkingRead, setIsMarkingRead] = useState(false);
   const [moreExpanded, setMoreExpanded] = useState(false);
@@ -164,7 +165,6 @@ export function NewsFeed({
 
   function changeSelection(patch: Partial<FeedSelection>) {
     const next = { ...selection, ...patch };
-    setOpenFilter(null);
     void loadFeed(next);
   }
 
@@ -270,8 +270,6 @@ export function NewsFeed({
     }
   }
 
-  const activeFeed = READER_FEEDS.find((feed) => feed.id === selection.feed) || READER_FEEDS[0];
-  const activeView = READER_VIEWS.find((view) => view.id === selection.view) || READER_VIEWS[0];
   const moreItems = moreExpanded ? page.grouped.more : [];
   const actionableOffset = page.grouped.top.length;
   const worthOffset = actionableOffset + page.grouped.actionable.length;
@@ -282,64 +280,80 @@ export function NewsFeed({
       {briefingSlot}
       {digestSlot}
 
-      <section className="grid gap-2 border-y py-2" aria-label="Reading controls">
-        <div className="grid grid-cols-3 gap-1.5" aria-label="Feed ranking">
+      <section className="grid gap-3 rounded-2xl border bg-card/75 p-3 shadow-sm sm:p-4" aria-label="Reading controls">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <span className="flex size-8 items-center justify-center rounded-lg bg-accent text-accent-foreground">
+              <SlidersHorizontal className="size-4" aria-hidden="true" />
+            </span>
+            <div>
+              <h2 className="text-sm font-semibold">Your feed</h2>
+              <p className="text-xs text-muted-foreground">{items.length} stories in this view</p>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <Button type="button" variant={selection.view === "unread" ? "secondary" : "outline"} size="sm" onClick={() => changeSelection({ view: selection.view === "unread" ? "all" : "unread" })}>
+              <EyeOff aria-hidden="true" /> {selection.view === "unread" ? "Showing unread" : "Hide read"}
+            </Button>
+            <Button type="button" variant="outline" size="sm" disabled={isMarkingRead || !visibleUnreadItems.length} onClick={() => void markVisibleAsRead()}>
+              {isMarkingRead ? <Loader2 className="animate-spin" aria-hidden="true" /> : <CheckCheck aria-hidden="true" />} Mark read
+            </Button>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-3 gap-1.5 rounded-xl bg-muted/35 p-1" aria-label="Sort stories">
           {FEED_SORTS.map((sort) => (
-            <Button key={sort} type="button" size="sm" variant={selection.sort === sort ? "default" : "outline"} onClick={() => changeSelection({ sort })}>
+            <Button key={sort} type="button" size="sm" variant={selection.sort === sort ? "default" : "ghost"} onClick={() => changeSelection({ sort })}>
               {SORT_LABELS[sort]}
             </Button>
           ))}
         </div>
 
-        <div className="grid grid-cols-2 gap-1.5">
-          <Button type="button" variant={openFilter === "feed" ? "secondary" : "outline"} size="sm" className="min-w-0 justify-between" aria-expanded={openFilter === "feed"} onClick={() => setOpenFilter((value) => value === "feed" ? null : "feed")}>
-            <span className="truncate">{activeFeed.label}</span>
-            <span className="flex items-center gap-1 tabular-nums">{page.feedCounts[selection.feed] || 0}<ChevronDown className="size-3" aria-hidden="true" /></span>
-          </Button>
-          <Button type="button" variant={openFilter === "view" ? "secondary" : "outline"} size="sm" className="min-w-0 justify-between" aria-expanded={openFilter === "view"} onClick={() => setOpenFilter((value) => value === "view" ? null : "view")}>
-            <span className="truncate">{activeView.label}</span>
-            <span className="flex items-center gap-1 tabular-nums">{page.viewCounts[selection.view] || 0}<ChevronDown className="size-3" aria-hidden="true" /></span>
-          </Button>
+        <div className="grid gap-2 sm:grid-cols-3">
+          <label className="grid gap-1 text-xs font-medium text-muted-foreground">
+            Category
+            <select
+              className="h-9 w-full rounded-lg border bg-background px-2.5 text-sm font-medium text-foreground outline-none transition focus:border-ring focus:ring-3 focus:ring-ring/25"
+              value={selection.feed}
+              onChange={(event) => changeSelection({ feed: event.target.value as ReaderFeedId })}
+            >
+              {READER_FEEDS.map((feed) => (
+                <option key={feed.id} value={feed.id}>{feed.label} ({page.feedCounts[feed.id] || 0})</option>
+              ))}
+            </select>
+          </label>
+          <label className="grid gap-1 text-xs font-medium text-muted-foreground">
+            Status
+            <select
+              className="h-9 w-full rounded-lg border bg-background px-2.5 text-sm font-medium text-foreground outline-none transition focus:border-ring focus:ring-3 focus:ring-ring/25"
+              value={selection.view}
+              onChange={(event) => changeSelection({ view: event.target.value as ReaderViewId })}
+            >
+              {VISIBLE_READER_VIEWS.map((view) => (
+                <option key={view.id} value={view.id}>{view.label} ({page.viewCounts[view.id] || 0})</option>
+              ))}
+            </select>
+          </label>
+          <label className="grid gap-1 text-xs font-medium text-muted-foreground">
+            Period
+            <select
+              className="h-9 w-full rounded-lg border bg-background px-2.5 text-sm font-medium text-foreground outline-none transition focus:border-ring focus:ring-3 focus:ring-ring/25"
+              value={selection.period}
+              onChange={(event) => changeSelection({ period: event.target.value as FeedPeriod })}
+            >
+              {FEED_PERIODS.map((period) => (
+                <option key={period} value={period}>{PERIOD_LABELS[period]}</option>
+              ))}
+            </select>
+          </label>
         </div>
 
-        {openFilter === "feed" ? (
-          <nav className="grid grid-cols-2 gap-1.5 rounded-lg bg-muted/20 p-1" aria-label="Category feeds">
-            {READER_FEEDS.map((feed) => (
-              <Button key={feed.id} type="button" size="sm" variant={selection.feed === feed.id ? "default" : "ghost"} className="justify-between" onClick={() => changeSelection({ feed: feed.id })}>
-                <span>{feed.label}</span><span className="tabular-nums opacity-70">{page.feedCounts[feed.id] || 0}</span>
-              </Button>
-            ))}
-          </nav>
-        ) : null}
-
-        {openFilter === "view" ? (
-          <div className="grid grid-cols-2 gap-1.5 rounded-lg bg-muted/20 p-1" aria-label="Item filters">
-            {READER_VIEWS.map((view) => (
-              <Button key={view.id} type="button" size="sm" variant={selection.view === view.id ? "default" : "ghost"} className="justify-between" onClick={() => changeSelection({ view: view.id })}>
-                <span>{view.label}</span><span className="tabular-nums opacity-70">{page.viewCounts[view.id] || 0}</span>
-              </Button>
-            ))}
+        {isLoading || error ? (
+          <div>
+            {isLoading ? <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground" role="status"><Loader2 className="size-3 animate-spin" aria-hidden="true" />Updating feed…</span> : null}
+            {error ? <span className="text-xs text-destructive" role="alert">{error}</span> : null}
           </div>
         ) : null}
-
-        <div className="flex flex-wrap gap-1.5" aria-label="Feed period">
-          {FEED_PERIODS.map((period) => (
-            <Button key={period} type="button" size="sm" variant={selection.period === period ? "secondary" : "ghost"} onClick={() => changeSelection({ period })}>
-              {PERIOD_LABELS[period]}
-            </Button>
-          ))}
-        </div>
-
-        <div className="flex flex-wrap items-center gap-1.5">
-          <Button type="button" variant="outline" size="sm" disabled={isMarkingRead || !visibleUnreadItems.length} onClick={() => void markVisibleAsRead()}>
-            {isMarkingRead ? <Loader2 className="animate-spin" aria-hidden="true" /> : <CheckCheck aria-hidden="true" />} Mark read
-          </Button>
-          <Button type="button" variant={selection.view === "unread" ? "secondary" : "outline"} size="sm" onClick={() => changeSelection({ view: selection.view === "unread" ? "all" : "unread" })}>
-            <EyeOff aria-hidden="true" /> Hide read
-          </Button>
-          {isLoading ? <span className="text-xs text-muted-foreground" role="status">Updating…</span> : null}
-        </div>
-        {error ? <span className="text-xs text-destructive" role="alert">{error}</span> : null}
       </section>
 
       <div className={cn("grid gap-4 transition-opacity", isLoading && "pointer-events-none opacity-60")}>

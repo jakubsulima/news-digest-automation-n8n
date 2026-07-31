@@ -20,6 +20,7 @@ const TARGETS: TargetConfig[] = [
 
 export function FeedTargetSliders({ feedTargets }: { feedTargets: DigestFeedTargets }) {
   const [values, setValues] = useState(feedTargets);
+  const totalCapacity = Object.values(values).reduce((total, value) => total + value, 0);
 
   function updateTarget(key: keyof DigestFeedTargets, value: string) {
     setValues((current) => ({
@@ -34,7 +35,7 @@ export function FeedTargetSliders({ feedTargets }: { feedTargets: DigestFeedTarg
         <label key={target.key} className="grid gap-2 rounded-lg border bg-muted/20 px-3 py-2">
           <span className="flex items-center justify-between gap-3 text-sm font-medium">
             <span>{target.label}</span>
-            <span className="tabular-nums text-muted-foreground">{values[target.key]}</span>
+            <span className="tabular-nums text-muted-foreground">Up to {values[target.key]}</span>
           </span>
           <input
             className="h-2 w-full accent-primary"
@@ -47,6 +48,10 @@ export function FeedTargetSliders({ feedTargets }: { feedTargets: DigestFeedTarg
           />
         </label>
       ))}
+      <p className="text-xs text-muted-foreground">
+        Category capacity: up to {totalCapacity} stories. These are hard limits; 0 excludes a category, and the
+        highest-ranked eligible stories fill the available slots.
+      </p>
     </div>
   );
 }

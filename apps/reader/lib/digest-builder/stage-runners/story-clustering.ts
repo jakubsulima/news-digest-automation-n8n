@@ -356,7 +356,7 @@ async function loadRecentStoryClusters(now: Date) {
   return data || [];
 }
 
-function matchStoriesToHistory(stories: GroupedStory[], historicalClusters: StoryClusterRow[]) {
+export function matchStoriesToHistory(stories: GroupedStory[], historicalClusters: StoryClusterRow[]) {
   const historicalProfiles = historicalClusters.map((cluster) => ({
     cluster,
     profile: buildDedupeProfile({
@@ -369,9 +369,24 @@ function matchStoriesToHistory(stories: GroupedStory[], historicalClusters: Stor
       title: cluster.canonical_title,
     }),
   }));
+  const historicalProfileByStoryKey = new Map(
+    historicalProfiles.map((historicalProfile) => [historicalProfile.cluster.story_key, historicalProfile]),
+  );
+  const exactMatches = new Map<number, GroupedStory["historicalMatch"]>();
   const usedClusterIds = new Set<string>();
 
-  return stories.map((story) => {
+  for (const [storyIndex, story] of stories.entries()) {
+    const exactMatch = historicalProfileByStoryKey.get(story.storyKey);
+
+    if (!exactMatch || usedClusterIds.has(exactMatch.cluster.id)) continue;
+    exactMatches.set(storyIndex, { cluster: exactMatch.cluster, reason: "stable_story_key", score: 1 });
+    usedClusterIds.add(exactMatch.cluster.id);
+  }
+
+  return stories.map((story, storyIndex) => {
+    const exactMatch = exactMatches.get(storyIndex);
+    if (exactMatch) return { ...story, historicalMatch: exactMatch };
+
     const historicalMatch = historicalProfiles
       .flatMap(({ cluster, profile }) => {
         if (usedClusterIds.has(cluster.id)) return [];
