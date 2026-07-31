@@ -139,7 +139,6 @@ export async function getSourcePortfolioSuggestions() {
       reasons: Array.isArray(row.reasons) ? row.reasons.filter((reason): reason is string => typeof reason === "string") : [],
       runCount: typeof components.runCount === "number" ? components.runCount : 0,
       score: row.score,
-      sourceId: source.id,
       sourceName: source.name,
     }];
   });

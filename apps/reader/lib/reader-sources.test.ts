@@ -101,6 +101,38 @@ describe("reader sources", () => {
     expect(sources.some((source) => source.enabled === false)).toBe(false);
   });
 
+  it("uses the enabled switch as the source state when no portfolio mode is submitted", async () => {
+    const { readerSourceFromFormData } = await import("./reader-sources");
+    const formData = new FormData();
+
+    formData.set("id", "11111111-1111-4111-8111-111111111111");
+    formData.set("name", "Enabled Source");
+    formData.set("category", "Software / IT");
+    formData.set("url", "https://example.com/enabled.xml");
+    formData.set("priority", "5");
+    formData.set("enabled", "on");
+
+    expect(readerSourceFromFormData(formData)).toMatchObject({
+      enabled: true,
+      selectionMode: "always_on",
+    });
+
+    formData.set("enabled", "off");
+
+    expect(readerSourceFromFormData(formData)).toMatchObject({
+      enabled: false,
+      selectionMode: "blocked",
+    });
+
+    formData.set("enabled", "on");
+    formData.set("selectionMode", "auto");
+
+    expect(readerSourceFromFormData(formData)).toMatchObject({
+      enabled: true,
+      selectionMode: "auto",
+    });
+  });
+
   it("parses a batch of source edits from indexed form fields", async () => {
     const { readerSourcesFromFormData } = await import("./reader-sources");
     const formData = new FormData();

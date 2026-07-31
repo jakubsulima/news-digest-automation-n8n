@@ -22,7 +22,6 @@ import {
   saveReaderSourcePreset,
   saveReaderSources,
   startSourceDiscovery,
-  updateReaderSourceMode,
 } from "@/lib/actions";
 import { hasNvidiaSummaryConfig } from "@/lib/ai-summary";
 import { requireCurrentReader } from "@/lib/auth";
@@ -481,7 +480,7 @@ function SourceFields({
           />
         </div>
       </div>
-      <div className="grid min-w-0 gap-3 lg:grid-cols-[1fr_7rem_10rem_auto] lg:items-end">
+      <div className="grid min-w-0 gap-3 lg:grid-cols-[1fr_7rem_auto] lg:items-end">
         <div className="grid min-w-0 gap-2">
           <Label htmlFor={`source-category-${sourceFieldId}`}>Category</Label>
           <Input
@@ -500,19 +499,6 @@ function SourceFields({
           max={5}
           defaultValue={source?.priority ?? 3}
         />
-        <div className="grid gap-2">
-          <Label htmlFor={`source-mode-${sourceFieldId}`}>Portfolio mode</Label>
-          <select
-            id={`source-mode-${sourceFieldId}`}
-            name={sourceFieldName("selectionMode", fieldNamePrefix)}
-            className="h-9 rounded-lg border border-input bg-transparent px-3 text-sm shadow-xs"
-            defaultValue={source?.selectionMode ?? "auto"}
-          >
-            <option value="always_on">Always on</option>
-            <option value="auto">Auto</option>
-            <option value="blocked">Blocked</option>
-          </select>
-        </div>
         {showEnabled ? (
           <label className="flex h-8 items-center gap-2 text-sm font-medium">
             <input
@@ -696,7 +682,11 @@ function SourceEditor({
 }) {
   const status = (
     <>
-      {quality && quality.recommendation !== "keep" ? <Badge className="hidden sm:inline-flex" variant="outline">{quality.label}</Badge> : null}
+      {quality ? (
+        <Badge className="hidden sm:inline-flex" variant={quality.recommendation === "keep" ? "secondary" : "outline"}>
+          {quality.label}
+        </Badge>
+      ) : null}
       {source.validationStatus !== "valid" && source.validationStatus !== "unverified" ? (
         <Badge className="hidden sm:inline-flex" variant="outline">{source.validationStatus}</Badge>
       ) : null}
@@ -707,28 +697,14 @@ function SourceEditor({
     <SourceEditorShell
       category={source.category}
       defaultEnabled={source.enabled}
+      defaultSelectionMode={source.selectionMode}
       enabledFieldName={sourceFieldName("enabled", fieldNamePrefix)}
+      selectionModeFieldName={sourceFieldName("selectionMode", fieldNamePrefix)}
       sourceName={source.name}
       status={status}
       url={source.url}
     >
-        {quality ? (
-          <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-5">
-            {[
-              ["Reliability", quality.reliability],
-              ["Fresh yield", quality.freshYield],
-              ["Unique yield", quality.uniqueYield],
-              ["Selected", quality.selectionValue],
-              ["Reader value", quality.readerValue],
-            ].map(([label, value]) => (
-              <div key={label} className="rounded-md border bg-muted/20 p-2">
-                <p className="text-muted-foreground">{label}</p>
-                <p className="mt-1 font-semibold tabular-nums">{value}%</p>
-              </div>
-            ))}
-          </div>
-        ) : null}
-        <SourceFields fieldNamePrefix={fieldNamePrefix} showEnabled={false} source={source} />
+      <SourceFields fieldNamePrefix={fieldNamePrefix} showEnabled={false} source={source} />
     </SourceEditorShell>
   );
 }
@@ -1295,13 +1271,6 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
                       </div>
                       <div className="flex flex-wrap gap-1.5">
                         <form action={applyPortfolioSuggestion}><input type="hidden" name="decisionId" value={suggestion.decisionId} /><Button type="submit" size="sm">Apply</Button></form>
-                        {(["always_on", "auto", "blocked"] as const).map((mode) => (
-                          <form key={mode} action={updateReaderSourceMode}>
-                            <input type="hidden" name="sourceId" value={suggestion.sourceId} />
-                            <input type="hidden" name="selectionMode" value={mode} />
-                            <Button type="submit" size="sm" variant="outline">{mode === "always_on" ? "Always on" : mode === "auto" ? "Auto" : "Block"}</Button>
-                          </form>
-                        ))}
                         <form action={dismissPortfolioSuggestion}><input type="hidden" name="decisionId" value={suggestion.decisionId} /><Button type="submit" size="sm" variant="ghost">Dismiss</Button></form>
                       </div>
                     </div>
@@ -1311,13 +1280,7 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
             ) : null}
 
             <section className="grid min-w-0 gap-3">
-              <div className="flex flex-wrap items-end justify-between gap-2">
-                <div>
-                  <h2 className="text-sm font-semibold">Your sources</h2>
-                  <p className="mt-0.5 text-xs text-muted-foreground">Filter the list or use All to manage everything together.</p>
-                </div>
-                <Badge variant="outline">{shownSourceCount} shown</Badge>
-              </div>
+              <h2 className="text-sm font-semibold">Your sources</h2>
               <SourceTabs
                 activeFeed={activeSourceFeed}
                 activeKeywordGroups={activeKeywordGroups}

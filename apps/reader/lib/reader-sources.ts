@@ -343,22 +343,6 @@ export async function upsertReaderSource(source: ReaderSourceInput) {
   }
 }
 
-export async function setReaderSourceSelectionMode(
-  sourceId: string,
-  selectionMode: ReaderSource["selectionMode"],
-) {
-  const supabase = createSupabaseAdminClient();
-  const enabled = selectionMode === "always_on" ? true : selectionMode === "blocked" ? false : undefined;
-  const { error } = await supabase
-    .from("reader_sources")
-    .update({
-      ...(enabled === undefined ? {} : { enabled }),
-      selection_mode: selectionMode,
-    })
-    .eq("id", sourceId);
-  if (error) throw error;
-}
-
 export async function upsertReaderSources(sources: ReaderSourceInput[]) {
   for (const source of sources) {
     await upsertReaderSource(source);

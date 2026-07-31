@@ -23,7 +23,6 @@ import {
   sourcePresetFromFormData,
   upsertReaderSource,
   upsertReaderSources,
-  setReaderSourceSelectionMode,
 } from "./reader-sources";
 import {
   applySourcePortfolioSuggestion,
@@ -132,20 +131,6 @@ export async function saveReaderSourcePreset(formData: FormData) {
   }
 
   sourceSettingsRedirect(status, formData);
-}
-
-export async function updateReaderSourceMode(formData: FormData) {
-  await requireCurrentOperator();
-  const sourceId = String(formData.get("sourceId") || "");
-  const selectionMode = String(formData.get("selectionMode") || "");
-  if (!sourceId || !["auto", "always_on", "blocked"].includes(selectionMode)) {
-    throw new Error("Invalid source mode update.");
-  }
-  await setReaderSourceSelectionMode(
-    sourceId,
-    selectionMode as "auto" | "always_on" | "blocked",
-  );
-  revalidatePath("/settings");
 }
 
 export async function applyPortfolioSuggestion(formData: FormData) {
