@@ -6,7 +6,9 @@ import { readerFeedForCategory, type ReaderFeedId } from "../../feed-categories"
 import { keywordHitCount, matchingKeywords, textMatchesAnyKeyword } from "../../keyword-matching";
 import { feedbackScoreAdjustment, getFeedbackProfileForUser } from "../../reader-feedback";
 import {
+  DIGEST_BASELINE_POLICY_VERSION,
   DIGEST_RECOMMENDATION_POLICY_VERSION,
+  findInterestFallbackCandidateId,
   hardEligibilityReasons,
   selectDigestRecommendations,
   type DigestRecommendationDecision,
@@ -31,7 +33,6 @@ type ArticleRow = Database["public"]["Tables"]["articles"]["Row"];
 type ContentFeed = Exclude<ReaderFeedId, "all">;
 
 const FEED_SELECTION_ORDER: ContentFeed[] = ["geopolitics", "business", "ai", "software", "security"];
-const DIGEST_SELECTION_POLICY_VERSION = "digest-selection-v1";
 
 type PracticalBucket =
   | "build_opportunity"
@@ -99,6 +100,21 @@ const GEOPOLITICS_BUSINESS_SECURITY_KEYWORDS = [
   "nato",
   "tariff",
   "tariffs",
+  "defense",
+  "military",
+  "diplomacy",
+  "election",
+  "middle east",
+  "iran",
+  "israel",
+  "european union",
+  "trade",
+  "oil",
+  "gas",
+  "supply chain",
+  "central bank",
+  "currency",
+  "debt",
 ];
 
 const BUCKET_KEYWORDS: Record<PracticalBucket, string[]> = {
@@ -142,7 +158,25 @@ const BUCKET_KEYWORDS: Record<PracticalBucket, string[]> = {
     "startup",
   ],
   investment_signal: ["earnings", "funding", "ipo", "revenue", "valuation", "venture", "guidance", "capex"],
-  geopolitical_risk: ["china", "nato", "russia", "taiwan", "ukraine", "war", "sanction", "tariff", "energy"],
+  geopolitical_risk: [
+    "china",
+    "nato",
+    "russia",
+    "taiwan",
+    "ukraine",
+    "war",
+    "sanction",
+    "tariff",
+    "energy",
+    "defense",
+    "military",
+    "diplomacy",
+    "election",
+    "middle east",
+    "iran",
+    "israel",
+    "european union",
+  ],
   infrastructure_outage: ["cloud outage", "dns", "incident", "latency", "outage", "region down", "service disruption"],
   ignore: [],
 };
@@ -572,6 +606,18 @@ export const runEditorialScoringStage: StageRunner = async ({ digestRunId }) => 
       }),
     ]),
   );
+  const fallbackCandidateId = findInterestFallbackCandidateId(
+    scored
+      .filter((item) => settings.feedTargets[item.feed] > 0)
+      .map((item) => ({
+        eligibilityReasons: eligibilityReasonsBySnapshotId.get(item.snapshot.id) || [],
+        id: item.snapshot.id,
+      })),
+  );
+  const fallbackRelaxedReasons = fallbackCandidateId
+    ? eligibilityReasonsBySnapshotId.get(fallbackCandidateId) || []
+    : [];
+  if (fallbackCandidateId) eligibilityReasonsBySnapshotId.set(fallbackCandidateId, []);
   const candidates = scored.filter((item) => !eligibilityReasonsBySnapshotId.get(item.snapshot.id)?.length);
   const selectedIds = new Set<string>();
   const selectedItems: typeof scored = [];
@@ -639,6 +685,9 @@ export const runEditorialScoringStage: StageRunner = async ({ digestRunId }) => 
   for (const item of candidates) {
     selectItem(item);
   }
+  if (fallbackCandidateId && selectedIds.has(fallbackCandidateId)) {
+    addSelectionReason(fallbackCandidateId, "interest_fallback");
+  }
 
   const selectionRankBySnapshotId = new Map(selectedItems.map((item, index) => [item.snapshot.id, index]));
   const recommendationDecisions: Database["public"]["Tables"]["digest_recommendation_decisions"]["Insert"][] =
@@ -649,18 +698,23 @@ export const runEditorialScoringStage: StageRunner = async ({ digestRunId }) => 
         digest_run_id: digestRunId,
         eligibility_reasons: eligibilityReasons,
         eligible: eligibilityReasons.length === 0,
-        policy_version: DIGEST_SELECTION_POLICY_VERSION,
-        recommendation_reasons: [selectionReasonForStory({
-          bucket: item.practicalBucket,
-          feed: item.feed,
-          feedbackAdjustment: item.feedbackAdjustment,
-          feedAdjustment: item.feedAdjustment,
-          geopoliticsIsRelevant: item.geopoliticsIsRelevant,
-          isDeveloperSecurity: item.isDeveloperSecurity,
-          isMajorSecurity: item.isMajorSecurity,
-          scores: item.scores,
-          text: `${jsonString(item.snapshot.metadata, "title")} ${jsonString(item.snapshot.metadata, "summary")} ${jsonString(item.snapshot.metadata, "category")}`,
-        }).replace(/^Selected as/, "Scored as")],
+        policy_version: DIGEST_BASELINE_POLICY_VERSION,
+        recommendation_reasons: [
+          selectionReasonForStory({
+            bucket: item.practicalBucket,
+            feed: item.feed,
+            feedbackAdjustment: item.feedbackAdjustment,
+            feedAdjustment: item.feedAdjustment,
+            geopoliticsIsRelevant: item.geopoliticsIsRelevant,
+            isDeveloperSecurity: item.isDeveloperSecurity,
+            isMajorSecurity: item.isMajorSecurity,
+            scores: item.scores,
+            text: `${jsonString(item.snapshot.metadata, "title")} ${jsonString(item.snapshot.metadata, "summary")} ${jsonString(item.snapshot.metadata, "category")}`,
+          }).replace(/^Selected as/, "Scored as"),
+          item.snapshot.id === fallbackCandidateId
+            ? `Best safe fallback after relaxing: ${fallbackRelaxedReasons.join(", ")}.`
+            : null,
+        ].filter((reason): reason is string => Boolean(reason)),
         score: item.selectionScore,
         score_components: {
           actionability: item.scores.actionabilityScore,
@@ -670,6 +724,7 @@ export const runEditorialScoringStage: StageRunner = async ({ digestRunId }) => 
           feed: item.feed,
           feedAdjustment: item.feedAdjustment,
           impact: item.scores.impactScore,
+          interestFallback: item.snapshot.id === fallbackCandidateId,
           novelty: item.scores.noveltyScore,
           scopeFit: item.scores.scopeFitScore,
           urgency: item.scores.urgencyScore,
@@ -717,6 +772,18 @@ export const runEditorialScoringStage: StageRunner = async ({ digestRunId }) => 
     maxStoriesPerSource: settings.maxStoriesPerSource,
     publishTopN: settings.publishTopN,
   });
+  if (fallbackCandidateId) {
+    const fallbackDecision = v2Selection.decisions.find((decision) => decision.id === fallbackCandidateId);
+    if (fallbackDecision?.selected) {
+      if (!fallbackDecision.selectionReasons.includes("interest_fallback")) {
+        fallbackDecision.selectionReasons.push("interest_fallback");
+      }
+      fallbackDecision.recommendationReasons.push(
+        `Best safe fallback after relaxing: ${fallbackRelaxedReasons.join(", ")}.`,
+      );
+      fallbackDecision.scoreComponents.interestFallback = true;
+    }
+  }
   const v2DecisionBySnapshotId = new Map(v2Selection.decisions.map((decision) => [decision.id, decision]));
   const v2RecommendationDecisions: Database["public"]["Tables"]["digest_recommendation_decisions"]["Insert"][] =
     v2Selection.decisions.map((decision) => ({
@@ -963,7 +1030,7 @@ export const runEditorialScoringStage: StageRunner = async ({ digestRunId }) => 
     metrics: {
       activeRecommendationPolicy: recommendationV2Active
         ? DIGEST_RECOMMENDATION_POLICY_VERSION
-        : DIGEST_SELECTION_POLICY_VERSION,
+        : DIGEST_BASELINE_POLICY_VERSION,
       recommendationPolicyMode: settings.recommendationPolicyMode,
       recommendationV2GatePassed: recommendationGate?.passed ?? false,
       selectedCount: selectedIds.size,

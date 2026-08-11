@@ -40,7 +40,7 @@ describe("selectionReasonForStory", () => {
     });
 
     expect(aiReason).toContain("openai");
-    expect(aiReason).toContain("agents");
+    expect(aiReason).toContain("agent");
     expect(softwareReason).toContain("github");
     expect(softwareReason).toContain("open source");
     expect(softwareReason).not.toBe(aiReason);

@@ -42,12 +42,6 @@
     "priority": 5
   },
   {
-    "name": "POLITICO Europe",
-    "category": "Świat / Geopolityka / Europa",
-    "url": "https://www.politico.eu/feed/",
-    "priority": 5
-  },
-  {
     "name": "Al Jazeera",
     "category": "Świat / Geopolityka",
     "url": "https://www.aljazeera.com/xml/rss/all.xml",
@@ -114,6 +108,108 @@
     "priority": 3
   },
   {
+    "name": "Le Monde International",
+    "category": "Świat / Geopolityka / Europa",
+    "url": "https://www.lemonde.fr/en/international/rss_full.xml",
+    "priority": 4
+  },
+  {
+    "name": "Radio Free Europe / Radio Liberty",
+    "category": "Świat / Geopolityka / Europa Wschodnia i Azja Centralna",
+    "url": "https://www.rferl.org/api/zbqiml-vomx-tpeqkmy",
+    "priority": 4
+  },
+  {
+    "name": "European Council on Foreign Relations",
+    "category": "Świat / Geopolityka / Analizy",
+    "url": "https://ecfr.eu/feed/",
+    "priority": 4
+  },
+  {
+    "name": "SIPRI",
+    "category": "Świat / Geopolityka / Obronność i konflikty",
+    "url": "https://www.sipri.org/rss/combined.xml",
+    "priority": 4
+  },
+  {
+    "name": "International Crisis Group",
+    "category": "Świat / Geopolityka / Analizy i konflikty",
+    "url": "https://www.crisisgroup.org/rss",
+    "priority": 4
+  },
+  {
+    "name": "Africanews",
+    "category": "Świat / Geopolityka / Afryka",
+    "url": "https://www.africanews.com/feed/rss",
+    "priority": 3
+  },
+  {
+    "name": "Middle East Eye",
+    "category": "Świat / Geopolityka / Bliski Wschód",
+    "url": "https://www.middleeasteye.net/rss",
+    "priority": 3
+  },
+  {
+    "name": "Bellingcat",
+    "category": "Świat / Geopolityka / Śledztwa OSINT",
+    "url": "https://www.bellingcat.com/feed/",
+    "priority": 4
+  },
+  {
+    "name": "The Conversation Global",
+    "category": "Świat / Geopolityka / Analizy akademickie",
+    "url": "https://theconversation.com/global/articles.atom",
+    "priority": 3
+  },
+  {
+    "name": "OSW",
+    "category": "Polska / Geopolityka / Europa Wschodnia",
+    "url": "https://www.osw.waw.pl/en/rss.xml",
+    "priority": 5
+  },
+  {
+    "name": "Atlantic Council",
+    "category": "Świat / Geopolityka / Analizy transatlantyckie",
+    "url": "https://www.atlanticcouncil.org/feed/",
+    "priority": 4
+  },
+  {
+    "name": "Lowy Institute Interpreter",
+    "category": "Świat / Geopolityka / Azja i Pacyfik",
+    "url": "https://www.lowyinstitute.org/the-interpreter/rss.xml",
+    "priority": 4
+  },
+  {
+    "name": "Breaking Defense",
+    "category": "Świat / Geopolityka / Obronność",
+    "url": "https://breakingdefense.com/feed/",
+    "priority": 3
+  },
+  {
+    "name": "Defense News",
+    "category": "Świat / Geopolityka / Obronność",
+    "url": "https://www.defensenews.com/arc/outboundfeeds/rss/?outputType=xml",
+    "priority": 3
+  },
+  {
+    "name": "Channel News Asia",
+    "category": "Świat / Geopolityka / Azja i Pacyfik",
+    "url": "https://www.channelnewsasia.com/api/v1/rss-outbound-feed?_format=xml&category=6511",
+    "priority": 4
+  },
+  {
+    "name": "VOA World",
+    "category": "Świat / Geopolityka",
+    "url": "https://www.voanews.com/api/zq$omekvi_",
+    "priority": 3
+  },
+  {
+    "name": "Times of Israel",
+    "category": "Świat / Geopolityka / Bliski Wschód",
+    "url": "https://www.timesofisrael.com/feed/",
+    "priority": 3
+  },
+  {
     "name": "Rest of World Global",
     "category": "Świat / Technologie / Biznes",
     "url": "https://restofworld.org/feed/global/",
@@ -174,172 +270,227 @@
     "priority": 3
   },
   {
+    "name": "BIS Press Releases",
+    "category": "Świat / Biznes / Banki centralne",
+    "url": "https://www.bis.org/doclist/all_pressrels.rss",
+    "priority": 4
+  },
+  {
+    "name": "Bank of England News",
+    "category": "Świat / Biznes / Bank centralny",
+    "url": "https://www.bankofengland.co.uk/rss/news",
+    "priority": 3
+  },
+  {
+    "name": "WTO News",
+    "category": "Świat / Biznes / Handel międzynarodowy",
+    "url": "https://www.wto.org/library/rss/latest_news_e.xml",
+    "priority": 4
+  },
+  {
+    "name": "Bank of Canada",
+    "category": "Świat / Biznes / Bank centralny",
+    "url": "https://www.bankofcanada.ca/feed/",
+    "priority": 3
+  },
+  {
+    "name": "Bank of Japan",
+    "category": "Świat / Biznes / Bank centralny / Azja",
+    "url": "https://www.boj.or.jp/en/rss/whatsnew.xml",
+    "priority": 3
+  },
+  {
+    "name": "FRED Blog",
+    "category": "Świat / Biznes / Makro i dane",
+    "url": "https://fredblog.stlouisfed.org/feed/",
+    "priority": 3
+  },
+  {
+    "name": "Liberty Street Economics",
+    "category": "Świat / Biznes / Makro i rynki",
+    "url": "https://libertystreeteconomics.newyorkfed.org/feed/",
+    "priority": 3
+  },
+  {
+    "name": "Bruegel",
+    "category": "Świat / Biznes / Europa i makro",
+    "url": "https://www.bruegel.org/rss.xml",
+    "priority": 4
+  },
+  {
     "name": "Hacker News Frontpage",
     "category": "Software / IT",
     "url": "https://hnrss.org/frontpage",
-    "priority": 5
+    "priority": 5,
+    "enabled": false
   },
   {
     "name": "Ars Technica",
     "category": "Software / IT",
     "url": "https://feeds.arstechnica.com/arstechnica/index",
-    "priority": 5
+    "priority": 5,
+    "enabled": false
   },
   {
     "name": "The Register",
     "category": "Software / IT",
     "url": "https://www.theregister.com/?lab_viewport=rss",
-    "priority": 4
+    "priority": 4,
+    "enabled": false
   },
   {
     "name": "BBC Technology",
     "category": "Software / IT",
     "url": "https://feeds.bbci.co.uk/news/technology/rss.xml",
-    "priority": 4
+    "priority": 4,
+    "enabled": false
   },
   {
     "name": "GitHub Blog",
     "category": "Software / DevTools",
     "url": "https://github.blog/feed/",
-    "priority": 4
+    "priority": 4,
+    "enabled": false
   },
   {
     "name": "GitHub Engineering",
     "category": "Software / Engineering",
     "url": "https://github.blog/engineering/feed/",
-    "priority": 4
+    "priority": 4,
+    "enabled": false
   },
   {
     "name": "InfoQ",
     "category": "Software / Architecture",
     "url": "https://feed.infoq.com/",
-    "priority": 4
+    "priority": 4,
+    "enabled": false
   },
   {
     "name": "Martin Fowler",
     "category": "Software / Architecture",
     "url": "https://martinfowler.com/feed.atom",
-    "priority": 3
+    "priority": 3,
+    "enabled": false
   },
   {
     "name": "Cloudflare Blog",
     "category": "Software / Infrastructure",
     "url": "https://blog.cloudflare.com/rss/",
-    "priority": 4
+    "priority": 4,
+    "enabled": false
   },
   {
     "name": "Kubernetes Blog",
     "category": "Software / Infrastructure",
     "url": "https://kubernetes.io/feed.xml",
-    "priority": 3
+    "priority": 3,
+    "enabled": false
   },
   {
     "name": "AWS News Blog",
     "category": "Software / Cloud",
     "url": "https://aws.amazon.com/blogs/aws/feed/",
-    "priority": 3
+    "priority": 3,
+    "enabled": false
   },
   {
     "name": "Microsoft Azure Blog",
     "category": "Software / Cloud",
     "url": "https://azure.microsoft.com/en-us/blog/feed/",
-    "priority": 3
+    "priority": 3,
+    "enabled": false
   },
   {
     "name": "Rust Blog",
     "category": "Software / Languages",
     "url": "https://blog.rust-lang.org/feed.xml",
-    "priority": 3
+    "priority": 3,
+    "enabled": false
   },
   {
     "name": "Go Blog",
     "category": "Software / Languages",
     "url": "https://go.dev/blog/feed.atom",
-    "priority": 3
+    "priority": 3,
+    "enabled": false
   },
   {
     "name": "Node.js Blog",
     "category": "Software / Languages",
     "url": "https://nodejs.org/en/feed/blog.xml",
-    "priority": 3
+    "priority": 3,
+    "enabled": false
   },
   {
     "name": "OpenAI News",
     "category": "AI / Labs",
     "url": "https://openai.com/news/rss.xml",
-    "priority": 5
+    "priority": 5,
+    "enabled": false
   },
   {
     "name": "Google DeepMind Blog",
     "category": "AI / Labs",
     "url": "https://deepmind.google/blog/rss.xml",
-    "priority": 5
+    "priority": 5,
+    "enabled": false
   },
   {
     "name": "Google AI Blog",
     "category": "AI / Labs",
     "url": "https://blog.google/technology/ai/rss/",
-    "priority": 4
+    "priority": 4,
+    "enabled": false
   },
   {
     "name": "Google Research Blog",
     "category": "AI / Research",
     "url": "https://research.google/blog/rss/",
-    "priority": 4
+    "priority": 4,
+    "enabled": false
   },
   {
     "name": "Hugging Face Blog",
     "category": "AI / Open Source",
     "url": "https://huggingface.co/blog/feed.xml",
-    "priority": 3
+    "priority": 3,
+    "enabled": false
   },
   {
     "name": "NVIDIA Blog - AI",
     "category": "AI / Hardware / Rynek",
     "url": "https://blogs.nvidia.com/blog/category/deep-learning/feed/",
-    "priority": 4
+    "priority": 4,
+    "enabled": false
   },
   {
     "name": "Import AI",
     "category": "AI / Policy / Research",
     "url": "https://jack-clark.net/feed/",
-    "priority": 3
-  },
-  {
-    "name": "TechCrunch AI",
-    "category": "AI / Biznes / Rynek",
-    "url": "https://techcrunch.com/category/artificial-intelligence/feed/",
-    "priority": 3
-  },
-  {
-    "name": "MIT Technology Review AI",
-    "category": "AI / Research / Rynek",
-    "url": "https://www.technologyreview.com/topic/artificial-intelligence/feed",
-    "priority": 3
-  },
-  {
-    "name": "VentureBeat AI",
-    "category": "AI / Biznes / Rynek",
-    "url": "https://venturebeat.com/category/ai/feed",
-    "priority": 3
+    "priority": 3,
+    "enabled": false
   },
   {
     "name": "BleepingComputer",
     "category": "Cybersecurity Global",
     "url": "https://www.bleepingcomputer.com/feed/",
-    "priority": 1
+    "priority": 1,
+    "enabled": false
   },
   {
     "name": "The Hacker News",
     "category": "Cybersecurity Global",
     "url": "https://feeds.feedburner.com/TheHackersNews",
-    "priority": 2
+    "priority": 2,
+    "enabled": false
   },
   {
     "name": "KrebsOnSecurity",
     "category": "Cybersecurity Global",
     "url": "https://krebsonsecurity.com/feed/",
-    "priority": 2
+    "priority": 2,
+    "enabled": false
   },
   {
     "name": "CISA Cybersecurity Advisories",
@@ -351,88 +502,69 @@
     "name": "CISA Current Activity",
     "category": "Security / Official",
     "url": "https://www.cisa.gov/uscert/ncas/current-activity.xml",
-    "priority": 1
+    "priority": 1,
+    "enabled": false
   },
   {
     "name": "Google Online Security Blog",
     "category": "Security / Vendor Research",
     "url": "https://security.googleblog.com/feeds/posts/default",
-    "priority": 2
+    "priority": 2,
+    "enabled": false
   },
   {
     "name": "Microsoft Security Blog",
     "category": "Security / Vendor Research",
     "url": "https://www.microsoft.com/en-us/security/blog/feed/",
-    "priority": 2
+    "priority": 2,
+    "enabled": false
   },
   {
     "name": "Unit 42",
     "category": "Security / Threat Intelligence",
     "url": "https://unit42.paloaltonetworks.com/feed/",
-    "priority": 2
+    "priority": 2,
+    "enabled": false
   },
   {
     "name": "Cisco Talos Blog",
     "category": "Security / Threat Intelligence",
     "url": "https://blog.talosintelligence.com/rss/",
-    "priority": 2
+    "priority": 2,
+    "enabled": false
   },
   {
     "name": "Google Project Zero",
     "category": "Security / Vulnerability Research",
     "url": "https://googleprojectzero.blogspot.com/feeds/posts/default",
-    "priority": 2
+    "priority": 2,
+    "enabled": false
   },
   {
     "name": "SANS ISC Diary",
     "category": "Security / Incident Response",
     "url": "https://isc.sans.edu/rssfeed_full.xml",
-    "priority": 2
+    "priority": 2,
+    "enabled": false
   },
   {
     "name": "NCSC UK Guidance",
     "category": "Security / Official",
     "url": "https://www.ncsc.gov.uk/api/1/services/v1/all-rss-feed.xml",
-    "priority": 2
+    "priority": 2,
+    "enabled": false
   },
   {
     "name": "SecurityWeek",
     "category": "Cybersecurity Global",
     "url": "https://www.securityweek.com/feed/",
-    "priority": 2
-  },
-  {
-    "name": "Hacker News Best",
-    "category": "Software / IT",
-    "url": "https://hnrss.org/best",
-    "priority": 3,
-    "enabled": false
-  },
-  {
-    "name": "Hacker News Newest",
-    "category": "Software / IT",
-    "url": "https://hnrss.org/newest",
     "priority": 2,
-    "enabled": false
-  },
-  {
-    "name": "Lobsters",
-    "category": "Software / IT",
-    "url": "https://lobste.rs/rss",
-    "priority": 3,
     "enabled": false
   },
   {
     "name": "Simon Willison",
     "category": "Software / AI Engineering",
     "url": "https://simonwillison.net/atom/everything/",
-    "priority": 3,
-    "enabled": false
-  },
-  {
-    "name": "LWN.net",
-    "category": "Software / Linux",
-    "url": "https://lwn.net/headlines/rss",
     "priority": 3,
     "enabled": false
   },
@@ -469,27 +601,6 @@
     "category": "Software / Infrastructure",
     "url": "https://www.hashicorp.com/blog/feed.xml",
     "priority": 3,
-    "enabled": false
-  },
-  {
-    "name": "SEC EDGAR Current Filings",
-    "category": "Świat / Biznes / Markets",
-    "url": "https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&output=atom",
-    "priority": 2,
-    "enabled": false
-  },
-  {
-    "name": "SEC EDGAR Recent 10-K",
-    "category": "Świat / Biznes / Markets",
-    "url": "https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=10-k&owner=include&count=40&output=atom",
-    "priority": 2,
-    "enabled": false
-  },
-  {
-    "name": "SEC EDGAR Recent 8-K",
-    "category": "Świat / Biznes / Markets",
-    "url": "https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=8-k&owner=include&count=40&output=atom",
-    "priority": 2,
     "enabled": false
   },
   {
@@ -531,34 +642,6 @@
     "name": "Deutsche Welle Top Stories",
     "category": "Świat / Geopolityka / Europa",
     "url": "https://rss.dw.com/xml/rss-en-all",
-    "priority": 2,
-    "enabled": false
-  },
-  {
-    "name": "The Verge AI",
-    "category": "AI / Biznes / Rynek",
-    "url": "https://www.theverge.com/rss/ai-artificial-intelligence/index.xml",
-    "priority": 2,
-    "enabled": false
-  },
-  {
-    "name": "Cybersecurity Dive",
-    "category": "Cybersecurity Global",
-    "url": "https://www.cybersecuritydive.com/feeds/news/",
-    "priority": 2,
-    "enabled": false
-  },
-  {
-    "name": "Dark Reading",
-    "category": "Cybersecurity Global",
-    "url": "https://www.darkreading.com/rss.xml",
-    "priority": 2,
-    "enabled": false
-  },
-  {
-    "name": "Risky Business News",
-    "category": "Cybersecurity Global",
-    "url": "https://news.risky.biz/rss/",
     "priority": 2,
     "enabled": false
   },
@@ -636,8 +719,7 @@
     "name": "WHO News",
     "category": "Świat / Geopolityka / Health",
     "url": "https://www.who.int/rss-feeds/news-english.xml",
-    "priority": 2,
-    "enabled": false
+    "priority": 2
   },
   {
     "name": "CDC Newsroom",

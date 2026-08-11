@@ -2,6 +2,8 @@ import "server-only";
 
 import type { Json } from "./database.types";
 import {
+  DIGEST_BASELINE_POLICY_VERSION,
+  DIGEST_RECOMMENDATION_POLICY_VERSION,
   evaluateRecommendationPolicyGate,
   type RecommendationFeed,
   type RecommendationGateDecision,
@@ -25,7 +27,7 @@ export async function getRecommendationPolicyGate(): Promise<RecommendationPolic
   const { data, error } = await supabase
     .from("digest_recommendation_decisions")
     .select("digest_run_id, story_cluster_id, policy_version, eligible, selected, selection_rank, score_components, recommendation_reasons, created_at")
-    .in("policy_version", ["digest-selection-v1", "recommendation-policy-v2"])
+    .in("policy_version", [DIGEST_BASELINE_POLICY_VERSION, DIGEST_RECOMMENDATION_POLICY_VERSION])
     .order("created_at", { ascending: false })
     .limit(10_000);
   if (error) throw error;
@@ -50,7 +52,7 @@ export async function getRecommendationPolicyGate(): Promise<RecommendationPolic
       selectionRank: row.selection_rank,
       storyClusterId: row.story_cluster_id,
     };
-    if (row.policy_version === "recommendation-policy-v2") run.v2.push(decision);
+    if (row.policy_version === DIGEST_RECOMMENDATION_POLICY_VERSION) run.v2.push(decision);
     else run.v1.push(decision);
     byRun.set(row.digest_run_id, run);
   }

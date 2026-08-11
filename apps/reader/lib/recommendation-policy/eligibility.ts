@@ -15,6 +15,29 @@ type HardEligibilityInput = {
   requireMajorSecurity: boolean;
 };
 
+const INTEREST_FALLBACK_REASONS = new Set(["below_importance", "insufficient_novelty"]);
+
+type InterestFallbackCandidate = {
+  eligibilityReasons: readonly string[];
+  id: string;
+};
+
+/**
+ * Candidates must be supplied in ranking order. Only editorial score and
+ * novelty may be relaxed; all safety and operator-controlled gates stay hard.
+ */
+export function findInterestFallbackCandidateId(candidates: readonly InterestFallbackCandidate[]) {
+  if (candidates.some((candidate) => candidate.eligibilityReasons.length === 0)) {
+    return null;
+  }
+
+  return candidates.find(
+    (candidate) =>
+      candidate.eligibilityReasons.length > 0 &&
+      candidate.eligibilityReasons.every((reason) => INTEREST_FALLBACK_REASONS.has(reason)),
+  )?.id ?? null;
+}
+
 export function hardEligibilityReasons(input: HardEligibilityInput) {
   return [
     input.isExcluded ? "excluded_keyword" : null,
