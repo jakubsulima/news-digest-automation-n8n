@@ -65,7 +65,7 @@ export const SOURCE_PRESETS = [
   {
     id: "balanced",
     label: "Balanced",
-    description: "Default broad mix across news, markets, AI, software, and security.",
+    description: "Default high-signal mix centered on geopolitics, business, markets, and official institutions.",
   },
   {
     id: "essentials",
@@ -95,38 +95,29 @@ const SOURCE_PRESET_IDS = new Set<SourcePresetId>(SOURCE_PRESETS.map((preset) =>
 const ESSENTIAL_SOURCE_NAMES = new Set([
   "300Gospodarka",
   "Al Jazeera",
-  "Ars Technica",
   "BBC Business",
   "BBC World",
-  "BleepingComputer",
+  "Bankier Wiadomości",
   "CERT Polska",
   "CISA Cybersecurity Advisories",
-  "Cloudflare Blog",
   "Deutsche Welle World",
   "ECB Press",
+  "European Council on Foreign Relations",
   "Federal Reserve Press Releases",
-  "GitHub Blog",
-  "Google AI Blog",
-  "Google DeepMind Blog",
-  "Hacker News Frontpage",
-  "Hugging Face Blog",
-  "KrebsOnSecurity",
+  "France 24 English",
+  "Le Monde International",
   "Niebezpiecznik",
-  "NVIDIA Blog - AI",
-  "OpenAI News",
-  "POLITICO Europe",
+  "Radio Free Europe / Radio Liberty",
   "Rest of World Money",
+  "SIPRI",
   "The Guardian World",
+  "UN News",
 ]);
 
 const SECURITY_CORE_SOURCE_NAMES = new Set([
-  "BleepingComputer",
   "CERT Polska",
   "CISA Cybersecurity Advisories",
-  "CISA Current Activity",
-  "KrebsOnSecurity",
   "Niebezpiecznik",
-  "The Hacker News",
 ]);
 
 function configuredSources(): SourceConfig[] {
@@ -192,7 +183,9 @@ function isSourceEnabledForPreset(source: SourceConfig, presetId: SourcePresetId
     case "essentials":
       return ESSENTIAL_SOURCE_NAMES.has(source.name);
     case "markets":
-      return feed === "geopolitics" || feed === "business" || SECURITY_CORE_SOURCE_NAMES.has(source.name);
+      return (source.enabled ?? true) && (
+        feed === "geopolitics" || feed === "business" || SECURITY_CORE_SOURCE_NAMES.has(source.name)
+      );
     case "ai-software":
       return feed === "ai" || feed === "software" || SECURITY_CORE_SOURCE_NAMES.has(source.name);
     case "security-watch":

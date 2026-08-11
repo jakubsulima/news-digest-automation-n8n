@@ -5,6 +5,7 @@ import {
   COMBINED_PREFERENCE_CAP,
   DIGEST_PREFERENCE_CAP,
   evaluateRecommendationPolicyGate,
+  findInterestFallbackCandidateId,
   hardEligibilityReasons,
   rankReaderRecommendations,
   READER_PREFERENCE_CAP,
@@ -126,6 +127,23 @@ describe("Recommendation Policy v2", () => {
       readableOnly: true,
       requireMajorSecurity: true,
     })).toHaveLength(7);
+  });
+
+  it("falls back only through editorial score and novelty gates", () => {
+    expect(findInterestFallbackCandidateId([
+      { id: "best", eligibilityReasons: ["below_importance"] },
+      { id: "second", eligibilityReasons: ["below_importance", "insufficient_novelty"] },
+    ])).toBe("best");
+
+    expect(findInterestFallbackCandidateId([
+      { id: "stale", eligibilityReasons: ["stale", "below_importance"] },
+      { id: "excluded", eligibilityReasons: ["excluded_keyword"] },
+    ])).toBeNull();
+
+    expect(findInterestFallbackCandidateId([
+      { id: "eligible", eligibilityReasons: [] },
+      { id: "fallback", eligibilityReasons: ["below_importance"] },
+    ])).toBeNull();
   });
 
   it("requires ten paired runs and every rollout invariant", () => {
