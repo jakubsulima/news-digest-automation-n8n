@@ -19,18 +19,52 @@ export type NvidiaArticlePreview = {
   whyItMatters: string;
 };
 
-type DigestBriefArticle = {
+export type DigestBriefArticle = {
+  category: string;
+  importanceScore: number;
+  publishedAt: string | null;
   source: string;
+  sourceCount: number;
   summary: string;
+  title: string;
+  whyInteresting: string | null;
+};
+
+export type NvidiaDigestBriefHighlight = {
+  articleIndex: number;
+  whatHappened: string;
+  whyItMatters: string;
+};
+
+export type NvidiaDigestBriefSection = {
+  articleIndexes: number[];
+  category: string;
+  situation: string;
   title: string;
 };
 
-type NvidiaDigestBrief = {
+export type NvidiaDigestBriefWatchItem = {
+  articleIndexes: number[];
+  signal: string;
+  why: string;
+};
+
+export type NvidiaDigestBrief = {
+  coverageNote: string;
   highlights: Array<{
     articleIndex: number;
+    whatHappened: string;
     whyItMatters: string;
   }>;
+  readingTimeMinutes: number;
+  sections: NvidiaDigestBriefSection[];
   summary: string;
+  watchlist: NvidiaDigestBriefWatchItem[];
+};
+
+export type DigestBriefInterestProfile = {
+  feedTargets: Record<string, number>;
+  preferredKeywords: string[];
 };
 
 const DEFAULT_NVIDIA_API_URL = "https://api.nvcf.nvidia.com/v2/nim/v1/generate";
@@ -112,31 +146,108 @@ function boundedStringArray(value: unknown) {
     : [];
 }
 
+function compactToWordLimit(value: string, maxWords: number) {
+  const words = value.split(/\s+/).filter(Boolean);
+
+  return words.length > maxWords ? `${words.slice(0, maxWords).join(" ").replace(/[.,;:!?-]+$/, "")}…` : value;
+}
+
+function boundedString(value: unknown, maxChars: number, maxWords: number) {
+  const normalized = requiredString(value);
+  return normalized ? compactToWordLimit(normalized.slice(0, maxChars).trim(), maxWords) : null;
+}
+
+function boundedArticleIndexes(value: unknown, articleCount: number, maxItems = 6) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return Array.from(
+    new Set(
+      value.flatMap((entry) => {
+        const index = requiredArticleIndex(entry, articleCount);
+        return index === null ? [] : [index];
+      }),
+    ),
+  ).slice(0, maxItems);
+}
+
+function fallbackSectionTitle(category: string) {
+  const labels: Record<string, string> = {
+    ai: "AI",
+    business: "Biznes i gospodarka",
+    geopolitics: "Geopolityka",
+    security: "Cyberbezpieczeństwo",
+    software: "Technologia i software",
+  };
+
+  return labels[category.toLowerCase()] || category;
+}
+
 export function fallbackDigestBrief(articles: DigestBriefArticle[]): NvidiaDigestBrief {
   const highlights = articles.slice(0, 5).map((article, articleIndex) => ({
     articleIndex,
-    whyItMatters: `Ważny sygnał ze źródła ${article.source}.`,
+    whatHappened: compactToWordLimit(article.summary, 25),
+    whyItMatters: compactToWordLimit(
+      article.whyInteresting || `Ważny sygnał ze źródła ${article.source}.`,
+      30,
+    ),
   }));
+  const sections = Array.from(new Set(articles.map((article) => article.category))).slice(0, 5).map((category) => {
+    const articleIndexes = articles.flatMap((article, articleIndex) =>
+      article.category === category ? [articleIndex] : [],
+    ).slice(0, 6);
+    const categoryArticles = articleIndexes.map((articleIndex) => articles[articleIndex]);
+
+    return {
+      articleIndexes,
+      category,
+      situation: compactToWordLimit(categoryArticles.map((article) => article.summary).join(" "), 65),
+      title: fallbackSectionTitle(category),
+    };
+  });
   const subject = articles.length === 1 ? "jedną wybraną wiadomość" : `${articles.length} wybranych wiadomości`;
 
   return {
+    coverageNote: "Briefing awaryjny utworzony bez syntezy AI; sprawdź połączone materiały źródłowe.",
     highlights,
-    summary: `Dzisiejszy digest obejmuje ${subject}. Najważniejsze tematy i ich znaczenie znajdują się poniżej.`,
+    readingTimeMinutes: Math.max(1, Math.min(5, Math.ceil(articles.length / 5))),
+    sections,
+    summary: `Dzisiejszy digest obejmuje ${subject}. Poniżej znajdziesz przekrojowy obraz sytuacji w dostępnych materiałach.`,
+    watchlist: [],
   };
 }
 
-function parseDigestBriefJson(content: string, articleCount: number): NvidiaDigestBrief | null {
+function jsonObjectFromModelOutput(content: string) {
+  const trimmed = content.trim();
+  const withoutFence = trimmed
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/, "")
+    .trim();
+
   try {
-    const parsed = JSON.parse(content.trim()) as unknown;
+    return JSON.parse(withoutFence) as unknown;
+  } catch {
+    const start = withoutFence.indexOf("{");
+    const end = withoutFence.lastIndexOf("}");
+
+    return start >= 0 && end > start ? (JSON.parse(withoutFence.slice(start, end + 1)) as unknown) : null;
+  }
+}
+
+export function parseDigestBriefJson(content: string, articleCount: number): NvidiaDigestBrief | null {
+  try {
+    const parsed = jsonObjectFromModelOutput(content);
 
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
       return null;
     }
 
     const brief = parsed as Record<string, unknown>;
-    const summary = requiredString(brief.summary);
+    const summary = boundedString(brief.summary, 1_000, 80);
+    const coverageNote = boundedString(brief.coverageNote, 420, 25);
 
-    if (!summary || !Array.isArray(brief.highlights)) {
+    if (!summary || !coverageNote || !Array.isArray(brief.highlights) || !Array.isArray(brief.sections)) {
       return null;
     }
 
@@ -149,25 +260,78 @@ function parseDigestBriefJson(content: string, articleCount: number): NvidiaDige
 
         const highlight = value as Record<string, unknown>;
         const articleIndex = requiredArticleIndex(highlight.articleIndex, articleCount);
-        const whyItMatters = requiredString(highlight.whyItMatters);
+        const whatHappened = boundedString(highlight.whatHappened, 420, 25);
+        const whyItMatters = boundedString(highlight.whyItMatters, 420, 30);
 
-        if (articleIndex === null || !whyItMatters || seen.has(articleIndex)) {
+        if (articleIndex === null || !whatHappened || !whyItMatters || seen.has(articleIndex)) {
           return null;
         }
 
         seen.add(articleIndex);
-        return { articleIndex, whyItMatters };
+        return { articleIndex, whatHappened, whyItMatters };
       })
-      .filter((highlight): highlight is NvidiaDigestBrief["highlights"][number] => Boolean(highlight))
+      .filter((highlight): highlight is NvidiaDigestBriefHighlight => Boolean(highlight))
       .slice(0, 5);
 
-    return highlights.length ? { highlights, summary } : null;
+    const sections = brief.sections
+      .map((value) => {
+        if (!value || typeof value !== "object" || Array.isArray(value)) {
+          return null;
+        }
+
+        const section = value as Record<string, unknown>;
+        const category = boundedString(section.category, 80, 8);
+        const title = boundedString(section.title, 120, 12);
+        const situation = boundedString(section.situation, 850, 65);
+        const articleIndexes = boundedArticleIndexes(section.articleIndexes, articleCount);
+
+        return category && title && situation && articleIndexes.length
+          ? { articleIndexes, category, situation, title }
+          : null;
+      })
+      .filter((section): section is NvidiaDigestBriefSection => Boolean(section))
+      .slice(0, 5);
+    const watchlist = Array.isArray(brief.watchlist)
+      ? brief.watchlist
+          .map((value) => {
+            if (!value || typeof value !== "object" || Array.isArray(value)) {
+              return null;
+            }
+
+            const item = value as Record<string, unknown>;
+            const signal = boundedString(item.signal, 240, 12);
+            const why = boundedString(item.why, 320, 18);
+            const articleIndexes = boundedArticleIndexes(item.articleIndexes, articleCount, 4);
+
+            return signal && why ? { articleIndexes, signal, why } : null;
+          })
+          .filter((item): item is NvidiaDigestBriefWatchItem => Boolean(item))
+          .slice(0, 4)
+      : [];
+    const briefingWordCount = [
+      summary,
+      coverageNote,
+      ...highlights.flatMap((highlight) => [highlight.whatHappened, highlight.whyItMatters]),
+      ...sections.map((section) => section.situation),
+      ...watchlist.flatMap((item) => [item.signal, item.why]),
+    ].join(" ").split(/\s+/).filter(Boolean).length;
+    const readingTimeMinutes = Math.max(1, Math.min(5, Math.ceil(briefingWordCount / 180)));
+
+    return highlights.length && sections.length
+      ? { coverageNote, highlights, readingTimeMinutes, sections, summary, watchlist }
+      : null;
   } catch {
     return null;
   }
 }
 
-export async function digestBriefWithNvidia({ articles }: { articles: DigestBriefArticle[] }): Promise<NvidiaDigestBrief> {
+export async function digestBriefWithNvidia({
+  articles,
+  interestProfile,
+}: {
+  articles: DigestBriefArticle[];
+  interestProfile: DigestBriefInterestProfile;
+}): Promise<NvidiaDigestBrief> {
   const fallback = fallbackDigestBrief(articles);
   const apiKey = process.env.NVIDIA_API_KEY;
 
@@ -176,12 +340,17 @@ export async function digestBriefWithNvidia({ articles }: { articles: DigestBrie
   }
 
   const sourceMaterial = articles
-    .slice(0, 10)
+    .slice(0, 30)
     .map(
       (article, index) =>
-        `[${index}] Tytuł: ${article.title}\nŹródło: ${article.source}\nStreszczenie: ${article.summary.slice(0, 700)}`,
+        `[${index}] Kategoria: ${article.category}\nWażność: ${article.importanceScore}/100\nTytuł: ${article.title}\nŹródło: ${article.source} (${article.sourceCount} ${article.sourceCount === 1 ? "źródło" : "źródła"})\nPublikacja: ${article.publishedAt || "brak daty"}\nDlaczego wybrane: ${article.whyInteresting || "brak osobnej adnotacji"}\nMateriał: ${article.summary.slice(0, 900)}`,
     )
     .join("\n\n");
+  const interests = Object.entries(interestProfile.feedTargets)
+    .filter(([, target]) => target > 0)
+    .sort(([, left], [, right]) => right - left)
+    .map(([category, target]) => `${category}: ${target}`)
+    .join(", ");
 
   try {
     const response = await fetch(process.env.NVIDIA_API_URL || DEFAULT_NVIDIA_API_URL, {
@@ -191,16 +360,30 @@ export async function digestBriefWithNvidia({ articles }: { articles: DigestBrie
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        max_tokens: 500,
+        max_tokens: 1_800,
         messages: [
           {
             role: "system",
             content:
-              "Tworzysz poranny briefing dla prywatnego czytnika newsów. Używaj wyłącznie faktów z dostarczonych artykułów, nie dopowiadaj faktów ani liczb. Zwróć wyłącznie poprawny JSON, bez markdownu.",
+              "Jesteś redaktorem pięciominutowego briefingu sytuacyjnego dla prywatnego czytnika newsów. Syntetyzuj, łącz powiązane doniesienia i oddzielaj fakt od ostrożnego wniosku. Używaj wyłącznie informacji z materiałów. Nie dopowiadaj faktów, liczb ani tła, którego w nich nie ma. Nie powtarzaj tej samej informacji w kilku sekcjach. Pisz konkretną, naturalną polszczyzną. Zwróć wyłącznie poprawny JSON, bez markdownu.",
           },
           {
             role: "user",
-            content: `Na podstawie materiału przygotuj po polsku zwięzłe podsumowanie dnia oraz maksymalnie 5 najważniejszych wiadomości. Dla każdej podaj indeks artykułu i krótko wyjaśnij znaczenie. Zwróć dokładnie ten kształt JSON:\n{"summary":"","highlights":[{"articleIndex":0,"whyItMatters":""}]}\n\nMateriały:\n${sourceMaterial}`,
+            content: `Przygotuj pełny obraz sytuacji do przeczytania w maksymalnie 5 minut (około 600–850 słów łącznie). Nie twórz listy wszystkich artykułów. Grupuj fakty w rozwój sytuacji i pokaż zależności między nimi. Priorytety czytelnika: ${interests || "brak wag kategorii"}. Preferowane tematy: ${interestProfile.preferredKeywords.slice(0, 30).join(", ") || "brak"}.
+
+Wymagania:
+- summary: 3–5 zdań dających obraz dnia i dominujące zależności;
+- highlights: 3–5 najważniejszych zmian; whatHappened opisuje konkretny fakt, whyItMatters jego konsekwencję; każdy element wskazuje najlepszy articleIndex;
+- sections: 2–5 tematycznych syntez obejmujących wszystkie istotne materiały; situation ma przedstawiać stan, zmiany i konsekwencje, nie listę nagłówków; articleIndexes zawiera wszystkie materiały użyte w danej syntezie;
+- watchlist: maksymalnie 4 konkretne sygnały, decyzje lub terminy do obserwowania wraz z powodem; nie wymyślaj dat;
+- coverageNote: jedno uczciwe zdanie o tym, czego dostępne materiały nie pozwalają wiarygodnie ocenić;
+- readingTimeMinutes: liczba całkowita 1–5.
+
+Zwróć dokładnie ten kształt JSON:
+{"summary":"","highlights":[{"articleIndex":0,"whatHappened":"","whyItMatters":""}],"sections":[{"category":"","title":"","situation":"","articleIndexes":[0]}],"watchlist":[{"signal":"","why":"","articleIndexes":[0]}],"coverageNote":"","readingTimeMinutes":5}
+
+Materiały:
+${sourceMaterial}`,
           },
         ],
         model: process.env.NVIDIA_MODEL || DEFAULT_NVIDIA_MODEL,
@@ -217,7 +400,7 @@ export async function digestBriefWithNvidia({ articles }: { articles: DigestBrie
     const payload = (await response.json().catch(() => null)) as NvidiaChatResponse | null;
     const content = payload?.choices?.[0]?.message?.content;
 
-    return content ? parseDigestBriefJson(content, Math.min(articles.length, 10)) || fallback : fallback;
+    return content ? parseDigestBriefJson(content, Math.min(articles.length, 30)) || fallback : fallback;
   } catch {
     return fallback;
   }

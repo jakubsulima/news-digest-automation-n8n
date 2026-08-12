@@ -287,10 +287,19 @@ export const runReaderPublicationStage: StageRunner = async ({ digestRunId }) =>
   }
 
   const brief = await digestBriefWithNvidia({
+    interestProfile: {
+      feedTargets: settings.feedTargets,
+      preferredKeywords: settings.preferredKeywords,
+    },
     articles: rows.map((row) => ({
+      category: row.category,
+      importanceScore: row.importance_score || 0,
+      publishedAt: row.published_at || null,
       source: row.source,
+      sourceCount: row.source_count || 1,
       summary: row.summary,
       title: row.title,
+      whyInteresting: jsonString(row.raw_payload || {}, "whyInteresting") || null,
     })),
   });
   const publishedItems = rows.length
@@ -308,26 +317,58 @@ export const runReaderPublicationStage: StageRunner = async ({ digestRunId }) =>
   }
 
   const publishedItemsByClusterId = new Map((publishedItems.data || []).map((item) => [item.story_cluster_id, item]));
-  const highlights = brief.highlights.flatMap((highlight) => {
-    const row = rows[highlight.articleIndex];
+  const referenceForArticleIndex = (articleIndex: number) => {
+    const row = rows[articleIndex];
     const item = row?.story_cluster_id ? publishedItemsByClusterId.get(row.story_cluster_id) : null;
 
     return item
+      ? {
+          newsItemId: item.id,
+          source: item.source,
+          title: item.title,
+        }
+      : null;
+  };
+  const highlights = brief.highlights.flatMap((highlight) => {
+    const reference = referenceForArticleIndex(highlight.articleIndex);
+
+    return reference
       ? [
           {
-            newsItemId: item.id,
-            source: item.source,
-            title: item.title,
+            ...reference,
+            whatHappened: highlight.whatHappened,
             whyItMatters: highlight.whyItMatters,
           },
         ]
       : [];
   });
+  const sections = brief.sections.flatMap((section) => {
+    const references = section.articleIndexes.flatMap((articleIndex) => {
+      const reference = referenceForArticleIndex(articleIndex);
+      return reference ? [reference] : [];
+    });
+
+    return references.length
+      ? [{ category: section.category, references, situation: section.situation, title: section.title }]
+      : [];
+  });
+  const watchlist = brief.watchlist.map((item) => ({
+    references: item.articleIndexes.flatMap((articleIndex) => {
+      const reference = referenceForArticleIndex(articleIndex);
+      return reference ? [reference] : [];
+    }),
+    signal: item.signal,
+    why: item.why,
+  }));
   const digestSummary: DigestSummaryInsert = {
+    coverage_note: brief.coverageNote,
     digest_date: run.report_date,
     digest_run_id: digestRunId,
     highlights,
+    reading_time_minutes: brief.readingTimeMinutes,
+    sections,
     summary: brief.summary,
+    watchlist,
   };
   const { error: digestSummaryError } = await supabase.from("digest_summaries").upsert(digestSummary, {
     onConflict: "digest_run_id",
@@ -346,6 +387,7 @@ export const runReaderPublicationStage: StageRunner = async ({ digestRunId }) =>
       deletedEventCount: cleanup.deletedEventCount,
       deletedStaleCount: cleanup.deletedNewsItemCount,
       digestBriefHighlightCount: highlights.length,
+      digestBriefSectionCount: sections.length,
       publishedCount: rows.length,
       settings: {
         publishTopN: settings.publishTopN,
