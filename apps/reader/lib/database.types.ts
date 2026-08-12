@@ -253,6 +253,10 @@ export type Database = {
           digest_date: string;
           summary: string;
           highlights: Json;
+          sections: Json;
+          watchlist: Json;
+          coverage_note: string;
+          reading_time_minutes: number;
           created_at: string;
           updated_at: string;
         };
@@ -262,6 +266,10 @@ export type Database = {
           digest_date: string;
           summary: string;
           highlights?: Json;
+          sections?: Json;
+          watchlist?: Json;
+          coverage_note?: string;
+          reading_time_minutes?: number;
           created_at?: string;
           updated_at?: string;
         };
@@ -271,6 +279,10 @@ export type Database = {
           digest_date?: string;
           summary?: string;
           highlights?: Json;
+          sections?: Json;
+          watchlist?: Json;
+          coverage_note?: string;
+          reading_time_minutes?: number;
           created_at?: string;
           updated_at?: string;
         };
