@@ -2,10 +2,12 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { Activity, CalendarDays, Check, Circle, Loader2, Play, RotateCcw, Sparkles, X } from "lucide-react";
+import { Activity, CalendarDays, Check, Circle, Download, Loader2, RotateCcw, Sparkles, X } from "lucide-react";
 
+import { useLocalize, useReaderLocale } from "@/components/reader-locale-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { localize, type ReaderLocale } from "@/lib/reader-locale";
 import { cn } from "@/lib/utils";
 
 type StageStatus = "queued" | "running" | "succeeded" | "failed" | "skipped";
@@ -28,6 +30,7 @@ type DigestRun = {
 type DigestRunPanelProps = {
   initialRun: DigestRun | null;
   retrySlot?: ReactNode;
+  storyCount?: number;
 };
 
 type ApiPayload<T> = Partial<T> & {
@@ -35,31 +38,44 @@ type ApiPayload<T> = Partial<T> & {
   error?: string;
 };
 
-const STAGE_COPY: Record<string, { label: string; verb: string }> = {
-  source_fetch: { label: "Sources", verb: "Gathering feeds" },
-  article_normalization: { label: "Articles", verb: "Cleaning article data" },
-  story_clustering: { label: "Stories", verb: "Grouping related stories" },
-  enrichment: { label: "Enrichment", verb: "Reading top stories" },
-  editorial_scoring: { label: "Scoring", verb: "Ranking the shortlist" },
-  reader_publication: { label: "Publish", verb: "Preparing the feed" },
-  finalization: { label: "Done", verb: "Finalizing" },
+const STAGE_COPY: Record<string, { labels: readonly [string, string]; verbs: readonly [string, string] }> = {
+  source_fetch: { labels: ["Źródła", "Sources"], verbs: ["Pobieram źródła", "Fetching sources"] },
+  article_normalization: { labels: ["Artykuły", "Articles"], verbs: ["Porządkuję artykuły", "Organising articles"] },
+  story_clustering: { labels: ["Tematy", "Topics"], verbs: ["Łączę powiązane newsy", "Grouping related stories"] },
+  enrichment: { labels: ["Analiza", "Analysis"], verbs: ["Czytam najważniejsze materiały", "Reading the most important stories"] },
+  editorial_scoring: { labels: ["Ocena", "Scoring"], verbs: ["Układam najważniejsze newsy", "Ranking the most important stories"] },
+  reader_publication: { labels: ["Publikacja", "Publishing"], verbs: ["Przygotowuję Twój feed", "Preparing your feed"] },
+  finalization: { labels: ["Gotowe", "Done"], verbs: ["Kończę aktualizację", "Finishing the update"] },
 };
 const ACTIVE_STATUS_REFRESH_MS = 4_000;
 
-function formatRunStatus(status: RunStatus | null) {
-  if (!status) {
-    return "Ready";
-  }
-
-  return status.charAt(0).toUpperCase() + status.slice(1);
+function formatRunStatus(status: RunStatus | null, locale: ReaderLocale) {
+  if (status === "queued") return localize(locale, "W kolejce", "Queued");
+  if (status === "running") return localize(locale, "W toku", "Running");
+  if (status === "succeeded") return localize(locale, "Gotowe", "Done");
+  if (status === "failed") return localize(locale, "Błąd", "Error");
+  if (status === "cancelled") return localize(locale, "Anulowano", "Cancelled");
+  return localize(locale, "Gotowe", "Ready");
 }
 
 function isActiveRun(run: DigestRun | null) {
   return run?.status === "queued" || run?.status === "running";
 }
 
-function stageCopy(stageName: string) {
-  return STAGE_COPY[stageName] ?? { label: stageName.replaceAll("_", " "), verb: "Working" };
+function stageCopy(stageName: string, locale: ReaderLocale) {
+  const copy = STAGE_COPY[stageName];
+  return copy
+    ? { label: localize(locale, copy.labels[0], copy.labels[1]), verb: localize(locale, copy.verbs[0], copy.verbs[1]) }
+    : { label: stageName.replaceAll("_", " "), verb: localize(locale, "Pracuję", "Working") };
+}
+
+function displayRunError(value: string | null | undefined, locale: ReaderLocale) {
+  if (!value) return null;
+  if (value.includes("UND_ERR_HEADERS_OVERFLOW") || value.includes("request URL")) {
+    return localize(locale, "Nie udało się przetworzyć wszystkich newsów. Ponów etap, aby kontynuować.", "Not all stories could be processed. Retry the stage to continue.");
+  }
+  const compact = value.replace(/\s+/g, " ").trim();
+  return compact.length > 240 ? `${compact.slice(0, 239).trimEnd()}…` : compact;
 }
 
 async function readApiPayload<T>(response: Response, fallbackError: string): Promise<ApiPayload<T>> {
@@ -79,8 +95,10 @@ async function readApiPayload<T>(response: Response, fallbackError: string): Pro
   }
 }
 
-export function DigestRunPanel({ initialRun, retrySlot }: DigestRunPanelProps) {
+export function DigestRunPanel({ initialRun, retrySlot, storyCount }: DigestRunPanelProps) {
   const router = useRouter();
+  const locale = useReaderLocale();
+  const l = useLocalize();
   const [run, setRun] = useState(initialRun);
   const [isStarting, setIsStarting] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
@@ -102,16 +120,17 @@ export function DigestRunPanel({ initialRun, retrySlot }: DigestRunPanelProps) {
   const runningStage = displayStages.find((stage) => stage.status === "running") ?? null;
   const queuedStage = displayStages.find((stage) => stage.status === "queued") ?? null;
   const currentStage = failedStage ?? runningStage ?? queuedStage ?? displayStages.at(-1) ?? null;
-  const currentCopy = currentStage ? stageCopy(currentStage.stage_name) : null;
+  const currentCopy = currentStage ? stageCopy(currentStage.stage_name, locale) : null;
   const active = isActiveRun(run);
   const progress = displayStages.length ? Math.round((completedStageCount / displayStages.length) * 100) : 0;
+  const visibleError = displayRunError(clientError || failedStage?.error_message, locale);
 
   const refreshRun = useCallback(async () => {
     const response = await fetch("/api/digest-runs", { cache: "no-store" });
-    const payload = await readApiPayload<{ run?: DigestRun | null }>(response, "Could not load digest run.");
+    const payload = await readApiPayload<{ run?: DigestRun | null }>(response, l("Nie udało się odczytać stanu digestu.", "Could not read the digest status."));
 
     if (!response.ok || !payload.ok) {
-      throw new Error(payload.error || "Could not load digest run.");
+      throw new Error(payload.error || l("Nie udało się odczytać stanu digestu.", "Could not read the digest status."));
     }
 
     const nextRun = payload.run ?? null;
@@ -128,7 +147,7 @@ export function DigestRunPanel({ initialRun, retrySlot }: DigestRunPanelProps) {
     }
 
     return nextRun;
-  }, [router]);
+  }, [l, router]);
 
   const advanceRun = useCallback(async () => {
     if (isAdvancingRef.current) {
@@ -142,10 +161,10 @@ export function DigestRunPanel({ initialRun, retrySlot }: DigestRunPanelProps) {
         cache: "no-store",
         method: "POST",
       });
-      const payload = await readApiPayload<Record<string, never>>(response, "Could not advance digest run.");
+      const payload = await readApiPayload<Record<string, never>>(response, l("Nie udało się kontynuować pobierania.", "Could not continue downloading."));
 
       if (!response.ok || !payload.ok) {
-        throw new Error(payload.error || "Could not advance digest run.");
+        throw new Error(payload.error || l("Nie udało się kontynuować pobierania.", "Could not continue downloading."));
       }
 
       setClientError(null);
@@ -153,7 +172,7 @@ export function DigestRunPanel({ initialRun, retrySlot }: DigestRunPanelProps) {
     } finally {
       isAdvancingRef.current = false;
     }
-  }, []);
+  }, [l]);
 
   const startRun = useCallback(async () => {
     setIsStarting(true);
@@ -161,19 +180,19 @@ export function DigestRunPanel({ initialRun, retrySlot }: DigestRunPanelProps) {
 
     try {
       const response = await fetch("/api/digest-runs", { method: "POST" });
-      const payload = await readApiPayload<{ run?: DigestRun }>(response, "Could not start digest run.");
+      const payload = await readApiPayload<{ run?: DigestRun }>(response, l("Nie udało się rozpocząć pobierania.", "Could not start downloading."));
 
       if (!response.ok || !payload.ok || !payload.run) {
-        throw new Error(payload.error || "Could not start digest run.");
+        throw new Error(payload.error || l("Nie udało się rozpocząć pobierania.", "Could not start downloading."));
       }
 
       setRun(payload.run);
     } catch (error) {
-      setClientError(error instanceof Error ? error.message : "Could not start digest run.");
+      setClientError(error instanceof Error ? error.message : l("Nie udało się rozpocząć pobierania.", "Could not start downloading."));
     } finally {
       setIsStarting(false);
     }
-  }, []);
+  }, [l]);
 
   const resetRun = useCallback(async () => {
     setIsResetting(true);
@@ -181,20 +200,20 @@ export function DigestRunPanel({ initialRun, retrySlot }: DigestRunPanelProps) {
 
     try {
       const response = await fetch("/api/digest-runs/reset", { method: "POST" });
-      const payload = await readApiPayload<{ run?: DigestRun | null }>(response, "Could not reset digest run.");
+      const payload = await readApiPayload<{ run?: DigestRun | null }>(response, l("Nie udało się anulować pobierania.", "Could not cancel downloading."));
 
       if (!response.ok || !payload.ok) {
-        throw new Error(payload.error || "Could not reset digest run.");
+        throw new Error(payload.error || l("Nie udało się anulować pobierania.", "Could not cancel downloading."));
       }
 
       setRun(payload.run ?? null);
       router.refresh();
     } catch (error) {
-      setClientError(error instanceof Error ? error.message : "Could not reset digest run.");
+      setClientError(error instanceof Error ? error.message : l("Nie udało się anulować pobierania.", "Could not cancel downloading."));
     } finally {
       setIsResetting(false);
     }
-  }, [router]);
+  }, [l, router]);
 
   useEffect(() => {
     if (!active || isStarting || isResetting) {
@@ -209,7 +228,7 @@ export function DigestRunPanel({ initialRun, retrySlot }: DigestRunPanelProps) {
       }
 
       void refreshRun().catch((error) => {
-        setClientError(error instanceof Error ? error.message : "Could not load digest run.");
+        setClientError(error instanceof Error ? error.message : l("Nie udało się odczytać stanu digestu.", "Could not read the digest status."));
       });
     };
 
@@ -220,7 +239,7 @@ export function DigestRunPanel({ initialRun, retrySlot }: DigestRunPanelProps) {
 
       refreshIfVisible();
       void advanceRun().catch((error) => {
-        setClientError(error instanceof Error ? error.message : "Could not advance digest run.");
+        setClientError(error instanceof Error ? error.message : l("Nie udało się kontynuować pobierania.", "Could not continue downloading."));
       });
     };
 
@@ -233,33 +252,27 @@ export function DigestRunPanel({ initialRun, retrySlot }: DigestRunPanelProps) {
       window.clearInterval(refreshTimer);
       document.removeEventListener("visibilitychange", resumeIfVisible);
     };
-  }, [active, advanceRun, isResetting, isStarting, refreshRun]);
+  }, [active, advanceRun, isResetting, isStarting, l, refreshRun]);
 
   if (!active && run?.status !== "failed") {
     const digestReady = run?.status === "succeeded";
 
     return (
       <section
-        className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border bg-card/75 p-3 shadow-sm sm:p-4"
-        aria-label="Digest run"
+        className="-mx-4 grid min-h-17 grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-y bg-background px-4 py-3 md:mx-0 md:min-h-0 md:rounded-xl md:border md:bg-card/75 md:shadow-sm"
+        aria-label={l("Pobieranie digestu", "Digest download")}
       >
-        <div className="flex min-w-0 items-center gap-3">
-          <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-accent text-accent-foreground">
-            {digestReady ? <Check className="size-4" aria-hidden="true" /> : <Sparkles className="size-4" aria-hidden="true" />}
-          </span>
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-              <h2 className="text-sm font-semibold">{digestReady ? "Latest digest is ready" : "Create a fresh digest"}</h2>
-              {run ? <Badge variant="outline">{run.report_date}</Badge> : null}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              {digestReady ? "All sources were processed successfully." : "Collect and rank the latest stories."}
-            </p>
-          </div>
+        <div className="flex min-w-0 items-center gap-2.5">
+          <span className="size-2.5 shrink-0 rounded-full bg-primary" aria-hidden="true" />
+          <p className="min-w-0 truncate text-sm text-foreground sm:text-base">
+            <span className="font-medium">{storyCount ?? 0} {l("newsów", "stories")}</span>
+            <span className="mx-2 text-muted-foreground" aria-hidden="true">·</span>
+            <span className="text-muted-foreground">{digestReady ? l("aktualny", "up to date") : l("gotowy", "ready")}</span>
+          </p>
         </div>
-        <Button type="button" size="lg" onClick={startRun} disabled={isStarting}>
-          {isStarting ? <Loader2 className="animate-spin" aria-hidden="true" /> : <Play aria-hidden="true" />}
-          Run digest
+        <Button type="button" size="lg" className="h-10 px-3.5" onClick={startRun} disabled={isStarting}>
+          {isStarting ? <Loader2 className="animate-spin" aria-hidden="true" /> : <Download aria-hidden="true" />}
+          {l("Pobierz newsy", "Fetch news")}
         </Button>
         {clientError ? <p className="w-full text-sm text-destructive">{clientError}</p> : null}
       </section>
@@ -268,32 +281,32 @@ export function DigestRunPanel({ initialRun, retrySlot }: DigestRunPanelProps) {
 
   return (
     <section
-      className="overflow-hidden rounded-2xl border bg-gradient-to-br from-card via-card to-primary/5 p-4 shadow-sm sm:p-5"
-      aria-label="Digest run"
+      className="-mx-4 overflow-hidden border-y bg-card p-3 md:mx-0 md:rounded-2xl md:border md:p-5 md:shadow-sm"
+      aria-label={l("Pobieranie digestu", "Digest download")}
     >
-      <div className="grid gap-4 sm:grid-cols-[1fr_auto] sm:items-start">
+      <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-start md:gap-4">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <Activity className="size-4 text-primary" aria-hidden="true" />
-            <h2 className="text-sm font-semibold">Digest run</h2>
-            <Badge variant={run?.status === "failed" ? "destructive" : active ? "secondary" : "outline"}>
-              {formatRunStatus(run?.status ?? null)}
+            <h2 className="text-sm font-semibold">{l("Aktualizacja digestu", "Updating digest")}</h2>
+            <Badge className="hidden sm:inline-flex" variant={run?.status === "failed" ? "destructive" : active ? "secondary" : "outline"}>
+              {formatRunStatus(run?.status ?? null, locale)}
             </Badge>
             {run ? (
-              <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+              <span className="hidden items-center gap-1 text-xs text-muted-foreground sm:inline-flex">
                 <CalendarDays className="size-3.5" aria-hidden="true" />
                 {run.report_date}
               </span>
             ) : null}
           </div>
 
-          <div className="mt-3 grid gap-3">
+          <div className="mt-2 grid gap-2.5 md:mt-3 md:gap-3">
             <div className="flex flex-wrap items-baseline justify-between gap-2">
               <p className="text-sm font-medium">
-                {currentCopy ? currentCopy.verb : "Ready for today"}
+                {currentCopy ? currentCopy.verb : l("Gotowe na dziś", "Ready for today")}
               </p>
               <span className="text-xs font-medium tabular-nums text-muted-foreground">
-                {`${progress}% · ${completedStageCount}/${displayStages.length} stages`}
+                {`${progress}% · ${completedStageCount}/${displayStages.length} ${l("etapów", "stages")}`}
               </span>
             </div>
 
@@ -307,9 +320,9 @@ export function DigestRunPanel({ initialRun, retrySlot }: DigestRunPanelProps) {
               ) : null}
             </div>
 
-            <div className="flex flex-wrap gap-1.5">
+            <div className="hidden flex-wrap gap-1.5 sm:flex">
               {displayStages.map((stage) => {
-                const copy = stageCopy(stage.stage_name);
+                const copy = stageCopy(stage.stage_name, locale);
                 const isCurrent = currentStage?.id === stage.id;
                 const isDone = stage.status === "succeeded";
                 const isFailed = stage.status === "failed";
@@ -339,9 +352,9 @@ export function DigestRunPanel({ initialRun, retrySlot }: DigestRunPanelProps) {
               })}
             </div>
 
-            {clientError || failedStage?.error_message ? (
+            {visibleError ? (
               <p className="rounded-lg border border-destructive/25 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-                {clientError || failedStage?.error_message}
+                {visibleError}
               </p>
             ) : null}
           </div>
@@ -353,24 +366,24 @@ export function DigestRunPanel({ initialRun, retrySlot }: DigestRunPanelProps) {
               {retrySlot}
               <Button type="button" size="lg" variant="outline" onClick={resetRun} disabled={isResetting}>
                 {isResetting ? <Loader2 className="animate-spin" aria-hidden="true" /> : <RotateCcw aria-hidden="true" />}
-                Reset run
+                {l("Wyczyść błąd", "Clear error")}
               </Button>
             </>
           ) : active ? (
             <>
-              <div className="inline-flex h-9 items-center gap-2 rounded-lg border bg-card px-3 text-sm font-medium text-muted-foreground">
+              <div className="hidden h-9 items-center gap-2 rounded-lg border bg-card px-3 text-sm font-medium text-muted-foreground sm:inline-flex">
                 <Sparkles className="size-4 animate-pulse text-primary" aria-hidden="true" />
-                Running
+                {l("Pobieranie", "Downloading")}
               </div>
-              <Button type="button" size="lg" variant="outline" onClick={resetRun} disabled={isResetting}>
+              <Button type="button" size="sm" variant="outline" onClick={resetRun} disabled={isResetting}>
                 {isResetting ? <Loader2 className="animate-spin" aria-hidden="true" /> : <RotateCcw aria-hidden="true" />}
-                Reset run
+                {l("Anuluj pobieranie", "Cancel download")}
               </Button>
             </>
           ) : (
             <Button type="button" size="lg" onClick={startRun} disabled={isStarting}>
-              {isStarting ? <Loader2 className="animate-spin" aria-hidden="true" /> : <Play aria-hidden="true" />}
-              Run digest
+              {isStarting ? <Loader2 className="animate-spin" aria-hidden="true" /> : <Download aria-hidden="true" />}
+              {l("Pobierz newsy", "Fetch news")}
             </Button>
           )}
         </div>

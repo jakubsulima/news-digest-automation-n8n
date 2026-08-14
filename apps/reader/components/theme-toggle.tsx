@@ -3,6 +3,7 @@
 import { Laptop, Moon, Sun } from "lucide-react";
 import { useEffect, useState } from "react";
 
+import { useLocalize } from "@/components/reader-locale-provider";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -12,12 +13,12 @@ const THEME_STORAGE_KEY = "reader-theme";
 
 const THEME_OPTIONS: Array<{
   icon: typeof Sun;
-  label: string;
+  labels: readonly [string, string];
   mode: ThemeMode;
 }> = [
-  { icon: Sun, label: "Light", mode: "light" },
-  { icon: Moon, label: "Dark", mode: "dark" },
-  { icon: Laptop, label: "System", mode: "system" },
+  { icon: Sun, labels: ["Jasny", "Light"], mode: "light" },
+  { icon: Moon, labels: ["Ciemny", "Dark"], mode: "dark" },
+  { icon: Laptop, labels: ["Systemowy", "System"], mode: "system" },
 ];
 
 function storedThemeMode(value: string | null): ThemeMode {
@@ -42,6 +43,7 @@ function applyThemeMode(mode: ThemeMode) {
 }
 
 export function ThemeToggle({ className, compact = false }: { className?: string; compact?: boolean }) {
+  const l = useLocalize();
   const [mode, setMode] = useState<ThemeMode>("system");
   const [resolvedDark, setResolvedDark] = useState(false);
 
@@ -79,8 +81,8 @@ export function ThemeToggle({ className, compact = false }: { className?: string
         type="button"
         variant="outline"
         size="icon-lg"
-        title={`Switch to ${nextMode} mode`}
-        aria-label={`Switch to ${nextMode} mode`}
+        title={nextMode === "light" ? l("Włącz jasny motyw", "Use light theme") : l("Włącz ciemny motyw", "Use dark theme")}
+        aria-label={nextMode === "light" ? l("Włącz jasny motyw", "Use light theme") : l("Włącz ciemny motyw", "Use dark theme")}
         onClick={() => updateMode(nextMode)}
       >
         <ActiveIcon aria-hidden="true" />
@@ -104,7 +106,7 @@ export function ThemeToggle({ className, compact = false }: { className?: string
             onClick={() => updateMode(option.mode)}
           >
             <Icon aria-hidden="true" />
-            <span className="text-xs">{option.label}</span>
+            <span className="text-xs">{l(option.labels[0], option.labels[1])}</span>
           </Button>
         );
       })}

@@ -1,60 +1,71 @@
-import { Clock3, Eye, Sparkles, Telescope } from "lucide-react";
+"use client";
+
+import { ArrowRight, ChevronRight, Clock3, ListTree, Newspaper } from "lucide-react";
 import Link from "next/link";
 
-import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import type { DigestBrief, DigestBriefReference } from "@/lib/digest-brief";
+import { useLocalize, useReaderLocale } from "@/components/reader-locale-provider";
+import { buttonVariants } from "@/components/ui/button";
+import type { DigestBrief } from "@/lib/digest-brief";
+import { localize, type ReaderLocale } from "@/lib/reader-locale";
 
 type DigestBriefProps = {
   brief: DigestBrief;
 };
 
-function SourceLinks({ references }: { references: DigestBriefReference[] }) {
-  if (!references.length) return null;
+const TECHNICAL_REASON_COPY: Record<string, readonly [string, string]> = {
+  "build opportunity": ["Może tworzyć konkretną okazję produktową, integracyjną albo automatyzacyjną.", "It may create a concrete product, integration, or automation opportunity."],
+  "competitive intelligence": ["Pomaga ocenić pozycjonowanie, dystrybucję i ruchy konkurencji.", "It helps assess competitors' positioning, distribution, and moves."],
+  "geopolitical risk": ["Może wpłynąć na łańcuchy dostaw, energię, sankcje albo bezpieczeństwo.", "It may affect supply chains, energy, sanctions, or security."],
+  "infrastructure outage": ["Dotyczy odporności infrastruktury i ryzyka przerw w działaniu usług.", "It concerns infrastructure resilience and the risk of service disruption."],
+  "investment signal": ["Może być istotnym sygnałem dla przepływu kapitału i nastrojów rynkowych.", "It may be a meaningful signal for capital flows and market sentiment."],
+  "market risk": ["Może wpłynąć na wyceny, budżety firm i decyzje klientów.", "It may affect valuations, company budgets, and customer decisions."],
+  "product trend": ["Wskazuje trend, który warto uwzględnić w planach produktowych i technologicznych.", "It highlights a trend worth considering in product and technology plans."],
+  "regulatory risk": ["Może zmienić zasady dostępu do rynku, danych, technologii albo zgodności.", "It may change the rules for market, data, technology, or compliance access."],
+  "security risk": ["Pokazuje realne ryzyko bezpieczeństwa, które warto szybko ocenić.", "It signals a concrete security risk worth assessing quickly."],
+};
 
-  return (
-    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground" aria-label="Materiały źródłowe">
-      <span>Materiały:</span>
-      {references.map((reference, index) => (
-        <span key={reference.newsItemId}>
-          <Link
-            href={`/news/${reference.newsItemId}`}
-            className="font-medium text-foreground/75 underline decoration-border underline-offset-2 hover:text-primary"
-            title={reference.title}
-          >
-            {reference.source}
-          </Link>
-          {index < references.length - 1 ? "," : null}
-        </span>
-      ))}
-    </div>
-  );
+function readerFriendlyWhy(value: string, locale: ReaderLocale) {
+  const technicalReason = value.match(/^Selected as ([^:.;]+)/i)?.[1]?.toLowerCase();
+  const copy = technicalReason ? TECHNICAL_REASON_COPY[technicalReason] : null;
+  return copy ? localize(locale, copy[0], copy[1]) : technicalReason ? localize(locale, "To ważny sygnał, który może wymagać dalszej analizy.", "This is an important signal that may need further analysis.") : value;
+}
+
+function readerFriendlySummary(value: string) {
+  return value.replace(/^View CSAF Summary\s*/i, "").trim();
 }
 
 function BriefHighlights({ highlights }: { highlights: DigestBrief["highlights"] }) {
+  const locale = useReaderLocale();
+  const l = useLocalize();
+
   return (
-    <ol className="grid gap-3" aria-label="Najważniejsze zmiany">
-      {highlights.map((highlight, index) => (
-        <li key={highlight.newsItemId} className="grid grid-cols-[1.75rem_1fr] gap-2.5">
-          <span
-            className="flex size-7 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary"
-            aria-hidden="true"
+    <ol className="divide-y divide-border" aria-label={l("Najważniejsze newsy", "Top stories")}>
+      {highlights.slice(0, 3).map((highlight) => (
+        <li key={highlight.newsItemId}>
+          <Link
+            href={`/news/${highlight.newsItemId}`}
+            className="group grid grid-cols-[1fr_auto] content-center gap-3 px-4 py-3 outline-none transition-colors hover:bg-muted/30 focus-visible:bg-muted/45 focus-visible:ring-3 focus-visible:ring-inset focus-visible:ring-ring/40 md:px-5 md:py-4"
           >
-            {index + 1}
-          </span>
-          <div className="grid gap-1">
-            <p className="text-sm font-medium leading-6 text-foreground">{highlight.whatHappened}</p>
-            <p className="text-sm leading-6 text-muted-foreground">
-              <span className="font-medium text-foreground/80">Dlaczego to ważne: </span>
-              {highlight.whyItMatters}
-            </p>
-            <Link
-              href={`/news/${highlight.newsItemId}`}
-              className="w-fit text-xs font-medium text-primary hover:underline"
-            >
-              {highlight.source} · przeczytaj materiał
-            </Link>
-          </div>
+            <div className="min-w-0">
+              <div className="mb-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-semibold md:mb-2">
+                <span className="text-primary">{highlight.source}</span>
+                <span className="text-muted-foreground" aria-hidden="true">·</span>
+                <span className="text-amber-700 dark:text-amber-400">{l("Ważne", "Important")}</span>
+              </div>
+              <h3 className="line-clamp-2 text-base font-semibold leading-5 text-foreground transition-colors group-hover:text-primary sm:text-lg sm:leading-6">
+                {highlight.title}
+              </h3>
+              <p className="mt-1.5 line-clamp-1 text-[0.82rem] leading-4 text-muted-foreground md:mt-2 md:line-clamp-2 md:text-sm md:leading-5">
+                <span className="font-semibold text-foreground/75">{l("Dlaczego ważne: ", "Why it matters: ")}</span>
+                {readerFriendlyWhy(highlight.whyItMatters, locale)}
+              </p>
+              <span className="mt-2 inline-flex items-center gap-2 text-xs text-muted-foreground md:mt-3">
+                <Newspaper className="size-4" strokeWidth={1.9} aria-hidden="true" />
+                {highlight.source}
+              </span>
+            </div>
+            <ChevronRight className="self-center size-6 text-primary transition-transform group-hover:translate-x-0.5" strokeWidth={2} aria-hidden="true" />
+          </Link>
         </li>
       ))}
     </ol>
@@ -62,90 +73,55 @@ function BriefHighlights({ highlights }: { highlights: DigestBrief["highlights"]
 }
 
 export function DigestBriefCard({ brief }: DigestBriefProps) {
+  const l = useLocalize();
+
   return (
-    <section aria-label="Pięciominutowy briefing sytuacyjny">
-      <Card className="border-primary/20 bg-gradient-to-br from-accent/45 via-card to-card shadow-sm">
-        <CardHeader className="border-b border-border/70 pb-4">
-          <div className="flex flex-wrap items-center gap-2">
-            <Sparkles className="size-4 text-primary" aria-hidden="true" />
-            <CardTitle>Briefing sytuacyjny</CardTitle>
-            <Badge variant="outline">{brief.digestDate}</Badge>
-            <Badge variant="secondary">
-              <Clock3 data-icon="inline-start" aria-hidden="true" />
-              {brief.readingTimeMinutes} min
-            </Badge>
+    <section className="-mx-4 overflow-hidden bg-background md:mx-0 md:rounded-2xl md:border md:bg-card md:shadow-sm" aria-label={l("Podsumowanie dnia", "Daily summary")}>
+      <div className="border-b px-4 py-4 md:px-5 md:py-5">
+        <div className="flex items-center gap-3">
+          <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+            <ListTree className="size-5" strokeWidth={2} aria-hidden="true" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <h1 className="text-xl font-semibold tracking-tight">{l("Podsumowanie dnia", "Daily summary")}</h1>
           </div>
-          <CardDescription>
-            Synteza najważniejszych zmian, ich znaczenia i sygnałów do obserwowania.
-          </CardDescription>
-        </CardHeader>
+          <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+            <Clock3 className="size-3.5" aria-hidden="true" />
+            {brief.readingTimeMinutes} min
+          </span>
+        </div>
 
-        <CardContent className="grid gap-6">
-          <section className="grid gap-2" aria-labelledby="brief-overview-heading">
-            <div className="flex items-center gap-2">
-              <Eye className="size-4 text-primary" aria-hidden="true" />
-              <h2 id="brief-overview-heading" className="text-sm font-semibold uppercase tracking-wide text-foreground/80">
-                Obraz dnia
-              </h2>
-            </div>
-            <p className="text-[0.95rem] leading-7 text-foreground">{brief.summary}</p>
-          </section>
+        {brief.highlights.length ? (
+          <ul className="mt-4 grid gap-2.5 md:mt-5 md:gap-4" aria-label={l("Skrót dnia", "Daily brief")}>
+            {brief.highlights.slice(0, 4).map((highlight) => (
+              <li key={`summary-${highlight.newsItemId}`} className="grid grid-cols-[0.5rem_1fr] gap-3 text-[0.82rem] leading-[1.2rem] text-foreground/90 md:text-[0.95rem] md:leading-6">
+                <span className="mt-2 size-2 rounded-full bg-primary" aria-hidden="true" />
+                <span className="line-clamp-2">{readerFriendlySummary(highlight.whatHappened)}</span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="mt-4 text-[0.95rem] leading-6 text-foreground/90">{brief.summary}</p>
+        )}
+      </div>
 
-          {brief.highlights.length ? (
-            <section className="grid gap-3 border-t border-border/70 pt-5" aria-labelledby="brief-highlights-heading">
-              <h2 id="brief-highlights-heading" className="text-sm font-semibold uppercase tracking-wide text-foreground/80">
-                Najważniejsze zmiany
-              </h2>
-              <BriefHighlights highlights={brief.highlights} />
-            </section>
-          ) : null}
-
-          {brief.sections.length ? (
-            <section className="grid gap-3 border-t border-border/70 pt-5" aria-labelledby="brief-sections-heading">
-              <h2 id="brief-sections-heading" className="text-sm font-semibold uppercase tracking-wide text-foreground/80">
-                Sytuacja w Twoich obszarach
-              </h2>
-              <div className="grid gap-3 sm:grid-cols-2">
-                {brief.sections.map((section) => (
-                  <article key={`${section.category}-${section.title}`} className="grid content-start gap-2 rounded-lg border bg-background/50 p-3.5">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="font-semibold leading-snug">{section.title}</h3>
-                      <Badge variant="outline">{section.category}</Badge>
-                    </div>
-                    <p className="text-sm leading-6 text-muted-foreground">{section.situation}</p>
-                    <SourceLinks references={section.references} />
-                  </article>
-                ))}
-              </div>
-            </section>
-          ) : null}
-
-          {brief.watchlist.length ? (
-            <section className="grid gap-3 border-t border-border/70 pt-5" aria-labelledby="brief-watch-heading">
-              <div className="flex items-center gap-2">
-                <Telescope className="size-4 text-primary" aria-hidden="true" />
-                <h2 id="brief-watch-heading" className="text-sm font-semibold uppercase tracking-wide text-foreground/80">
-                  Co obserwować dalej
-                </h2>
-              </div>
-              <ul className="grid gap-2 sm:grid-cols-2">
-                {brief.watchlist.map((item) => (
-                  <li key={item.signal} className="grid content-start gap-1 rounded-lg bg-muted/45 p-3">
-                    <p className="text-sm font-medium leading-5">{item.signal}</p>
-                    <p className="text-xs leading-5 text-muted-foreground">{item.why}</p>
-                    <SourceLinks references={item.references} />
-                  </li>
-                ))}
-              </ul>
-            </section>
-          ) : null}
-
-          <p className="border-t border-border/70 pt-3 text-xs leading-5 text-muted-foreground">
-            <span className="font-medium text-foreground/70">Granice briefingu: </span>
-            {brief.coverageNote}
-          </p>
-        </CardContent>
-      </Card>
+      {brief.highlights.length ? (
+        <section aria-labelledby="brief-highlights-heading">
+          <h2 id="brief-highlights-heading" className="px-4 pb-2 pt-4 text-lg font-semibold md:px-5 md:pt-5">
+            {l("Najważniejsze", "Top stories")}
+          </h2>
+          <BriefHighlights highlights={brief.highlights} />
+          <div className="hidden border-t px-4 py-4 md:block md:px-5">
+            <Link
+              href="/news"
+              className={buttonVariants({ variant: "outline", size: "lg", className: "h-11 w-full md:w-auto" })}
+            >
+              {l("Wszystkie newsy", "All news")}
+              <ArrowRight aria-hidden="true" />
+            </Link>
+          </div>
+        </section>
+      ) : null}
     </section>
   );
 }

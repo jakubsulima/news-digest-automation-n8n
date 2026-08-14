@@ -415,15 +415,34 @@ async function persistStoryArticleAssociations(
     const cluster = savedClusters.get(story.storyKey);
     return cluster ? [cluster.id] : [];
   });
-  const { data: existingRows, error: existingError } = clusterIds.length
-    ? await supabase
+  const existingRows: Array<{
+    article_id: string;
+    first_seen_at: string;
+    first_seen_digest_run_id: string | null;
+    story_cluster_id: string;
+  }> = [];
+  const clusterIdBatches = chunkByEncodedLength(
+    clusterIds,
+    SUPABASE_FILTER_BATCH_MAX_COUNT,
+    SUPABASE_FILTER_BATCH_MAX_ENCODED_LENGTH,
+  );
+
+  for (const [batchIndex, clusterIdBatch] of clusterIdBatches.entries()) {
+    const { data, error } = await supabase
         .from("story_cluster_articles")
         .select("story_cluster_id, article_id, first_seen_at, first_seen_digest_run_id")
-        .in("story_cluster_id", clusterIds)
-    : { data: [], error: null };
+        .in("story_cluster_id", clusterIdBatch);
 
-  if (existingError) throw existingError;
-  const existingByKey = new Map((existingRows || []).map((row) => [`${row.story_cluster_id}:${row.article_id}`, row]));
+    if (error) {
+      throwDatabaseError(
+        `load story article associations batch ${batchIndex + 1}/${clusterIdBatches.length}`,
+        error,
+      );
+    }
+    existingRows.push(...(data || []));
+  }
+
+  const existingByKey = new Map(existingRows.map((row) => [`${row.story_cluster_id}:${row.article_id}`, row]));
   const now = new Date().toISOString();
   const rows: StoryClusterArticleInsert[] = [];
 
@@ -462,8 +481,8 @@ async function persistStoryArticleAssociations(
     if (error) throw error;
   }
 
-  if (clusterIds.length) {
-    const { error } = await supabase.from("story_cluster_articles").update({ is_canonical: false }).in("story_cluster_id", clusterIds);
+  for (const clusterIdBatch of clusterIdBatches) {
+    const { error } = await supabase.from("story_cluster_articles").update({ is_canonical: false }).in("story_cluster_id", clusterIdBatch);
     if (error) throw error;
   }
 
@@ -490,16 +509,35 @@ async function persistStorySourceAssociations(
     const cluster = savedClusters.get(story.storyKey);
     return cluster ? [cluster.id] : [];
   });
-  const { data: existingRows, error: existingError } = clusterIds.length
-    ? await supabase
+  const existingRows: Array<{
+    first_seen_at: string;
+    first_seen_digest_run_id: string | null;
+    reader_source_id: string;
+    story_cluster_id: string;
+  }> = [];
+  const clusterIdBatches = chunkByEncodedLength(
+    clusterIds,
+    SUPABASE_FILTER_BATCH_MAX_COUNT,
+    SUPABASE_FILTER_BATCH_MAX_ENCODED_LENGTH,
+  );
+
+  for (const [batchIndex, clusterIdBatch] of clusterIdBatches.entries()) {
+    const { data, error } = await supabase
         .from("story_cluster_sources")
         .select("story_cluster_id, reader_source_id, first_seen_at, first_seen_digest_run_id")
-        .in("story_cluster_id", clusterIds)
-    : { data: [], error: null };
+        .in("story_cluster_id", clusterIdBatch);
 
-  if (existingError) throw existingError;
+    if (error) {
+      throwDatabaseError(
+        `load story source associations batch ${batchIndex + 1}/${clusterIdBatches.length}`,
+        error,
+      );
+    }
+    existingRows.push(...(data || []));
+  }
+
   const existingByKey = new Map(
-    (existingRows || []).map((row) => [`${row.story_cluster_id}:${row.reader_source_id}`, row]),
+    existingRows.map((row) => [`${row.story_cluster_id}:${row.reader_source_id}`, row]),
   );
   const now = new Date().toISOString();
   const rows: StoryClusterSourceInsert[] = [];

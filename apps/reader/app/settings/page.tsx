@@ -1,4 +1,4 @@
-import { ChevronDown, Plus, Rss, Save } from "lucide-react";
+import { ChevronDown, LogOut, Plus, Rss, Save } from "lucide-react";
 import Link from "next/link";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -8,8 +8,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { FeedTargetSliders } from "@/components/feed-target-sliders";
 import { Input } from "@/components/ui/input";
 import { KeywordGroupManager } from "@/components/keyword-group-manager";
+import { LanguageToggle } from "@/components/language-toggle";
 import { Label } from "@/components/ui/label";
 import { PageHeader } from "@/components/page-header";
+import { MobileBottomNav } from "@/components/mobile-bottom-nav";
 import { SourceEditorShell } from "@/components/source-editor-shell";
 import { ThemeToggle } from "@/components/theme-toggle";
 import {
@@ -37,9 +39,19 @@ import { getReaderSources, SOURCE_PRESETS, type ReaderSource } from "@/lib/reade
 import { getSourceQualityInsights, type SourceQualityInsight } from "@/lib/source-quality";
 import { getSourceAutopilotGate, getSourcePortfolioSuggestions } from "@/lib/source-portfolio";
 import { discoverReaderSource } from "@/lib/source-discovery";
+import { createSupabaseServerClient } from "@/lib/supabase";
+import { localize, type ReaderLocale } from "@/lib/reader-locale";
+import { getReaderLocale } from "@/lib/reader-locale-server";
 import { cn } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
+
+async function signOut() {
+  "use server";
+
+  const supabase = await createSupabaseServerClient();
+  await supabase.auth.signOut();
+}
 
 const STATUS_COPY = {
   "migration-required": "Settings cannot be saved until the reader_digest_settings Supabase migration is applied.",
@@ -67,36 +79,36 @@ const SECTION_CONTENT_CLASS = "pt-1";
 const DIGEST_PRESETS = [
   {
     id: "balanced",
-    label: "Balanced",
-    description: "Broad daily mix.",
+    label: "Zrównoważony",
+    description: "Szeroki przekrój dnia.",
     feedTargets: { geopolitics: 14, business: 6, ai: 4, software: 4, security: 2 },
     publishTopN: 30,
   },
   {
     id: "brief",
-    label: "Brief",
-    description: "Small digest, less noise.",
+    label: "Krótki",
+    description: "Mniej newsów i mniej szumu.",
     feedTargets: { geopolitics: 8, business: 4, ai: 3, software: 3, security: 2 },
     publishTopN: 20,
   },
   {
     id: "markets",
-    label: "Markets",
-    description: "Business and geopolitics first.",
+    label: "Rynki",
+    description: "Najpierw biznes i geopolityka.",
     feedTargets: { geopolitics: 14, business: 12, ai: 1, software: 1, security: 2 },
     publishTopN: 30,
   },
   {
     id: "ai-tech",
     label: "AI + tech",
-    description: "Labs, software, and security.",
+    description: "Modele, software i bezpieczeństwo.",
     feedTargets: { geopolitics: 6, business: 3, ai: 8, software: 8, security: 5 },
     publishTopN: 30,
   },
   {
     id: "security",
-    label: "Security",
-    description: "Threats and incidents.",
+    label: "Bezpieczeństwo",
+    description: "Zagrożenia i incydenty.",
     feedTargets: { geopolitics: 4, business: 2, ai: 2, software: 6, security: 16 },
     publishTopN: 30,
   },
@@ -198,9 +210,9 @@ const KEYWORD_GROUP_IDS = {
 } satisfies Record<KeywordGroupKind, Set<string>>;
 const SOURCE_FEEDS = READER_FEEDS as readonly SourceFeed[];
 const SETTINGS_TABS = [
-  { id: "general", label: "General" },
-  { id: "advanced", label: "Advanced" },
-  { id: "sources", label: "Sources" },
+  { id: "general", labels: ["Ogólne", "General"] },
+  { id: "advanced", labels: ["Zaawansowane", "Advanced"] },
+  { id: "sources", labels: ["Źródła", "Sources"] },
 ] as const;
 const SETTINGS_TAB_IDS = new Set<SettingsTabId>(SETTINGS_TABS.map((tab) => tab.id));
 
@@ -519,10 +531,12 @@ function DigestPresetLinks({
   activePreset,
   activeKeywordGroups,
   activeSourceFeed,
+  locale,
 }: {
   activePreset: DigestPresetId | null;
   activeKeywordGroups: ActiveKeywordGroups;
   activeSourceFeed: ReaderFeedId;
+  locale: ReaderLocale;
 }) {
   return (
     <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
@@ -544,9 +558,9 @@ function DigestPresetLinks({
             })}
             scroll={false}
           >
-            <span className="font-semibold">{preset.label}</span>
+            <span className="font-semibold">{localize(locale, preset.label, preset.id === "balanced" ? "Balanced" : preset.id === "brief" ? "Brief" : preset.id === "markets" ? "Markets" : preset.id === "ai-tech" ? "AI + tech" : "Security")}</span>
             <span className={cn("text-xs font-normal", active ? "text-primary-foreground/80" : "text-muted-foreground")}>
-              {preset.description}
+              {localize(locale, preset.description, preset.id === "balanced" ? "A broad overview of the day." : preset.id === "brief" ? "Fewer stories and less noise." : preset.id === "markets" ? "Business and geopolitics first." : preset.id === "ai-tech" ? "Models, software, and security." : "Threats and incidents.")}
             </span>
           </Link>
         );
@@ -583,11 +597,13 @@ function SourceTabs({
   activeKeywordGroups,
   activePreset,
   groups,
+  locale,
 }: {
   activeFeed: ReaderFeedId;
   activeKeywordGroups: ActiveKeywordGroups;
   activePreset: DigestPresetId | null;
   groups: SourceGroup[];
+  locale: ReaderLocale;
 }) {
   const sharedHrefParams = {
     avoidKeywordGroups: activeKeywordGroups.avoid,
@@ -597,7 +613,7 @@ function SourceTabs({
   };
 
   return (
-    <nav className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1" aria-label="Source categories">
+    <nav className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1" aria-label={localize(locale, "Kategorie źródeł", "Source categories")}>
       {SOURCE_FEEDS.map((feed) => {
         const active = feed.id === activeFeed;
         const count = sourceTabCount(groups, feed.id);
@@ -615,7 +631,7 @@ function SourceTabs({
             scroll={false}
             aria-current={active ? "page" : undefined}
           >
-            <span className="font-medium">{feed.label}</span>
+            <span className="font-medium">{localize(locale, feed.label, feed.id === "all" ? "All" : feed.id === "geopolitics" ? "Geopolitics" : feed.id === "business" ? "Business" : feed.id === "ai" ? "AI" : feed.id === "software" ? "Software" : "Security")}</span>
             <span className={cn("text-xs tabular-nums", active ? "text-primary-foreground/75" : "text-muted-foreground")}>
               {count.enabled}/{count.sources}
             </span>
@@ -631,16 +647,18 @@ function SettingsTabs({
   activePreset,
   activeSourceFeed,
   activeTab,
+  locale,
 }: {
   activeKeywordGroups: ActiveKeywordGroups;
   activePreset: DigestPresetId | null;
   activeSourceFeed: ReaderFeedId;
   activeTab: SettingsTabId;
+  locale: ReaderLocale;
 }) {
   return (
     <nav
       className="sticky top-3 z-20 grid grid-cols-3 gap-1 rounded-2xl border bg-background/90 p-1.5 shadow-sm backdrop-blur-xl"
-      aria-label="Settings sections"
+      aria-label={localize(locale, "Sekcje ustawień", "Settings sections")}
     >
       {SETTINGS_TABS.map((tab) => {
         const active = tab.id === activeTab;
@@ -663,7 +681,7 @@ function SettingsTabs({
             })}
             scroll={false}
           >
-            <span className="truncate">{tab.label}</span>
+            <span className="truncate">{localize(locale, tab.labels[0], tab.labels[1])}</span>
           </Link>
         );
       })}
@@ -711,6 +729,7 @@ function SourceEditor({
 
 export default async function SettingsPage({ searchParams }: SettingsPageProps) {
   const user = await requireCurrentReader();
+  const locale = await getReaderLocale();
   const rawSearchParams = await searchParams;
   const activeSettingsTab = normalizeSettingsTabId(rawSearchParams?.settingsTab);
   const activeSourceFeed = normalizeSettingsSourceFeed(rawSearchParams?.sourceFeed);
@@ -770,10 +789,12 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
   let sourceFieldIndex = 0;
 
   return (
+    <>
     <main className="mx-auto flex w-full max-w-5xl flex-col gap-4 px-4 py-5 sm:px-6 sm:py-7">
       <PageHeader
-        title="Ustawienia digestu"
-        description={<span className="block truncate">Dostosuj digest i źródła · {user.email}</span>}
+        backHref={null}
+        title={localize(locale, "Ustawienia", "Settings")}
+        description={localize(locale, "Dostosuj digest, źródła i sposób czytania.", "Adjust your digest, sources, and reading experience.")}
       />
 
       {statusCopy ? (
@@ -787,25 +808,41 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
         activePreset={activePreset}
         activeSourceFeed={activeSourceFeed}
         activeTab={activeSettingsTab}
+        locale={locale}
       />
 
       {activeSettingsTab === "general" ? (
         <div className="settings-panel grid gap-4">
           <Card className={SECTION_CARD_CLASS}>
             <CardHeader className={SECTION_HEADER_CLASS}>
-              <CardTitle>Appearance</CardTitle>
-              <CardDescription>Theme applies across the reader.</CardDescription>
+              <CardTitle>{localize(locale, "Wygląd i język", "Appearance and language")}</CardTitle>
+              <CardDescription>{localize(locale, "Te ustawienia obowiązują w całej aplikacji.", "These settings apply across the entire app.")}</CardDescription>
             </CardHeader>
             <CardContent className={SECTION_CONTENT_CLASS}>
-              <ThemeToggle />
+              <div className="grid gap-3">
+                <div className="grid gap-1.5">
+                  <p className="text-sm font-medium">{localize(locale, "Język", "Language")}</p>
+                  <LanguageToggle />
+                </div>
+                <div className="grid gap-1.5">
+                  <p className="text-sm font-medium">{localize(locale, "Motyw", "Theme")}</p>
+                  <ThemeToggle />
+                </div>
+              </div>
+              <form action={signOut} className="mt-3 border-t pt-3 md:hidden">
+                <Button type="submit" variant="outline" size="lg" className="w-full">
+                  <LogOut aria-hidden="true" />
+                  {localize(locale, "Wyloguj się", "Sign out")}
+                </Button>
+              </form>
             </CardContent>
           </Card>
 
           <details className={cn("settings-disclosure group rounded-xl", SECTION_CARD_CLASS)}>
             <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 [&::-webkit-details-marker]:hidden">
               <div>
-                <p className="font-medium">Feed insights</p>
-                <p className="mt-0.5 text-sm text-muted-foreground">Private engagement signals from the last 180 days.</p>
+                <p className="font-medium">{localize(locale, "Statystyki czytania", "Reading statistics")}</p>
+                <p className="mt-0.5 text-sm text-muted-foreground">{localize(locale, "Prywatne sygnały aktywności z ostatnich 180 dni.", "Private activity signals from the last 180 days.")}</p>
               </div>
               <ChevronDown className="size-4 shrink-0 text-muted-foreground transition-transform duration-300 group-open:rotate-180" aria-hidden="true" />
             </summary>
@@ -826,7 +863,7 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
               </div>
               <details className="rounded-lg border bg-muted/20">
                 <summary className="cursor-pointer list-none px-3 py-2 text-xs font-medium text-muted-foreground [&::-webkit-details-marker]:hidden">
-                  Metryki techniczne
+                  {localize(locale, "Metryki techniczne", "Technical metrics")}
                 </summary>
                 <div className="grid grid-cols-2 gap-2 border-t p-3 text-xs">
                   <div>
@@ -860,10 +897,10 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
               <CardHeader className={SECTION_HEADER_CLASS}>
                 <div className="flex items-center justify-between gap-3">
                   <div>
-                    <CardTitle>Digest presets</CardTitle>
-                    <CardDescription>Start with a balanced mix or bias the digest toward a topic.</CardDescription>
+                  <CardTitle>{localize(locale, "Gotowe ustawienia", "Presets")}</CardTitle>
+                  <CardDescription>{localize(locale, "Wybierz proporcje newsów dopasowane do sposobu czytania.", "Choose a news mix that matches how you read.")}</CardDescription>
                   </div>
-                  {activePreset ? <Badge variant="secondary">preset pending</Badge> : null}
+                  {activePreset ? <Badge variant="secondary">{localize(locale, "preset oczekuje", "preset pending")}</Badge> : null}
                 </div>
               </CardHeader>
               <CardContent className={SECTION_CONTENT_CLASS}>
@@ -871,21 +908,22 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
                   activeKeywordGroups={activeKeywordGroups}
                   activePreset={activePreset}
                   activeSourceFeed={activeSourceFeed}
+                  locale={locale}
                 />
               </CardContent>
             </Card>
 
             <Card className={SECTION_CARD_CLASS}>
               <CardHeader className={SECTION_HEADER_CLASS}>
-                <CardTitle>Output limits</CardTitle>
-                <CardDescription>Control digest size and the minimum score needed to publish an item.</CardDescription>
+                <CardTitle>{localize(locale, "Rozmiar digestu", "Digest size")}</CardTitle>
+                <CardDescription>{localize(locale, "Ustal liczbę newsów i minimalny wynik publikacji.", "Set the number of stories and the minimum publication score.")}</CardDescription>
               </CardHeader>
               <CardContent className={cn(SECTION_CONTENT_CLASS, "grid gap-4")}>
                 <div className="grid gap-4 sm:grid-cols-2">
-                  <NumberField name="publishTopN" label="Articles per digest" min={5} max={100} defaultValue={settings.publishTopN} />
+                  <NumberField name="publishTopN" label={localize(locale, "Newsów w digescie", "Stories in the digest")} min={5} max={100} defaultValue={settings.publishTopN} />
                   <NumberField
                     name="minimumImportanceScore"
-                    label="Minimum score"
+                    label={localize(locale, "Minimalny wynik", "Minimum score")}
                     min={0}
                     max={100}
                     defaultValue={settings.minimumImportanceScore}
@@ -898,16 +936,16 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
                     name="requireMajorSecurity"
                     defaultChecked={settings.requireMajorSecurity}
                   />
-                  Major security only
+                  {localize(locale, "Tylko ważne wiadomości o bezpieczeństwie", "Only major security stories")}
                 </label>
               </CardContent>
             </Card>
 
             <Card className={SECTION_CARD_CLASS}>
               <CardHeader className={SECTION_HEADER_CLASS}>
-                <CardTitle>Final feed category limits</CardTitle>
+                <CardTitle>{localize(locale, "Limity kategorii", "Category limits")}</CardTitle>
                 <CardDescription>
-                  Set the maximum number of stories from each category. Use 0 to exclude a category.
+                  {localize(locale, "Ustal maksymalną liczbę newsów z każdej kategorii. Wartość 0 wyłącza kategorię.", "Set the maximum number of stories per category. A value of 0 disables a category.")}
                 </CardDescription>
               </CardHeader>
               <CardContent className={SECTION_CONTENT_CLASS}>
@@ -917,8 +955,8 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
 
             <Card className={SECTION_CARD_CLASS}>
               <CardHeader className={SECTION_HEADER_CLASS}>
-                <CardTitle>Reading filters</CardTitle>
-                <CardDescription>Choose topics to like or dislike.</CardDescription>
+                <CardTitle>{localize(locale, "Preferencje tematów", "Topic preferences")}</CardTitle>
+                <CardDescription>{localize(locale, "Wybierz tematy, których chcesz widzieć więcej lub mniej.", "Choose the topics you want to see more or less often.")}</CardDescription>
               </CardHeader>
               <CardContent className={cn(SECTION_CONTENT_CLASS, "grid gap-4")}>
                 <KeywordGroupManager
@@ -930,11 +968,11 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
               </CardContent>
             </Card>
 
-            <div className="sticky bottom-3 z-20 flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-background/95 px-3 py-3 shadow-lg backdrop-blur">
-              <p className="text-xs text-muted-foreground">Zapisz wszystkie zmiany z tej sekcji.</p>
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-background/95 px-3 py-3 shadow-sm md:sticky md:bottom-3 md:z-20 md:shadow-lg md:backdrop-blur">
+              <p className="text-xs text-muted-foreground">{localize(locale, "Zapisz wszystkie zmiany z tej sekcji.", "Save all changes from this section.")}</p>
               <Button type="submit" size="lg">
                 <Save aria-hidden="true" />
-                Save settings
+                {localize(locale, "Zapisz ustawienia", "Save settings")}
               </Button>
             </div>
           </form>
@@ -1134,8 +1172,8 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
             </CardContent>
           </Card>
 
-          <div className="sticky bottom-3 z-20 flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-background/95 px-3 py-3 shadow-lg backdrop-blur">
-            <p className="text-xs text-muted-foreground">Zapisz ustawienia zaawansowane.</p>
+          <div className="sticky bottom-20 z-20 flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-background/95 px-3 py-3 shadow-lg backdrop-blur md:bottom-3">
+            <p className="text-xs text-muted-foreground">{localize(locale, "Zapisz ustawienia zaawansowane.", "Save advanced settings.")}</p>
             <Button type="submit" size="lg">
               <Save aria-hidden="true" />
               Save advanced settings
@@ -1286,6 +1324,7 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
                 activeKeywordGroups={activeKeywordGroups}
                 activePreset={activePreset}
                 groups={sourceGroups}
+                locale={locale}
               />
             </section>
 
@@ -1337,7 +1376,7 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
                 </div>
               </section>
 
-              <div className="sticky bottom-3 z-10 flex items-center justify-between gap-3 rounded-2xl border bg-background/90 px-3 py-2.5 shadow-lg backdrop-blur-xl">
+              <div className="sticky bottom-20 z-10 flex items-center justify-between gap-3 rounded-2xl border bg-background/90 px-3 py-2.5 shadow-lg backdrop-blur-xl md:bottom-3">
                 <p className="min-w-0 truncate text-xs text-muted-foreground">Unsaved switch and detail changes stay in this list.</p>
                 <Button className="shrink-0" type="submit" size="lg" disabled={!shownSourceCount}>
                   <Save aria-hidden="true" />
@@ -1349,5 +1388,7 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
         </Card>
       ) : null}
     </main>
+    <MobileBottomNav />
+    </>
   );
 }

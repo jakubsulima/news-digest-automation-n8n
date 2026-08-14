@@ -4,27 +4,17 @@ import { AppNavbar } from "@/components/app-navbar";
 import { Button } from "@/components/ui/button";
 import { DigestRunPanel } from "@/components/digest-run-panel";
 import { DigestBriefCard } from "@/components/digest-brief";
-import { NewsFeed } from "@/components/news-feed";
+import { MobileBottomNav } from "@/components/mobile-bottom-nav";
 import { retryDigestRun } from "@/lib/actions";
 import { requireCurrentReader } from "@/lib/auth";
 import { getDigestRunStatus } from "@/lib/digest-runs";
 import { fallbackDigestBriefFromNews, getLatestDigestBrief } from "@/lib/digest-brief";
-import { normalizeReaderFeedId } from "@/lib/feed-categories";
-import { normalizeReaderViewId } from "@/lib/reader-feed-filters";
 import { getReaderFeedPage } from "@/lib/reader-feed";
-import { normalizeFeedPeriod, normalizeFeedSort } from "@/lib/reader-feed-ranking";
+import { localeTag, localize } from "@/lib/reader-locale";
+import { getReaderLocale } from "@/lib/reader-locale-server";
 import { createSupabaseServerClient } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
-
-type HomePageProps = {
-  searchParams?: Promise<{
-    feed?: string | string[];
-    period?: string | string[];
-    sort?: string | string[];
-    view?: string | string[];
-  }>;
-};
 
 async function signOut() {
   "use server";
@@ -33,59 +23,56 @@ async function signOut() {
   await supabase.auth.signOut();
 }
 
-export default async function HomePage({ searchParams }: HomePageProps) {
-  const params = await searchParams;
-  const activeFeed = normalizeReaderFeedId(params?.feed);
-  const requestedView = normalizeReaderViewId(params?.view);
-  const activeView = requestedView === "archived" ? "all" : requestedView;
-  const activeSort = normalizeFeedSort(Array.isArray(params?.sort) ? params.sort[0] : params?.sort);
-  const activePeriod = normalizeFeedPeriod(Array.isArray(params?.period) ? params.period[0] : params?.period);
+export default async function HomePage() {
   const user = await requireCurrentReader();
-  const [feedPage, digestRun, digestBrief] = await Promise.all([
-    getReaderFeedPage(user.id, {
-      feed: activeFeed,
-      period: activePeriod,
-      sort: activeSort,
-      view: activeView,
-    }),
+  const [digestRun, digestBrief, feedPage, locale] = await Promise.all([
     getDigestRunStatus(),
     getLatestDigestBrief(),
+    getReaderFeedPage(user.id, {
+      feed: "all",
+      period: "latest",
+      sort: "for-you",
+      view: "all",
+    }),
+    getReaderLocale(),
   ]);
   const allInitialItems = Object.values(feedPage.grouped).flat();
-  const brief = digestBrief || fallbackDigestBriefFromNews(allInitialItems);
+  const brief = digestBrief || fallbackDigestBriefFromNews(
+    allInitialItems,
+  );
+  const digestDateLabel = brief
+    ? new Intl.DateTimeFormat(localeTag(locale), {
+        day: "numeric",
+        month: "long",
+        timeZone: "Europe/Warsaw",
+        year: "numeric",
+      }).format(new Date(`${brief.digestDate}T12:00:00Z`))
+    : localize(locale, "Dzisiaj", "Today");
 
   return (
     <>
-      <AppNavbar email={user.email || "Reader"} signOut={signOut} />
+      <AppNavbar email={user.email || "Reader"} mobileContext={digestDateLabel} signOut={signOut} />
       <main
         id="page-top"
-        className="mx-auto flex w-full max-w-5xl scroll-mt-20 flex-col gap-4 px-4 py-4 sm:px-6 sm:py-6"
+        className="mx-auto flex w-full max-w-4xl scroll-mt-20 flex-col gap-0 px-4 md:gap-4 md:px-6 md:py-6"
       >
-        <NewsFeed
-          briefingSlot={brief ? <DigestBriefCard key="digest-brief" brief={brief} /> : null}
-          initialFeed={activeFeed}
-          initialPage={feedPage}
-          initialPeriod={activePeriod}
-          initialSort={activeSort}
-          initialView={activeView}
-          digestSlot={
-            <DigestRunPanel
-              key="digest-run"
-              initialRun={digestRun}
-              retrySlot={
-                digestRun?.status === "failed" ? (
-                  <form action={retryDigestRun.bind(null, digestRun.id)}>
-                    <Button type="submit" size="lg" title="Retry failed stage">
-                      <RotateCcw aria-hidden="true" />
-                      Retry failed stage
-                    </Button>
-                  </form>
-                ) : null
-              }
-            />
+        <DigestRunPanel
+          initialRun={digestRun}
+          storyCount={feedPage.totalCount}
+          retrySlot={
+            digestRun?.status === "failed" ? (
+              <form action={retryDigestRun.bind(null, digestRun.id)}>
+                <Button type="submit" size="lg" title={localize(locale, "Ponów nieudany etap", "Retry failed stage")}>
+                  <RotateCcw aria-hidden="true" />
+                  {localize(locale, "Ponów etap", "Retry stage")}
+                </Button>
+              </form>
+            ) : null
           }
         />
+        {brief ? <DigestBriefCard brief={brief} /> : null}
       </main>
+      <MobileBottomNav />
     </>
   );
 }

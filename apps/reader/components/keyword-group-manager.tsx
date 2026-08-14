@@ -3,6 +3,7 @@
 import { ThumbsDown, ThumbsUp } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 
+import { useLocalize, useReaderLocale } from "@/components/reader-locale-provider";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -20,6 +21,18 @@ type KeywordGroupWithDefault = KeywordGroup & {
 
 const SWIPE_THRESHOLD_PX = 36;
 const SWIPE_PREVIEW_LIMIT_PX = 72;
+
+const KEYWORD_GROUP_POLISH_COPY: Record<string, { description: string; label: string }> = {
+  celebrity: { label: "Plotki o celebrytach", description: "Rozrywka i wiadomości skupione na osobach." },
+  sports: { label: "Sport", description: "Wyniki, drużyny, zawodnicy i ligi." },
+  "crypto-price": { label: "Szum wokół cen krypto", description: "Ceny tokenów i rynkowy hype." },
+  "soft-launches": { label: "Drobne premiery", description: "Zapowiedzi produktów o niskiej wartości informacyjnej." },
+  "ai-infra": { label: "Infrastruktura AI", description: "Chipy, centra danych, modele i platformy AI." },
+  "markets-policy": { label: "Rynki i polityka", description: "Stopy procentowe, banki centralne, energia i regulatorzy." },
+  "security-incidents": { label: "Incydenty bezpieczeństwa", description: "Naruszenia, podatności, ransomware i ostrzeżenia." },
+  engineering: { label: "Inżynieria", description: "Narzędzia deweloperskie, chmura, open source i platformy." },
+  geopolitics: { label: "Geopolityka", description: "Konflikty, handel, sankcje i instytucje międzynarodowe." },
+};
 
 function uniqueKeywords(groupKeywords: readonly string[]) {
   const seen = new Set<string>();
@@ -47,6 +60,8 @@ export function KeywordGroupManager({
   avoidGroups: readonly KeywordGroup[];
   preferGroups: readonly KeywordGroup[];
 }) {
+  const locale = useReaderLocale();
+  const l = useLocalize();
   const groups = useMemo<KeywordGroupWithDefault[]>(
     () => [
       ...preferGroups.map((group) => ({ ...group, defaultSentiment: "prefer" as const })),
@@ -108,10 +123,13 @@ export function KeywordGroupManager({
       <input type="hidden" name="preferredKeywords" value={preferKeywords.join(", ")} />
       <input type="hidden" name="excludedKeywords" value={avoidKeywords.join(", ")} />
 
-      <p className="text-xs text-muted-foreground sm:hidden">Swipe right to like. Swipe left to dislike.</p>
+      <p className="text-xs text-muted-foreground sm:hidden">{l("Przesuń w prawo, aby wybrać więcej. W lewo — mniej.", "Swipe right to like. Swipe left to dislike.")}</p>
 
       <div className="grid gap-2">
         {groups.map((group) => {
+          const polishCopy = KEYWORD_GROUP_POLISH_COPY[group.id];
+          const displayLabel = locale === "pl" && polishCopy ? polishCopy.label : group.label;
+          const displayDescription = locale === "pl" && polishCopy ? polishCopy.description : group.description;
           const sentiment = sentiments[group.id];
           const dragOffset = dragOffsets[group.id] ?? 0;
           const previewSentiment =
@@ -168,7 +186,7 @@ export function KeywordGroupManager({
             >
               <div className="min-w-0">
                 <div className="flex items-center justify-between gap-3 sm:justify-start">
-                  <h3 className="truncate text-sm font-semibold">{group.label}</h3>
+                  <h3 className="truncate text-sm font-semibold">{displayLabel}</h3>
                   <span
                     className={cn(
                       "shrink-0 rounded-full px-2 py-0.5 text-[0.7rem] font-semibold",
@@ -177,11 +195,11 @@ export function KeywordGroupManager({
                         : "bg-rose-500/15 text-rose-700 dark:text-rose-300",
                     )}
                   >
-                    {liked ? "Like" : "Dislike"}
+                    {liked ? l("Więcej", "Like") : l("Mniej", "Dislike")}
                   </span>
                 </div>
                 <p className="mt-1 hidden truncate text-xs text-muted-foreground sm:block">
-                  {group.description}
+                  {displayDescription}
                 </p>
               </div>
 
@@ -194,7 +212,7 @@ export function KeywordGroupManager({
                   onClick={() => setSentiment(group.id, "avoid")}
                 >
                   <ThumbsDown aria-hidden="true" />
-                  Dislike
+                  {l("Mniej", "Dislike")}
                 </Button>
                 <Button
                   type="button"
@@ -204,7 +222,7 @@ export function KeywordGroupManager({
                   onClick={() => setSentiment(group.id, "prefer")}
                 >
                   <ThumbsUp aria-hidden="true" />
-                  Like
+                  {l("Więcej", "Like")}
                 </Button>
               </div>
             </div>

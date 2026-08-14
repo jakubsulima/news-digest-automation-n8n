@@ -22,10 +22,12 @@ import {
   HIGH_PRIORITY_ENTITIES,
   IMPORTANT_KEYWORDS,
   SCOPE_KEYWORDS,
+  SUPABASE_FILTER_BATCH_MAX_COUNT,
+  SUPABASE_FILTER_BATCH_MAX_ENCODED_LENGTH,
   SUPABASE_WRITE_BATCH_SIZE,
 } from "../constants";
 import type { StageRunner } from "../types";
-import { chunk, jsonNumber, jsonString, jsonStringArray } from "../utils";
+import { chunk, chunkByEncodedLength, jsonNumber, jsonString, jsonStringArray } from "../utils";
 
 type StorySnapshotInsert = Database["public"]["Tables"]["story_snapshots"]["Insert"];
 type StorySnapshotRow = Database["public"]["Tables"]["story_snapshots"]["Row"];
@@ -503,15 +505,21 @@ export const runEditorialScoringStage: StageRunner = async ({ digestRunId }) => 
     : null;
   const recommendationV2Active = settings.recommendationPolicyMode === "v2" && recommendationGate?.passed === true;
   const clusterIds = snapshots.map((snapshot) => snapshot.story_cluster_id);
-  const { data: clusterRows, error: clusterError } = clusterIds.length
-    ? await supabase.from("story_clusters").select("id, latest_scores").in("id", clusterIds)
-    : { data: [], error: null };
+  const previousScoresByClusterId = new Map<string, Json>();
+  const clusterIdBatches = chunkByEncodedLength(
+    clusterIds,
+    SUPABASE_FILTER_BATCH_MAX_COUNT,
+    SUPABASE_FILTER_BATCH_MAX_ENCODED_LENGTH,
+  );
 
-  if (clusterError) {
-    throw clusterError;
+  for (const clusterIdBatch of clusterIdBatches) {
+    const { data, error } = await supabase
+      .from("story_clusters")
+      .select("id, latest_scores")
+      .in("id", clusterIdBatch);
+    if (error) throw error;
+    for (const cluster of data || []) previousScoresByClusterId.set(cluster.id, cluster.latest_scores);
   }
-
-  const previousScoresByClusterId = new Map((clusterRows || []).map((cluster) => [cluster.id, cluster.latest_scores]));
   const scored = snapshots
     .map((rawSnapshot) => {
       const prepared = snapshotWithReadableVariant(rawSnapshot, articles);

@@ -1,5 +1,8 @@
+"use client";
+
 import type { ReactNode } from "react";
 
+import { useLocalize } from "@/components/reader-locale-provider";
 import type { NewsItemPreview } from "@/lib/news";
 import { cn } from "@/lib/utils";
 
@@ -13,18 +16,21 @@ type NewsPreviewCardProps = {
 
 const PREVIEW_SECTIONS: Array<{
   key: keyof Pick<NewsItemPreview, "clickIf" | "whatHappened" | "whyItMatters">;
-  label: string;
+  labels: readonly [string, string];
 }> = [
-  { key: "whatHappened", label: "What happened" },
-  { key: "whyItMatters", label: "Why it matters" },
-  { key: "clickIf", label: "Click if" },
+  { key: "whatHappened", labels: ["Co się wydarzyło", "What happened"] },
+  { key: "whyItMatters", labels: ["Dlaczego to ważne", "Why it matters"] },
+  { key: "clickIf", labels: ["Przeczytaj, jeśli", "Read if"] },
 ];
 
 export function NewsPreviewCard({ className, compact = false, preview, summary, summaryAction }: NewsPreviewCardProps) {
+  const l = useLocalize();
+  const cleanSummary = summary.replace(/^View CSAF Summary\s*/i, "").trim();
+
   if (!preview) {
     return (
       <p className={cn("text-sm leading-5 text-muted-foreground", compact && "text-xs leading-5", className)}>
-        {summary}
+        {cleanSummary}
         {summaryAction ? <span className="ml-1 inline-flex align-middle">{summaryAction}</span> : null}
       </p>
     );
@@ -35,7 +41,7 @@ export function NewsPreviewCard({ className, compact = false, preview, summary, 
       {PREVIEW_SECTIONS.map((section) => (
         <div key={section.key} className="grid gap-1">
           <h3 className={cn("text-xs font-semibold uppercase tracking-normal text-foreground", compact && "text-[11px]")}>
-            {section.label}
+            {l(section.labels[0], section.labels[1])}
           </h3>
           <p className={cn("text-sm leading-5 text-muted-foreground", compact && "text-xs leading-5")}>
             {preview[section.key]}
