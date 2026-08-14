@@ -11,11 +11,11 @@ type TargetConfig = {
 };
 
 const TARGETS: TargetConfig[] = [
-  { key: "geopolitics", label: "Geopolitics", name: "feedTargetGeopolitics" },
-  { key: "business", label: "Business", name: "feedTargetBusiness" },
+  { key: "geopolitics", label: "Geopolityka", name: "feedTargetGeopolitics" },
+  { key: "business", label: "Biznes", name: "feedTargetBusiness" },
   { key: "ai", label: "AI", name: "feedTargetAi" },
-  { key: "software", label: "Software", name: "feedTargetSoftware" },
-  { key: "security", label: "Security", name: "feedTargetSecurity" },
+  { key: "software", label: "Oprogramowanie", name: "feedTargetSoftware" },
+  { key: "security", label: "Bezpieczeństwo", name: "feedTargetSecurity" },
 ];
 
 export function FeedTargetSliders({ feedTargets }: { feedTargets: DigestFeedTargets }) {
@@ -35,7 +35,7 @@ export function FeedTargetSliders({ feedTargets }: { feedTargets: DigestFeedTarg
         <label key={target.key} className="grid gap-2 rounded-lg border bg-muted/20 px-3 py-2">
           <span className="flex items-center justify-between gap-3 text-sm font-medium">
             <span>{target.label}</span>
-            <span className="tabular-nums text-muted-foreground">Up to {values[target.key]}</span>
+            <span className="tabular-nums text-muted-foreground">Maks. {values[target.key]}</span>
           </span>
           <input
             className="h-2 w-full accent-primary"
@@ -49,8 +49,7 @@ export function FeedTargetSliders({ feedTargets }: { feedTargets: DigestFeedTarg
         </label>
       ))}
       <p className="text-xs text-muted-foreground">
-        Category capacity: up to {totalCapacity} stories. These are hard limits; 0 excludes a category, and the
-        highest-ranked eligible stories fill the available slots.
+        Łącznie maksymalnie {totalCapacity} newsów. Wartość 0 wyłącza kategorię, a wolne miejsca zajmują najwyżej ocenione materiały.
       </p>
     </div>
   );

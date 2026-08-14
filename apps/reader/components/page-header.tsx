@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils";
 
 type PageHeaderProps = {
   actions?: ReactNode;
-  backHref?: string;
+  backHref?: string | null;
   backLabel?: string;
   description?: ReactNode;
   title: ReactNode;
@@ -22,14 +22,16 @@ export function PageHeader({
 }: PageHeaderProps) {
   return (
     <header className="flex flex-wrap items-start gap-3">
-      <Link
-        className={cn(buttonVariants({ variant: "outline", size: "icon-lg" }), "shrink-0 bg-card/80")}
-        href={backHref}
-        title={backLabel}
-        aria-label={backLabel}
-      >
-        <ArrowLeft aria-hidden="true" />
-      </Link>
+      {backHref ? (
+        <Link
+          className={cn(buttonVariants({ variant: "outline", size: "icon-lg" }), "shrink-0 bg-card/80")}
+          href={backHref}
+          title={backLabel}
+          aria-label={backLabel}
+        >
+          <ArrowLeft aria-hidden="true" />
+        </Link>
+      ) : null}
       <div className="min-w-0 flex-1 pt-0.5">
         <h1 className="text-xl font-semibold leading-tight tracking-tight sm:text-2xl">{title}</h1>
         {description ? (

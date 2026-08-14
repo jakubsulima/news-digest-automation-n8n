@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { BookOpenText, ExternalLink, Info, MoreHorizontal } from "lucide-react";
+import { ChevronRight, ExternalLink, Info, MoreHorizontal } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -10,7 +10,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { NewsItemFeedbackActions } from "@/components/news-item-feedback-actions";
 import { NewsItemActions } from "@/components/news-item-actions";
 import { NewsNoteAction } from "@/components/news-note-action";
-import { NewsPreviewCard } from "@/components/news-preview-card";
 import type { NewsItemWithState } from "@/lib/news";
 import type { RankedNewsItem } from "@/lib/reader-feed-ranking";
 import type { FeedbackReason, FeedbackSentiment } from "@/lib/reader-feedback";
@@ -33,11 +32,11 @@ type NewsItemCardProps = {
 
 function formatDate(value: string | null) {
   if (!value) {
-    return "No publication date";
+    return "Brak daty publikacji";
   }
 
   const includesTime = value.includes("T");
-  const parts = new Intl.DateTimeFormat("en-US", {
+  const parts = new Intl.DateTimeFormat("pl-PL", {
     month: "short",
     day: "numeric",
     hour: includesTime ? "2-digit" : undefined,
@@ -51,7 +50,7 @@ function formatDate(value: string | null) {
     }, {});
 
   const date = `${parts.month} ${parts.day}`;
-  return includesTime ? `${date}, ${parts.hour}:${parts.minute} ${parts.dayPeriod}` : date;
+  return includesTime ? `${date}, ${parts.hour}:${parts.minute}` : date;
 }
 
 function compactSummary(value: string) {
@@ -108,72 +107,70 @@ export function NewsItemCard({
     <Card
       size="sm"
       className={cn(
-        "overflow-visible py-0 shadow-sm ring-foreground/8 transition-colors hover:ring-foreground/15",
-        isRead && "bg-card/60",
+        "overflow-visible rounded-none bg-transparent py-0 shadow-none ring-0 transition-colors md:rounded-xl md:bg-card md:shadow-sm md:ring-foreground/8 md:hover:ring-foreground/15",
+        isRead && "opacity-70 md:bg-card/60",
       )}
     >
-      <CardHeader className="gap-2 px-3.5 pb-1 pt-3.5 sm:px-4">
+      <CardHeader className="gap-2 px-4 pb-1 pt-4 md:px-4 md:pt-3.5">
         <div className="flex items-start justify-between gap-2">
           <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-muted-foreground">
-            <Badge variant="secondary" className="bg-accent text-accent-foreground">
+            <Badge variant="ghost" className="h-auto px-0 py-0 font-semibold text-primary">
               {item.category}
             </Badge>
-            {rankedItem?.isNew ? <Badge>New</Badge> : null}
-            {rankedItem?.isUpdated ? <Badge variant="secondary">Updated</Badge> : null}
+            {rankedItem?.isNew ? <Badge>Nowy</Badge> : null}
+            {rankedItem?.isUpdated ? <Badge variant="secondary">Aktualizacja</Badge> : null}
             <span className="truncate">{item.source}</span>
             <span aria-hidden="true">·</span>
             <span>{formatDate(item.publishedAt)}</span>
             {item.sourceCount > 1 ? (
               <>
                 <span aria-hidden="true">·</span>
-                <span>{item.sourceCount} sources</span>
+                <span>{item.sourceCount} źródeł</span>
               </>
             ) : null}
           </div>
           <Link
-            className={cn(buttonVariants({ variant: "default", size: "sm" }), "shrink-0 shadow-sm")}
+            className={cn(buttonVariants({ variant: "ghost", size: "icon-lg" }), "shrink-0 text-primary md:w-auto md:bg-primary md:px-3 md:text-primary-foreground md:shadow-sm")}
             href={`/news/${item.id}`}
             onClick={onFastRead}
+            aria-label={`Otwórz: ${item.title}`}
           >
-            <BookOpenText aria-hidden="true" />
-            <span className="hidden min-[420px]:inline">Fast read</span>
-            <span className="min-[420px]:hidden">Read</span>
+            <ChevronRight className="size-6 md:size-4" aria-hidden="true" />
+            <span className="hidden md:inline">Czytaj</span>
           </Link>
         </div>
 
-        <CardTitle className={cn("text-[1.02rem] font-semibold leading-snug", compact && "sm:text-[1.05rem]")}>
-          <a
-            className="decoration-foreground/30 hover:underline"
-            href={item.sourceUrl}
-            target="_blank"
-            rel="noreferrer"
-            onClick={onSourceOpen}
+        <CardTitle className={cn("line-clamp-3 text-[1.02rem] font-semibold leading-snug md:line-clamp-none", compact && "sm:text-[1.05rem]")}>
+          <Link
+            className="decoration-foreground/30 hover:text-primary hover:underline"
+            href={`/news/${item.id}`}
+            onClick={onFastRead}
           >
             {item.title}
-          </a>
+          </Link>
         </CardTitle>
       </CardHeader>
-      <CardContent className="grid gap-2 px-3.5 pb-3.5 sm:px-4">
+      <CardContent className="grid gap-2 px-4 pb-4 md:px-4 md:pb-3.5">
         <div className="grid gap-2">
-          <NewsPreviewCard
-            preview={item.preview}
-            summary={expanded || !hasLongSummary ? item.summary : previewSummary}
-            summaryAction={
-              hasLongSummary ? (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="xs"
-                  className="h-6 px-1.5 text-primary hover:bg-muted"
-                  title={expanded ? "Show less" : "Show more"}
-                  aria-label={expanded ? "Show less" : "Show more"}
-                  onClick={() => setExpanded((value) => !value)}
-                >
-                  {expanded ? "Less" : "More"}
-                </Button>
-              ) : null
-            }
-          />
+          <p className="text-sm leading-5 text-muted-foreground">
+            {item.preview?.whyItMatters ? <span className="font-semibold text-foreground/75">Dlaczego ważne: </span> : null}
+            <span className={cn(!expanded && "line-clamp-3 md:line-clamp-none")}>
+              {item.preview?.whyItMatters || (expanded || !hasLongSummary ? item.summary : previewSummary)}
+            </span>
+            {hasLongSummary ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="xs"
+                className="ml-1 h-6 px-1.5 align-middle text-primary hover:bg-muted"
+                title={expanded ? "Pokaż mniej" : "Pokaż więcej"}
+                aria-label={expanded ? "Pokaż mniej" : "Pokaż więcej"}
+                onClick={() => setExpanded((value) => !value)}
+              >
+                {expanded ? "Mniej" : "Więcej"}
+              </Button>
+            ) : null}
+          </p>
           {hasExplanation ? (
             whyOpen ? (
               <div className="grid gap-1 rounded-lg border bg-muted/25 p-2.5 text-xs leading-5 text-muted-foreground">
@@ -186,7 +183,7 @@ export function NewsItemCard({
           ) : null}
         </div>
 
-        <div className="flex min-w-0 flex-wrap items-center justify-between gap-2 border-t pt-2.5">
+        <div className="hidden min-w-0 flex-wrap items-center justify-between gap-2 border-t pt-2.5 md:flex">
           <NewsItemFeedbackActions
             buttonSize="sm"
             buttonClassName="h-8 border-transparent bg-muted/55 px-2.5 hover:bg-muted focus-visible:border-transparent"
@@ -208,7 +205,7 @@ export function NewsItemCard({
                 onClick={() => setWhyOpen((value) => !value)}
               >
                 <Info aria-hidden="true" />
-                Why
+                Dlaczego
               </Button>
             ) : null}
             <Button
@@ -222,13 +219,13 @@ export function NewsItemCard({
               onClick={() => setActionsOpen((value) => !value)}
             >
               <MoreHorizontal aria-hidden="true" />
-              Actions
+              Akcje
             </Button>
           </div>
         </div>
 
         {actionsOpen ? (
-          <div className="flex flex-wrap items-center gap-1.5 rounded-lg bg-muted/30 p-2 duration-200 animate-in fade-in slide-in-from-top-1">
+          <div className="hidden flex-wrap items-center gap-1.5 rounded-lg bg-muted/30 p-2 duration-200 animate-in fade-in slide-in-from-top-1 md:flex">
             <NewsItemActions
               buttonSize="icon-sm"
               buttonClassName="border-transparent bg-background/80 hover:bg-muted focus-visible:border-transparent focus-visible:ring-0"

@@ -87,11 +87,11 @@ export function NewsItemActions({
       const payload = (await response.json().catch(() => null)) as { ok?: boolean; error?: string } | null;
 
       if (!response.ok || !payload?.ok) {
-        throw new Error(payload?.error || "Could not update item.");
+        throw new Error(payload?.error || "Nie udało się zaktualizować newsa.");
       }
     } catch (updateError) {
       applyState(previousState);
-      setError(updateError instanceof Error ? updateError.message : "Could not update item.");
+      setError(updateError instanceof Error ? updateError.message : "Nie udało się zaktualizować newsa.");
     } finally {
       setPendingAction(null);
     }
@@ -104,8 +104,8 @@ export function NewsItemActions({
         size={buttonSize}
         className={buttonClassName}
         type="button"
-        title="Toggle read"
-        aria-label="Toggle read"
+        title={state.read ? "Oznacz jako nieprzeczytane" : "Oznacz jako przeczytane"}
+        aria-label={state.read ? "Oznacz jako nieprzeczytane" : "Oznacz jako przeczytane"}
         disabled={pendingAction !== null}
         onClick={() => void updateItemState("read")}
       >
@@ -123,8 +123,8 @@ export function NewsItemActions({
         size={buttonSize}
         className={buttonClassName}
         type="button"
-        title="Toggle saved"
-        aria-label="Toggle saved"
+        title={state.saved ? "Usuń z zapisanych" : "Zapisz"}
+        aria-label={state.saved ? "Usuń z zapisanych" : "Zapisz"}
         disabled={pendingAction !== null}
         onClick={() => void updateItemState("saved")}
       >

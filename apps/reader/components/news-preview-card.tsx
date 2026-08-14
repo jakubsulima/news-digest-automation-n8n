@@ -15,9 +15,9 @@ const PREVIEW_SECTIONS: Array<{
   key: keyof Pick<NewsItemPreview, "clickIf" | "whatHappened" | "whyItMatters">;
   label: string;
 }> = [
-  { key: "whatHappened", label: "What happened" },
-  { key: "whyItMatters", label: "Why it matters" },
-  { key: "clickIf", label: "Click if" },
+  { key: "whatHappened", label: "Co się wydarzyło" },
+  { key: "whyItMatters", label: "Dlaczego to ważne" },
+  { key: "clickIf", label: "Przeczytaj, jeśli" },
 ];
 
 export function NewsPreviewCard({ className, compact = false, preview, summary, summaryAction }: NewsPreviewCardProps) {

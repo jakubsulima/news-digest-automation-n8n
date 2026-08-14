@@ -2,10 +2,10 @@ import { itemMatchesReaderFeed, type ReaderFeedId } from "./feed-categories";
 import type { NewsItemWithState } from "./news";
 
 export const READER_VIEWS = [
-  { id: "all", label: "All" },
-  { id: "unread", label: "Unread" },
-  { id: "saved", label: "Saved" },
-  { id: "archived", label: "Archived" },
+  { id: "all", label: "Wszystkie" },
+  { id: "unread", label: "Nieprzeczytane" },
+  { id: "saved", label: "Zapisane" },
+  { id: "archived", label: "Archiwum" },
 ] as const;
 
 export type ReaderViewId = (typeof READER_VIEWS)[number]["id"];

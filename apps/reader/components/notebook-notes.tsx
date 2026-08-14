@@ -37,7 +37,7 @@ export function NotebookNotes({ initialNotes }: NotebookNotesProps) {
             <p className="font-medium text-foreground">Notatnik jest pusty</p>
             <p className="mt-1 text-sm text-muted-foreground">Zmień filtry albo dodaj notatkę z wybranego newsa.</p>
           </div>
-          <Link className={buttonVariants({ variant: "outline" })} href="/">Przejdź do newsów</Link>
+          <Link className={buttonVariants({ variant: "outline" })} href="/news">Przejdź do newsów</Link>
         </CardContent>
       </Card>
     );

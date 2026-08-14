@@ -1,10 +1,10 @@
 export const READER_FEEDS = [
-  { id: "all", label: "All" },
-  { id: "geopolitics", label: "Geopolitics" },
-  { id: "business", label: "Business" },
+  { id: "all", label: "Wszystkie" },
+  { id: "geopolitics", label: "Geopolityka" },
+  { id: "business", label: "Biznes" },
   { id: "ai", label: "AI" },
-  { id: "software", label: "Software" },
-  { id: "security", label: "Security" },
+  { id: "software", label: "Oprogramowanie" },
+  { id: "security", label: "Bezpieczeństwo" },
 ] as const;
 
 export type ReaderFeedId = (typeof READER_FEEDS)[number]["id"];

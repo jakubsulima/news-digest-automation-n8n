@@ -15,9 +15,9 @@ const THEME_OPTIONS: Array<{
   label: string;
   mode: ThemeMode;
 }> = [
-  { icon: Sun, label: "Light", mode: "light" },
-  { icon: Moon, label: "Dark", mode: "dark" },
-  { icon: Laptop, label: "System", mode: "system" },
+  { icon: Sun, label: "Jasny", mode: "light" },
+  { icon: Moon, label: "Ciemny", mode: "dark" },
+  { icon: Laptop, label: "Systemowy", mode: "system" },
 ];
 
 function storedThemeMode(value: string | null): ThemeMode {
@@ -79,8 +79,8 @@ export function ThemeToggle({ className, compact = false }: { className?: string
         type="button"
         variant="outline"
         size="icon-lg"
-        title={`Switch to ${nextMode} mode`}
-        aria-label={`Switch to ${nextMode} mode`}
+        title={nextMode === "light" ? "Włącz jasny motyw" : "Włącz ciemny motyw"}
+        aria-label={nextMode === "light" ? "Włącz jasny motyw" : "Włącz ciemny motyw"}
         onClick={() => updateMode(nextMode)}
       >
         <ActiveIcon aria-hidden="true" />

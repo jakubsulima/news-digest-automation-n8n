@@ -2,6 +2,7 @@ import { Search } from "lucide-react";
 import Link from "next/link";
 
 import { NotebookNotes } from "@/components/notebook-notes";
+import { MobileBottomNav } from "@/components/mobile-bottom-nav";
 import { PageHeader } from "@/components/page-header";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -65,13 +66,15 @@ export default async function NotebookPage({ searchParams }: NotebookPageProps) 
   const notes = allNotes.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
 
   return (
+    <>
     <main className="mx-auto flex w-full max-w-4xl flex-col gap-4 px-4 py-5 sm:px-6 sm:py-7">
       <PageHeader
+        backHref={null}
         title="Notatnik"
         description="Wiedza, pytania i wnioski zapisane z newsów."
       />
 
-      <section className="grid gap-3 rounded-xl border bg-card/80 p-3 shadow-sm" aria-label="Filtry notatnika">
+      <section className="-mx-4 grid gap-3 border-y bg-card/60 p-4 md:mx-0 md:rounded-xl md:border md:p-3 md:shadow-sm" aria-label="Filtry notatnika">
         <form className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]" action="/notebook">
           {kind ? <input type="hidden" name="kind" value={kind} /> : null}
           <input type="hidden" name="status" value={status || "all"} />
@@ -114,5 +117,7 @@ export default async function NotebookPage({ searchParams }: NotebookPageProps) 
         </nav>
       ) : null}
     </main>
+    <MobileBottomNav />
+    </>
   );
 }

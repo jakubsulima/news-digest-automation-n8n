@@ -82,11 +82,11 @@ export function NewsItemFeedbackActions({
       const payload = (await response.json().catch(() => null)) as { ok?: boolean; error?: string } | null;
 
       if (!response.ok || !payload?.ok) {
-        throw new Error(payload?.error || "Could not update feedback.");
+        throw new Error(payload?.error || "Nie udało się zapisać preferencji.");
       }
     } catch (updateError) {
       applyFeedback(previousFeedback, previousReason);
-      setError(updateError instanceof Error ? updateError.message : "Could not update feedback.");
+      setError(updateError instanceof Error ? updateError.message : "Nie udało się zapisać preferencji.");
     } finally {
       setPendingFeedback(null);
     }
@@ -99,21 +99,21 @@ export function NewsItemFeedbackActions({
         size={buttonSize}
         className={buttonClassName}
         type="button"
-        title="More like this"
-        aria-label="More like this"
+        title="Więcej takich newsów"
+        aria-label="Więcej takich newsów"
         disabled={pendingFeedback !== null}
         onClick={() => void updateFeedback(activeFeedback === "more" ? null : "more", "topic")}
       >
         {pendingFeedback === "more" ? <Loader2 className="animate-spin" aria-hidden="true" /> : <ThumbsUp aria-hidden="true" />}
-        {showLabels ? <span>More</span> : null}
+        {showLabels ? <span>Więcej</span> : null}
       </Button>
       <Button
         variant={activeFeedback === "less" ? "destructive" : "outline"}
         size={buttonSize}
         className={buttonClassName}
         type="button"
-        title="Less like this"
-        aria-label="Less like this"
+        title="Mniej takich newsów"
+        aria-label="Mniej takich newsów"
         disabled={pendingFeedback !== null}
         onClick={() => activeFeedback === "less" ? void updateFeedback(null, activeReason || "topic") : setReasonMenuOpen((value) => !value)}
       >
@@ -122,10 +122,10 @@ export function NewsItemFeedbackActions({
         ) : (
           <ThumbsDown aria-hidden="true" />
         )}
-        {showLabels ? <span>Less</span> : null}
+        {showLabels ? <span>Mniej</span> : null}
       </Button>
       {activeFeedback === "more" ? (
-        <div className="flex flex-wrap gap-1" role="group" aria-label="What should be preferred?">
+        <div className="flex flex-wrap gap-1" role="group" aria-label="Co preferować?">
           <Button
             variant={activeReason === "source" ? "secondary" : "ghost"}
             size="sm"
@@ -133,7 +133,7 @@ export function NewsItemFeedbackActions({
             disabled={pendingFeedback !== null}
             onClick={() => void updateFeedback("more", "source")}
           >
-            Prefer source
+            Preferuj źródło
           </Button>
           <Button
             variant={activeReason === "entity" ? "secondary" : "ghost"}
@@ -142,18 +142,18 @@ export function NewsItemFeedbackActions({
             disabled={pendingFeedback !== null}
             onClick={() => void updateFeedback("more", "entity")}
           >
-            Prefer entity
+            Preferuj temat
           </Button>
         </div>
       ) : null}
       {reasonMenuOpen ? (
-        <div className="flex flex-wrap gap-1" role="group" aria-label="Why show fewer stories like this?">
+        <div className="flex flex-wrap gap-1" role="group" aria-label="Dlaczego pokazywać mniej takich newsów?">
           {([
-            ["topic", "Topic"],
-            ["entity", "Entity"],
-            ["source", "Source"],
-            ["repetitive", "Repetitive"],
-            ["quality", "Poor quality"],
+            ["topic", "Temat"],
+            ["entity", "Osoba lub firma"],
+            ["source", "Źródło"],
+            ["repetitive", "Powtarzalne"],
+            ["quality", "Niska jakość"],
           ] as const).map(([reason, label]) => (
             <Button key={reason} type="button" size="sm" variant="outline" onClick={() => void updateFeedback("less", reason)}>
               {label}
