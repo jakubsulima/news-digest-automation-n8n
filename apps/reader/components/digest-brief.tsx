@@ -1,28 +1,33 @@
+"use client";
+
 import { ArrowRight, ChevronRight, Clock3, ListTree, Newspaper } from "lucide-react";
 import Link from "next/link";
 
+import { useLocalize, useReaderLocale } from "@/components/reader-locale-provider";
 import { buttonVariants } from "@/components/ui/button";
 import type { DigestBrief } from "@/lib/digest-brief";
+import { localize, type ReaderLocale } from "@/lib/reader-locale";
 
 type DigestBriefProps = {
   brief: DigestBrief;
 };
 
-const TECHNICAL_REASON_COPY: Record<string, string> = {
-  "build opportunity": "Może tworzyć konkretną okazję produktową, integracyjną albo automatyzacyjną.",
-  "competitive intelligence": "Pomaga ocenić pozycjonowanie, dystrybucję i ruchy konkurencji.",
-  "geopolitical risk": "Może wpłynąć na łańcuchy dostaw, energię, sankcje albo bezpieczeństwo.",
-  "infrastructure outage": "Dotyczy odporności infrastruktury i ryzyka przerw w działaniu usług.",
-  "investment signal": "Może być istotnym sygnałem dla przepływu kapitału i nastrojów rynkowych.",
-  "market risk": "Może wpłynąć na wyceny, budżety firm i decyzje klientów.",
-  "product trend": "Wskazuje trend, który warto uwzględnić w planach produktowych i technologicznych.",
-  "regulatory risk": "Może zmienić zasady dostępu do rynku, danych, technologii albo zgodności.",
-  "security risk": "Pokazuje realne ryzyko bezpieczeństwa, które warto szybko ocenić.",
+const TECHNICAL_REASON_COPY: Record<string, readonly [string, string]> = {
+  "build opportunity": ["Może tworzyć konkretną okazję produktową, integracyjną albo automatyzacyjną.", "It may create a concrete product, integration, or automation opportunity."],
+  "competitive intelligence": ["Pomaga ocenić pozycjonowanie, dystrybucję i ruchy konkurencji.", "It helps assess competitors' positioning, distribution, and moves."],
+  "geopolitical risk": ["Może wpłynąć na łańcuchy dostaw, energię, sankcje albo bezpieczeństwo.", "It may affect supply chains, energy, sanctions, or security."],
+  "infrastructure outage": ["Dotyczy odporności infrastruktury i ryzyka przerw w działaniu usług.", "It concerns infrastructure resilience and the risk of service disruption."],
+  "investment signal": ["Może być istotnym sygnałem dla przepływu kapitału i nastrojów rynkowych.", "It may be a meaningful signal for capital flows and market sentiment."],
+  "market risk": ["Może wpłynąć na wyceny, budżety firm i decyzje klientów.", "It may affect valuations, company budgets, and customer decisions."],
+  "product trend": ["Wskazuje trend, który warto uwzględnić w planach produktowych i technologicznych.", "It highlights a trend worth considering in product and technology plans."],
+  "regulatory risk": ["Może zmienić zasady dostępu do rynku, danych, technologii albo zgodności.", "It may change the rules for market, data, technology, or compliance access."],
+  "security risk": ["Pokazuje realne ryzyko bezpieczeństwa, które warto szybko ocenić.", "It signals a concrete security risk worth assessing quickly."],
 };
 
-function readerFriendlyWhy(value: string) {
+function readerFriendlyWhy(value: string, locale: ReaderLocale) {
   const technicalReason = value.match(/^Selected as ([^:.;]+)/i)?.[1]?.toLowerCase();
-  return technicalReason ? TECHNICAL_REASON_COPY[technicalReason] || "To ważny sygnał, który może wymagać dalszej analizy." : value;
+  const copy = technicalReason ? TECHNICAL_REASON_COPY[technicalReason] : null;
+  return copy ? localize(locale, copy[0], copy[1]) : technicalReason ? localize(locale, "To ważny sygnał, który może wymagać dalszej analizy.", "This is an important signal that may need further analysis.") : value;
 }
 
 function readerFriendlySummary(value: string) {
@@ -30,8 +35,11 @@ function readerFriendlySummary(value: string) {
 }
 
 function BriefHighlights({ highlights }: { highlights: DigestBrief["highlights"] }) {
+  const locale = useReaderLocale();
+  const l = useLocalize();
+
   return (
-    <ol className="divide-y divide-border" aria-label="Najważniejsze newsy">
+    <ol className="divide-y divide-border" aria-label={l("Najważniejsze newsy", "Top stories")}>
       {highlights.slice(0, 3).map((highlight) => (
         <li key={highlight.newsItemId}>
           <Link
@@ -42,14 +50,14 @@ function BriefHighlights({ highlights }: { highlights: DigestBrief["highlights"]
               <div className="mb-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-semibold md:mb-2">
                 <span className="text-primary">{highlight.source}</span>
                 <span className="text-muted-foreground" aria-hidden="true">·</span>
-                <span className="text-amber-700 dark:text-amber-400">Ważne</span>
+                <span className="text-amber-700 dark:text-amber-400">{l("Ważne", "Important")}</span>
               </div>
               <h3 className="line-clamp-2 text-base font-semibold leading-5 text-foreground transition-colors group-hover:text-primary sm:text-lg sm:leading-6">
                 {highlight.title}
               </h3>
               <p className="mt-1.5 line-clamp-1 text-[0.82rem] leading-4 text-muted-foreground md:mt-2 md:line-clamp-2 md:text-sm md:leading-5">
-                <span className="font-semibold text-foreground/75">Dlaczego ważne: </span>
-                {readerFriendlyWhy(highlight.whyItMatters)}
+                <span className="font-semibold text-foreground/75">{l("Dlaczego ważne: ", "Why it matters: ")}</span>
+                {readerFriendlyWhy(highlight.whyItMatters, locale)}
               </p>
               <span className="mt-2 inline-flex items-center gap-2 text-xs text-muted-foreground md:mt-3">
                 <Newspaper className="size-4" strokeWidth={1.9} aria-hidden="true" />
@@ -65,15 +73,17 @@ function BriefHighlights({ highlights }: { highlights: DigestBrief["highlights"]
 }
 
 export function DigestBriefCard({ brief }: DigestBriefProps) {
+  const l = useLocalize();
+
   return (
-    <section className="-mx-4 overflow-hidden bg-background md:mx-0 md:rounded-2xl md:border md:bg-card md:shadow-sm" aria-label="Podsumowanie dnia">
+    <section className="-mx-4 overflow-hidden bg-background md:mx-0 md:rounded-2xl md:border md:bg-card md:shadow-sm" aria-label={l("Podsumowanie dnia", "Daily summary")}>
       <div className="border-b px-4 py-4 md:px-5 md:py-5">
         <div className="flex items-center gap-3">
           <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
             <ListTree className="size-5" strokeWidth={2} aria-hidden="true" />
           </span>
           <div className="min-w-0 flex-1">
-            <h1 className="text-xl font-semibold tracking-tight">Podsumowanie dnia</h1>
+            <h1 className="text-xl font-semibold tracking-tight">{l("Podsumowanie dnia", "Daily summary")}</h1>
           </div>
           <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
             <Clock3 className="size-3.5" aria-hidden="true" />
@@ -82,7 +92,7 @@ export function DigestBriefCard({ brief }: DigestBriefProps) {
         </div>
 
         {brief.highlights.length ? (
-          <ul className="mt-4 grid gap-2.5 md:mt-5 md:gap-4" aria-label="Skrót dnia">
+          <ul className="mt-4 grid gap-2.5 md:mt-5 md:gap-4" aria-label={l("Skrót dnia", "Daily brief")}>
             {brief.highlights.slice(0, 4).map((highlight) => (
               <li key={`summary-${highlight.newsItemId}`} className="grid grid-cols-[0.5rem_1fr] gap-3 text-[0.82rem] leading-[1.2rem] text-foreground/90 md:text-[0.95rem] md:leading-6">
                 <span className="mt-2 size-2 rounded-full bg-primary" aria-hidden="true" />
@@ -98,7 +108,7 @@ export function DigestBriefCard({ brief }: DigestBriefProps) {
       {brief.highlights.length ? (
         <section aria-labelledby="brief-highlights-heading">
           <h2 id="brief-highlights-heading" className="px-4 pb-2 pt-4 text-lg font-semibold md:px-5 md:pt-5">
-            Najważniejsze
+            {l("Najważniejsze", "Top stories")}
           </h2>
           <BriefHighlights highlights={brief.highlights} />
           <div className="hidden border-t px-4 py-4 md:block md:px-5">
@@ -106,7 +116,7 @@ export function DigestBriefCard({ brief }: DigestBriefProps) {
               href="/news"
               className={buttonVariants({ variant: "outline", size: "lg", className: "h-11 w-full md:w-auto" })}
             >
-              Wszystkie newsy
+              {l("Wszystkie newsy", "All news")}
               <ArrowRight aria-hidden="true" />
             </Link>
           </div>

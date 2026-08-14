@@ -10,6 +10,8 @@ import { requireCurrentReader } from "@/lib/auth";
 import { getDigestRunStatus } from "@/lib/digest-runs";
 import { fallbackDigestBriefFromNews, getLatestDigestBrief } from "@/lib/digest-brief";
 import { getReaderFeedPage } from "@/lib/reader-feed";
+import { localeTag, localize } from "@/lib/reader-locale";
+import { getReaderLocale } from "@/lib/reader-locale-server";
 import { createSupabaseServerClient } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
@@ -23,7 +25,7 @@ async function signOut() {
 
 export default async function HomePage() {
   const user = await requireCurrentReader();
-  const [digestRun, digestBrief, feedPage] = await Promise.all([
+  const [digestRun, digestBrief, feedPage, locale] = await Promise.all([
     getDigestRunStatus(),
     getLatestDigestBrief(),
     getReaderFeedPage(user.id, {
@@ -32,19 +34,20 @@ export default async function HomePage() {
       sort: "for-you",
       view: "all",
     }),
+    getReaderLocale(),
   ]);
   const allInitialItems = Object.values(feedPage.grouped).flat();
   const brief = digestBrief || fallbackDigestBriefFromNews(
     allInitialItems,
   );
   const digestDateLabel = brief
-    ? new Intl.DateTimeFormat("pl-PL", {
+    ? new Intl.DateTimeFormat(localeTag(locale), {
         day: "numeric",
         month: "long",
         timeZone: "Europe/Warsaw",
         year: "numeric",
       }).format(new Date(`${brief.digestDate}T12:00:00Z`))
-    : "Dzisiaj";
+    : localize(locale, "Dzisiaj", "Today");
 
   return (
     <>
@@ -59,9 +62,9 @@ export default async function HomePage() {
           retrySlot={
             digestRun?.status === "failed" ? (
               <form action={retryDigestRun.bind(null, digestRun.id)}>
-                <Button type="submit" size="lg" title="Ponów nieudany etap">
+                <Button type="submit" size="lg" title={localize(locale, "Ponów nieudany etap", "Retry failed stage")}>
                   <RotateCcw aria-hidden="true" />
-                  Ponów etap
+                  {localize(locale, "Ponów etap", "Retry stage")}
                 </Button>
               </form>
             ) : null

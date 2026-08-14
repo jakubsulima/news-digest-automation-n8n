@@ -3,6 +3,7 @@
 import { Loader2, ThumbsDown, ThumbsUp } from "lucide-react";
 import { useEffect, useState } from "react";
 
+import { useLocalize } from "@/components/reader-locale-provider";
 import { Button } from "@/components/ui/button";
 import type { FeedbackReason, FeedbackSentiment } from "@/lib/reader-feedback";
 import { cn } from "@/lib/utils";
@@ -38,6 +39,7 @@ export function NewsItemFeedbackActions({
   showLabels = false,
   onFeedbackChange,
 }: NewsItemFeedbackActionsProps) {
+  const l = useLocalize();
   const [localFeedback, setLocalFeedback] = useState(feedback);
   const [localReason, setLocalReason] = useState<FeedbackReason | null>(feedbackReason);
   const [pendingFeedback, setPendingFeedback] = useState<FeedbackSentiment | null>(null);
@@ -82,11 +84,11 @@ export function NewsItemFeedbackActions({
       const payload = (await response.json().catch(() => null)) as { ok?: boolean; error?: string } | null;
 
       if (!response.ok || !payload?.ok) {
-        throw new Error(payload?.error || "Nie udało się zapisać preferencji.");
+        throw new Error(payload?.error || l("Nie udało się zapisać preferencji.", "Could not save your preference."));
       }
     } catch (updateError) {
       applyFeedback(previousFeedback, previousReason);
-      setError(updateError instanceof Error ? updateError.message : "Nie udało się zapisać preferencji.");
+      setError(updateError instanceof Error ? updateError.message : l("Nie udało się zapisać preferencji.", "Could not save your preference."));
     } finally {
       setPendingFeedback(null);
     }
@@ -99,21 +101,21 @@ export function NewsItemFeedbackActions({
         size={buttonSize}
         className={buttonClassName}
         type="button"
-        title="Więcej takich newsów"
-        aria-label="Więcej takich newsów"
+        title={l("Więcej takich newsów", "More stories like this")}
+        aria-label={l("Więcej takich newsów", "More stories like this")}
         disabled={pendingFeedback !== null}
         onClick={() => void updateFeedback(activeFeedback === "more" ? null : "more", "topic")}
       >
         {pendingFeedback === "more" ? <Loader2 className="animate-spin" aria-hidden="true" /> : <ThumbsUp aria-hidden="true" />}
-        {showLabels ? <span>Więcej</span> : null}
+        {showLabels ? <span>{l("Więcej", "More")}</span> : null}
       </Button>
       <Button
         variant={activeFeedback === "less" ? "destructive" : "outline"}
         size={buttonSize}
         className={buttonClassName}
         type="button"
-        title="Mniej takich newsów"
-        aria-label="Mniej takich newsów"
+        title={l("Mniej takich newsów", "Fewer stories like this")}
+        aria-label={l("Mniej takich newsów", "Fewer stories like this")}
         disabled={pendingFeedback !== null}
         onClick={() => activeFeedback === "less" ? void updateFeedback(null, activeReason || "topic") : setReasonMenuOpen((value) => !value)}
       >
@@ -122,10 +124,10 @@ export function NewsItemFeedbackActions({
         ) : (
           <ThumbsDown aria-hidden="true" />
         )}
-        {showLabels ? <span>Mniej</span> : null}
+        {showLabels ? <span>{l("Mniej", "Less")}</span> : null}
       </Button>
       {activeFeedback === "more" ? (
-        <div className="flex flex-wrap gap-1" role="group" aria-label="Co preferować?">
+        <div className="flex flex-wrap gap-1" role="group" aria-label={l("Co preferować?", "What should be preferred?")}>
           <Button
             variant={activeReason === "source" ? "secondary" : "ghost"}
             size="sm"
@@ -133,7 +135,7 @@ export function NewsItemFeedbackActions({
             disabled={pendingFeedback !== null}
             onClick={() => void updateFeedback("more", "source")}
           >
-            Preferuj źródło
+            {l("Preferuj źródło", "Prefer source")}
           </Button>
           <Button
             variant={activeReason === "entity" ? "secondary" : "ghost"}
@@ -142,18 +144,18 @@ export function NewsItemFeedbackActions({
             disabled={pendingFeedback !== null}
             onClick={() => void updateFeedback("more", "entity")}
           >
-            Preferuj temat
+            {l("Preferuj temat", "Prefer topic")}
           </Button>
         </div>
       ) : null}
       {reasonMenuOpen ? (
-        <div className="flex flex-wrap gap-1" role="group" aria-label="Dlaczego pokazywać mniej takich newsów?">
+        <div className="flex flex-wrap gap-1" role="group" aria-label={l("Dlaczego pokazywać mniej takich newsów?", "Why show fewer stories like this?")}>
           {([
-            ["topic", "Temat"],
-            ["entity", "Osoba lub firma"],
-            ["source", "Źródło"],
-            ["repetitive", "Powtarzalne"],
-            ["quality", "Niska jakość"],
+            ["topic", l("Temat", "Topic")],
+            ["entity", l("Osoba lub firma", "Person or company")],
+            ["source", l("Źródło", "Source")],
+            ["repetitive", l("Powtarzalne", "Repetitive")],
+            ["quality", l("Niska jakość", "Low quality")],
           ] as const).map(([reason, label]) => (
             <Button key={reason} type="button" size="sm" variant="outline" onClick={() => void updateFeedback("less", reason)}>
               {label}

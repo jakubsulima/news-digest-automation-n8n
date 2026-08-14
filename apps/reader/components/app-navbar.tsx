@@ -1,6 +1,9 @@
+"use client";
+
 import { List, LogOut, Newspaper, NotebookPen, Settings } from "lucide-react";
 import Link from "next/link";
 
+import { useLocalize } from "@/components/reader-locale-provider";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -12,12 +15,14 @@ type AppNavbarProps = {
 };
 
 const NAV_ITEMS = [
-  { href: "/news", icon: List, label: "Newsy" },
-  { href: "/notebook", icon: NotebookPen, label: "Notebook" },
-  { href: "/settings", icon: Settings, label: "Settings" },
+  { href: "/news", icon: List, labels: ["Newsy", "News"] },
+  { href: "/notebook", icon: NotebookPen, labels: ["Notatnik", "Notebook"] },
+  { href: "/settings", icon: Settings, labels: ["Ustawienia", "Settings"] },
 ] as const;
 
 export function AppNavbar({ email, mobileContext, signOut }: AppNavbarProps) {
+  const l = useLocalize();
+
   return (
     <header className="sticky top-0 z-50 border-b bg-background/92 backdrop-blur-xl supports-[backdrop-filter]:bg-background/78">
       <div className="mx-auto flex h-14 w-full max-w-5xl items-center gap-2 px-4 sm:h-16 sm:px-6">
@@ -41,22 +46,23 @@ export function AppNavbar({ email, mobileContext, signOut }: AppNavbarProps) {
           </span>
         ) : null}
 
-        <nav className="ml-auto hidden items-center gap-1 md:flex" aria-label="Main navigation">
+        <nav className="ml-auto hidden items-center gap-1 md:flex" aria-label={l("Główna nawigacja", "Main navigation")}>
           {NAV_ITEMS.map((item) => {
             const Icon = item.icon;
+            const label = l(item.labels[0], item.labels[1]);
 
             return (
               <Link
-                key={item.label}
+                key={item.href}
                 href={item.href}
                 className={cn(
                   buttonVariants({ variant: "ghost", size: "icon-lg" }),
                   "md:w-auto md:px-3",
                 )}
-                title={item.label}
+                title={label}
               >
                 <Icon aria-hidden="true" />
-                <span className="hidden md:inline">{item.label}</span>
+                <span className="hidden md:inline">{label}</span>
               </Link>
             );
           })}
@@ -65,7 +71,7 @@ export function AppNavbar({ email, mobileContext, signOut }: AppNavbarProps) {
         <div className="hidden items-center gap-1 border-l pl-2 md:flex">
           <ThemeToggle compact />
           <form action={signOut}>
-            <Button variant="ghost" size="icon-lg" type="submit" title="Sign out" aria-label="Sign out">
+            <Button variant="ghost" size="icon-lg" type="submit" title={l("Wyloguj się", "Sign out")} aria-label={l("Wyloguj się", "Sign out")}>
               <LogOut aria-hidden="true" />
             </Button>
           </form>

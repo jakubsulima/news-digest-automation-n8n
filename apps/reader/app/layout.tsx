@@ -1,5 +1,8 @@
 import type { Metadata, Viewport } from "next";
 
+import { ReaderLocaleProvider } from "@/components/reader-locale-provider";
+import { getReaderLocale } from "@/lib/reader-locale-server";
+
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -31,16 +34,18 @@ const themeInitScript = `
 })();
 `;
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const locale = await getReaderLocale();
+
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang={locale} suppressHydrationWarning>
       <body>
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
-        {children}
+        <ReaderLocaleProvider locale={locale}>{children}</ReaderLocaleProvider>
       </body>
     </html>
   );

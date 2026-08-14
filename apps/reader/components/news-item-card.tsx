@@ -10,9 +10,11 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { NewsItemFeedbackActions } from "@/components/news-item-feedback-actions";
 import { NewsItemActions } from "@/components/news-item-actions";
 import { NewsNoteAction } from "@/components/news-note-action";
+import { useLocalize, useReaderLocale } from "@/components/reader-locale-provider";
 import type { NewsItemWithState } from "@/lib/news";
 import type { RankedNewsItem } from "@/lib/reader-feed-ranking";
 import type { FeedbackReason, FeedbackSentiment } from "@/lib/reader-feedback";
+import { localeTag, type ReaderLocale } from "@/lib/reader-locale";
 import { cn } from "@/lib/utils";
 
 const SUMMARY_MAX_CHARS = 260;
@@ -30,13 +32,13 @@ type NewsItemCardProps = {
   onSourceOpen?: () => void;
 };
 
-function formatDate(value: string | null) {
+function formatDate(value: string | null, locale: ReaderLocale) {
   if (!value) {
-    return "Brak daty publikacji";
+    return locale === "en" ? "No publication date" : "Brak daty publikacji";
   }
 
   const includesTime = value.includes("T");
-  const parts = new Intl.DateTimeFormat("pl-PL", {
+  const parts = new Intl.DateTimeFormat(localeTag(locale), {
     month: "short",
     day: "numeric",
     hour: includesTime ? "2-digit" : undefined,
@@ -65,6 +67,27 @@ function compactSummary(value: string) {
   return `${compacted}...`;
 }
 
+function readerFriendlySummary(value: string) {
+  return value.replace(/^View CSAF Summary\s*/i, "").trim();
+}
+
+function localizedCategory(value: string, locale: ReaderLocale) {
+  if (locale === "pl") return value;
+
+  return value
+    .replaceAll("Bezpieczeństwo", "Security")
+    .replaceAll("Geopolityka", "Geopolitics")
+    .replaceAll("Gospodarka", "Economy")
+    .replaceAll("Oprogramowanie", "Software")
+    .replaceAll("Technologie", "Technology")
+    .replaceAll("Obronność", "Defence")
+    .replaceAll("Azja i Pacyfik", "Asia-Pacific")
+    .replaceAll("Polska", "Poland")
+    .replaceAll("Świat", "World")
+    .replaceAll("Biznes", "Business")
+    .replaceAll("Makro", "Macro");
+}
+
 export function NewsItemCard({
   density = "comfortable",
   item,
@@ -73,6 +96,8 @@ export function NewsItemCard({
   onItemStateChange,
   onSourceOpen,
 }: NewsItemCardProps) {
+  const locale = useReaderLocale();
+  const l = useLocalize();
   const [expanded, setExpanded] = useState(false);
   const [actionsOpen, setActionsOpen] = useState(false);
   const [whyOpen, setWhyOpen] = useState(false);
@@ -80,8 +105,9 @@ export function NewsItemCard({
   const isRead = Boolean(item.readAt);
   const isSaved = Boolean(item.savedAt);
   const hasPreview = Boolean(item.preview);
-  const hasLongSummary = !hasPreview && item.summary.length > SUMMARY_MAX_CHARS;
-  const previewSummary = compactSummary(item.summary);
+  const cleanSummary = readerFriendlySummary(item.summary);
+  const hasLongSummary = !hasPreview && cleanSummary.length > SUMMARY_MAX_CHARS;
+  const previewSummary = compactSummary(cleanSummary);
   const compact = density === "compact";
   const rankedItem = "rankingReasons" in item ? item : null;
   const hasExplanation = Boolean(
@@ -115,17 +141,17 @@ export function NewsItemCard({
         <div className="flex items-start justify-between gap-2">
           <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-muted-foreground">
             <Badge variant="ghost" className="h-auto px-0 py-0 font-semibold text-primary">
-              {item.category}
+              {localizedCategory(item.category, locale)}
             </Badge>
-            {rankedItem?.isNew ? <Badge>Nowy</Badge> : null}
-            {rankedItem?.isUpdated ? <Badge variant="secondary">Aktualizacja</Badge> : null}
+            {rankedItem?.isNew ? <Badge>{l("Nowy", "New")}</Badge> : null}
+            {rankedItem?.isUpdated ? <Badge variant="secondary">{l("Aktualizacja", "Updated")}</Badge> : null}
             <span className="truncate">{item.source}</span>
             <span aria-hidden="true">·</span>
-            <span>{formatDate(item.publishedAt)}</span>
+            <span>{formatDate(item.publishedAt, locale)}</span>
             {item.sourceCount > 1 ? (
               <>
                 <span aria-hidden="true">·</span>
-                <span>{item.sourceCount} źródeł</span>
+                <span>{item.sourceCount} {l("źródeł", "sources")}</span>
               </>
             ) : null}
           </div>
@@ -133,10 +159,10 @@ export function NewsItemCard({
             className={cn(buttonVariants({ variant: "ghost", size: "icon-lg" }), "shrink-0 text-primary md:w-auto md:bg-primary md:px-3 md:text-primary-foreground md:shadow-sm")}
             href={`/news/${item.id}`}
             onClick={onFastRead}
-            aria-label={`Otwórz: ${item.title}`}
+            aria-label={l(`Otwórz: ${item.title}`, `Open: ${item.title}`)}
           >
             <ChevronRight className="size-6 md:size-4" aria-hidden="true" />
-            <span className="hidden md:inline">Czytaj</span>
+            <span className="hidden md:inline">{l("Czytaj", "Read")}</span>
           </Link>
         </div>
 
@@ -153,9 +179,9 @@ export function NewsItemCard({
       <CardContent className="grid gap-2 px-4 pb-4 md:px-4 md:pb-3.5">
         <div className="grid gap-2">
           <p className="text-sm leading-5 text-muted-foreground">
-            {item.preview?.whyItMatters ? <span className="font-semibold text-foreground/75">Dlaczego ważne: </span> : null}
+            {item.preview?.whyItMatters ? <span className="font-semibold text-foreground/75">{l("Dlaczego ważne: ", "Why it matters: ")}</span> : null}
             <span className={cn(!expanded && "line-clamp-3 md:line-clamp-none")}>
-              {item.preview?.whyItMatters || (expanded || !hasLongSummary ? item.summary : previewSummary)}
+              {item.preview?.whyItMatters || (expanded || !hasLongSummary ? cleanSummary : previewSummary)}
             </span>
             {hasLongSummary ? (
               <Button
@@ -163,11 +189,11 @@ export function NewsItemCard({
                 variant="ghost"
                 size="xs"
                 className="ml-1 h-6 px-1.5 align-middle text-primary hover:bg-muted"
-                title={expanded ? "Pokaż mniej" : "Pokaż więcej"}
-                aria-label={expanded ? "Pokaż mniej" : "Pokaż więcej"}
+                title={expanded ? l("Pokaż mniej", "Show less") : l("Pokaż więcej", "Show more")}
+                aria-label={expanded ? l("Pokaż mniej", "Show less") : l("Pokaż więcej", "Show more")}
                 onClick={() => setExpanded((value) => !value)}
               >
-                {expanded ? "Mniej" : "Więcej"}
+                {expanded ? l("Mniej", "Less") : l("Więcej", "More")}
               </Button>
             ) : null}
           </p>
@@ -177,7 +203,7 @@ export function NewsItemCard({
                 {rankedItem?.rankingReasons.map((reason) => <p key={reason}>{reason}</p>)}
                 {item.whyInteresting ? <p>{item.whyInteresting}</p> : null}
                 {item.recommendedAction ? <p className="font-medium text-foreground/80">{item.recommendedAction}</p> : null}
-                {item.changedFields.length ? <p>Changed: {item.changedFields.join(", ")}.</p> : null}
+                {item.changedFields.length ? <p>{l("Zmiany", "Changed")}: {item.changedFields.join(", ")}.</p> : null}
               </div>
             ) : null
           ) : null}
@@ -205,7 +231,7 @@ export function NewsItemCard({
                 onClick={() => setWhyOpen((value) => !value)}
               >
                 <Info aria-hidden="true" />
-                Dlaczego
+                {l("Dlaczego", "Why")}
               </Button>
             ) : null}
             <Button
@@ -213,13 +239,13 @@ export function NewsItemCard({
               variant="ghost"
               size="sm"
               className={cn("h-8 px-2 text-xs text-muted-foreground", actionsOpen && "bg-muted text-foreground")}
-              title="More actions"
-              aria-label="More actions"
+              title={l("Więcej akcji", "More actions")}
+              aria-label={l("Więcej akcji", "More actions")}
               aria-expanded={actionsOpen}
               onClick={() => setActionsOpen((value) => !value)}
             >
               <MoreHorizontal aria-hidden="true" />
-              Akcje
+              {l("Akcje", "Actions")}
             </Button>
           </div>
         </div>
@@ -251,12 +277,12 @@ export function NewsItemCard({
               target="_blank"
               rel="noreferrer"
               onClick={onSourceOpen}
-              title="Open source"
-              aria-label="Open source"
+              title={l("Otwórz źródło", "Open source")}
+              aria-label={l("Otwórz źródło", "Open source")}
             >
               <ExternalLink aria-hidden="true" />
             </a>
-            <span className="ml-1 text-xs text-muted-foreground">Read · Save · Note · Source</span>
+            <span className="ml-1 text-xs text-muted-foreground">{l("Czytaj · Zapisz · Notatka · Źródło", "Read · Save · Note · Source")}</span>
           </div>
         ) : null}
       </CardContent>

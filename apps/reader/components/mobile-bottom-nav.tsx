@@ -4,27 +4,30 @@ import { Newspaper, NotebookTabs, Settings, TextSearch } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
+import { useLocalize } from "@/components/reader-locale-provider";
 import { cn } from "@/lib/utils";
 
 const MOBILE_NAV_ITEMS = [
-  { href: "/", icon: Newspaper, label: "Dzisiaj", matches: (pathname: string) => pathname === "/" },
-  { href: "/news", icon: TextSearch, label: "Newsy", matches: (pathname: string) => pathname.startsWith("/news") },
-  { href: "/notebook", icon: NotebookTabs, label: "Notatnik", matches: (pathname: string) => pathname.startsWith("/notebook") },
-  { href: "/settings", icon: Settings, label: "Ustawienia", matches: (pathname: string) => pathname.startsWith("/settings") },
+  { href: "/", icon: Newspaper, labels: ["Dzisiaj", "Today"], matches: (pathname: string) => pathname === "/" },
+  { href: "/news", icon: TextSearch, labels: ["Newsy", "News"], matches: (pathname: string) => pathname.startsWith("/news") },
+  { href: "/notebook", icon: NotebookTabs, labels: ["Notatnik", "Notebook"], matches: (pathname: string) => pathname.startsWith("/notebook") },
+  { href: "/settings", icon: Settings, labels: ["Ustawienia", "Settings"], matches: (pathname: string) => pathname.startsWith("/settings") },
 ] as const;
 
 export function MobileBottomNav() {
   const pathname = usePathname();
+  const l = useLocalize();
 
   return (
     <nav
       className="mobile-bottom-nav fixed inset-x-0 bottom-0 z-50 border-t bg-background/96 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl md:hidden"
-      aria-label="Główna nawigacja"
+      aria-label={l("Główna nawigacja", "Main navigation")}
     >
       <div className="mx-auto grid h-17 max-w-md grid-cols-4 px-1">
         {MOBILE_NAV_ITEMS.map((item) => {
           const active = item.matches(pathname);
           const Icon = item.icon;
+          const label = l(item.labels[0], item.labels[1]);
 
           return (
             <Link
@@ -44,7 +47,7 @@ export function MobileBottomNav() {
                 aria-hidden="true"
               />
               <Icon className="size-6" strokeWidth={active ? 2.25 : 1.8} aria-hidden="true" />
-              <span className="truncate">{item.label}</span>
+              <span className="truncate">{label}</span>
             </Link>
           );
         })}

@@ -1,7 +1,10 @@
+"use client";
+
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
 import type { ReactNode } from "react";
 
+import { useLocalize } from "@/components/reader-locale-provider";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -16,18 +19,21 @@ type PageHeaderProps = {
 export function PageHeader({
   actions,
   backHref = "/",
-  backLabel = "Wróć",
+  backLabel,
   description,
   title,
 }: PageHeaderProps) {
+  const l = useLocalize();
+  const resolvedBackLabel = backLabel ?? l("Wróć", "Back");
+
   return (
     <header className="flex flex-wrap items-start gap-3">
       {backHref ? (
         <Link
           className={cn(buttonVariants({ variant: "outline", size: "icon-lg" }), "shrink-0 bg-card/80")}
           href={backHref}
-          title={backLabel}
-          aria-label={backLabel}
+          title={resolvedBackLabel}
+          aria-label={resolvedBackLabel}
         >
           <ArrowLeft aria-hidden="true" />
         </Link>

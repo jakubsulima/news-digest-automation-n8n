@@ -2,23 +2,25 @@
 
 import { useState } from "react";
 
+import { useLocalize } from "@/components/reader-locale-provider";
 import type { DigestFeedTargets } from "@/lib/digest-settings";
 
 type TargetConfig = {
   key: keyof DigestFeedTargets;
-  label: string;
+  labels: readonly [string, string];
   name: string;
 };
 
 const TARGETS: TargetConfig[] = [
-  { key: "geopolitics", label: "Geopolityka", name: "feedTargetGeopolitics" },
-  { key: "business", label: "Biznes", name: "feedTargetBusiness" },
-  { key: "ai", label: "AI", name: "feedTargetAi" },
-  { key: "software", label: "Oprogramowanie", name: "feedTargetSoftware" },
-  { key: "security", label: "Bezpieczeństwo", name: "feedTargetSecurity" },
+  { key: "geopolitics", labels: ["Geopolityka", "Geopolitics"], name: "feedTargetGeopolitics" },
+  { key: "business", labels: ["Biznes", "Business"], name: "feedTargetBusiness" },
+  { key: "ai", labels: ["AI", "AI"], name: "feedTargetAi" },
+  { key: "software", labels: ["Oprogramowanie", "Software"], name: "feedTargetSoftware" },
+  { key: "security", labels: ["Bezpieczeństwo", "Security"], name: "feedTargetSecurity" },
 ];
 
 export function FeedTargetSliders({ feedTargets }: { feedTargets: DigestFeedTargets }) {
+  const l = useLocalize();
   const [values, setValues] = useState(feedTargets);
   const totalCapacity = Object.values(values).reduce((total, value) => total + value, 0);
 
@@ -34,8 +36,8 @@ export function FeedTargetSliders({ feedTargets }: { feedTargets: DigestFeedTarg
       {TARGETS.map((target) => (
         <label key={target.key} className="grid gap-2 rounded-lg border bg-muted/20 px-3 py-2">
           <span className="flex items-center justify-between gap-3 text-sm font-medium">
-            <span>{target.label}</span>
-            <span className="tabular-nums text-muted-foreground">Maks. {values[target.key]}</span>
+            <span>{l(target.labels[0], target.labels[1])}</span>
+            <span className="tabular-nums text-muted-foreground">{l("Maks.", "Max.")} {values[target.key]}</span>
           </span>
           <input
             className="h-2 w-full accent-primary"
@@ -49,7 +51,7 @@ export function FeedTargetSliders({ feedTargets }: { feedTargets: DigestFeedTarg
         </label>
       ))}
       <p className="text-xs text-muted-foreground">
-        Łącznie maksymalnie {totalCapacity} newsów. Wartość 0 wyłącza kategorię, a wolne miejsca zajmują najwyżej ocenione materiały.
+        {l(`Łącznie maksymalnie ${totalCapacity} newsów. Wartość 0 wyłącza kategorię, a wolne miejsca zajmują najwyżej ocenione materiały.`, `Up to ${totalCapacity} stories in total. A value of 0 disables a category, and the highest-rated stories fill any remaining slots.`)}
       </p>
     </div>
   );

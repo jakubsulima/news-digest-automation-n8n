@@ -7,6 +7,8 @@ import { normalizeReaderFeedId } from "@/lib/feed-categories";
 import { normalizeReaderViewId } from "@/lib/reader-feed-filters";
 import { getReaderFeedPage } from "@/lib/reader-feed";
 import { normalizeFeedPeriod, normalizeFeedSort } from "@/lib/reader-feed-ranking";
+import { localize } from "@/lib/reader-locale";
+import { getReaderLocale } from "@/lib/reader-locale-server";
 import { createSupabaseServerClient } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
@@ -35,24 +37,24 @@ export default async function NewsPage({ searchParams }: NewsPageProps) {
   const activeSort = normalizeFeedSort(Array.isArray(params?.sort) ? params.sort[0] : params?.sort);
   const activePeriod = normalizeFeedPeriod(Array.isArray(params?.period) ? params.period[0] : params?.period);
   const user = await requireCurrentReader();
-  const feedPage = await getReaderFeedPage(user.id, {
+  const [feedPage, locale] = await Promise.all([getReaderFeedPage(user.id, {
     feed: activeFeed,
     period: activePeriod,
     sort: activeSort,
     view: activeView,
-  });
+  }), getReaderLocale()]);
 
   return (
     <>
-      <AppNavbar email={user.email || "Reader"} mobileContext="Wszystkie newsy" signOut={signOut} />
+      <AppNavbar email={user.email || "Reader"} mobileContext={localize(locale, "Wszystkie newsy", "All news")} signOut={signOut} />
       <main
         id="page-top"
         className="mx-auto flex w-full max-w-5xl scroll-mt-20 flex-col gap-4 px-4 py-4 sm:px-6 sm:py-6"
       >
         <PageHeader
           backHref={null}
-          title="Wszystkie newsy"
-          description={`${feedPage.totalCount} materiałów w wybranym widoku.`}
+          title={localize(locale, "Wszystkie newsy", "All news")}
+          description={localize(locale, `${feedPage.totalCount} materiałów w wybranym widoku.`, `${feedPage.totalCount} stories in the selected view.`)}
         />
         <NewsFeed
           initialFeed={activeFeed}

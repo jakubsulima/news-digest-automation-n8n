@@ -3,6 +3,7 @@
 import { Bookmark, Check, Eye, Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 
+import { useLocalize } from "@/components/reader-locale-provider";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -43,6 +44,7 @@ export function NewsItemActions({
   onStateChange,
   showLabels = false,
 }: NewsItemActionsProps) {
+  const l = useLocalize();
   const propState: ItemActionState = {
     read: isRead,
     saved: isSaved,
@@ -87,11 +89,11 @@ export function NewsItemActions({
       const payload = (await response.json().catch(() => null)) as { ok?: boolean; error?: string } | null;
 
       if (!response.ok || !payload?.ok) {
-        throw new Error(payload?.error || "Nie udało się zaktualizować newsa.");
+        throw new Error(payload?.error || l("Nie udało się zaktualizować newsa.", "Could not update the story."));
       }
     } catch (updateError) {
       applyState(previousState);
-      setError(updateError instanceof Error ? updateError.message : "Nie udało się zaktualizować newsa.");
+      setError(updateError instanceof Error ? updateError.message : l("Nie udało się zaktualizować newsa.", "Could not update the story."));
     } finally {
       setPendingAction(null);
     }
@@ -104,8 +106,8 @@ export function NewsItemActions({
         size={buttonSize}
         className={buttonClassName}
         type="button"
-        title={state.read ? "Oznacz jako nieprzeczytane" : "Oznacz jako przeczytane"}
-        aria-label={state.read ? "Oznacz jako nieprzeczytane" : "Oznacz jako przeczytane"}
+        title={state.read ? l("Oznacz jako nieprzeczytane", "Mark as unread") : l("Oznacz jako przeczytane", "Mark as read")}
+        aria-label={state.read ? l("Oznacz jako nieprzeczytane", "Mark as unread") : l("Oznacz jako przeczytane", "Mark as read")}
         disabled={pendingAction !== null}
         onClick={() => void updateItemState("read")}
       >
@@ -116,15 +118,15 @@ export function NewsItemActions({
         ) : (
           <Eye aria-hidden="true" />
         )}
-        {showLabels ? <span>{state.read ? "Przeczytane" : "Oznacz jako przeczytane"}</span> : null}
+        {showLabels ? <span>{state.read ? l("Przeczytane", "Read") : l("Oznacz jako przeczytane", "Mark as read")}</span> : null}
       </Button>
       <Button
         variant="outline"
         size={buttonSize}
         className={buttonClassName}
         type="button"
-        title={state.saved ? "Usuń z zapisanych" : "Zapisz"}
-        aria-label={state.saved ? "Usuń z zapisanych" : "Zapisz"}
+        title={state.saved ? l("Usuń z zapisanych", "Remove from saved") : l("Zapisz", "Save")}
+        aria-label={state.saved ? l("Usuń z zapisanych", "Remove from saved") : l("Zapisz", "Save")}
         disabled={pendingAction !== null}
         onClick={() => void updateItemState("saved")}
       >
@@ -133,7 +135,7 @@ export function NewsItemActions({
         ) : (
           <Bookmark fill={state.saved ? "currentColor" : "none"} aria-hidden="true" />
         )}
-        {showLabels ? <span>{state.saved ? "Zapisano" : "Zapisz"}</span> : null}
+        {showLabels ? <span>{state.saved ? l("Zapisano", "Saved") : l("Zapisz", "Save")}</span> : null}
       </Button>
       {error ? <span className="text-xs text-destructive">{error}</span> : null}
     </div>

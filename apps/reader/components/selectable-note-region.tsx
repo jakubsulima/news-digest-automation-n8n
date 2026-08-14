@@ -4,6 +4,7 @@ import { Highlighter } from "lucide-react";
 import { useRef, useState, type ReactNode } from "react";
 
 import { NoteComposer, type ReaderQuoteSelection } from "@/components/note-composer";
+import { useLocalize } from "@/components/reader-locale-provider";
 import { Button } from "@/components/ui/button";
 import { READER_NOTE_CONTEXT_MAX_LENGTH, READER_NOTE_QUOTE_MAX_LENGTH } from "@/lib/reader-note-types";
 
@@ -34,6 +35,7 @@ function selectionContext(selection: Selection, range: Range): ReaderQuoteSelect
 }
 
 export function SelectableNoteRegion({ articleId = null, children, newsItemId }: SelectableNoteRegionProps) {
+  const l = useLocalize();
   const regionRef = useRef<HTMLDivElement>(null);
   const [quote, setQuote] = useState<ReaderQuoteSelection | null>(null);
   const [open, setOpen] = useState(false);
@@ -59,7 +61,7 @@ export function SelectableNoteRegion({ articleId = null, children, newsItemId }:
       {quote ? (
         <div className="fixed inset-x-0 bottom-4 z-40 flex justify-center px-4">
           <Button className="shadow-lg" size="lg" type="button" onClick={() => setOpen(true)}>
-            <Highlighter aria-hidden="true" /> Zapisz zaznaczenie
+            <Highlighter aria-hidden="true" /> {l("Zapisz zaznaczenie", "Save selection")}
           </Button>
         </div>
       ) : null}

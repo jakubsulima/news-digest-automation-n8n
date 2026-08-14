@@ -4,6 +4,7 @@ import { CheckCheck, EyeOff, Inbox, Loader2, SlidersHorizontal } from "lucide-re
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { NewsFeedSection } from "@/components/news-feed-section";
+import { useLocalize } from "@/components/reader-locale-provider";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { READER_FEEDS, type ReaderFeedId } from "@/lib/feed-categories";
@@ -28,16 +29,32 @@ type FeedSelection = {
   view: ReaderViewId;
 };
 
-const SORT_LABELS: Record<FeedSort, string> = {
-  "for-you": "Dla Ciebie",
-  latest: "Najnowsze",
-  top: "Najważniejsze",
+const SORT_LABELS: Record<FeedSort, readonly [string, string]> = {
+  "for-you": ["Dla Ciebie", "For you"],
+  latest: ["Najnowsze", "Latest"],
+  top: ["Najważniejsze", "Top"],
 };
 
-const PERIOD_LABELS: Record<FeedPeriod, string> = {
-  history: "Historia",
-  latest: "Ostatni digest",
-  "since-visit": "Od ostatniej wizyty",
+const PERIOD_LABELS: Record<FeedPeriod, readonly [string, string]> = {
+  history: ["Historia", "History"],
+  latest: ["Ostatni digest", "Latest digest"],
+  "since-visit": ["Od ostatniej wizyty", "Since last visit"],
+};
+
+const FEED_LABELS: Record<ReaderFeedId, readonly [string, string]> = {
+  all: ["Wszystkie", "All"],
+  geopolitics: ["Geopolityka", "Geopolitics"],
+  business: ["Biznes", "Business"],
+  ai: ["AI", "AI"],
+  software: ["Oprogramowanie", "Software"],
+  security: ["Bezpieczeństwo", "Security"],
+};
+
+const VIEW_LABELS: Record<ReaderViewId, readonly [string, string]> = {
+  all: ["Wszystkie", "All"],
+  unread: ["Nieprzeczytane", "Unread"],
+  saved: ["Zapisane", "Saved"],
+  archived: ["Archiwum", "Archive"],
 };
 
 const VISIBLE_READER_VIEWS = READER_VIEWS.filter((view) => view.id !== "archived");
@@ -79,6 +96,7 @@ export function NewsFeed({
   initialSort,
   initialView,
 }: NewsFeedProps) {
+  const l = useLocalize();
   const [selection, setSelection] = useState<FeedSelection>({
     feed: initialFeed,
     period: initialPeriod,
@@ -137,7 +155,7 @@ export function NewsFeed({
       if (initialPage.previousVisitAt) params.set("since", initialPage.previousVisitAt);
       const response = await fetch(`/api/news-feed?${params}`, { signal: controller.signal });
       const payload = (await response.json().catch(() => null)) as ReaderFeedPage & { error?: string };
-      if (!response.ok || !payload?.grouped) throw new Error(payload?.error || "Could not load the feed.");
+      if (!response.ok || !payload?.grouped) throw new Error(payload?.error || l("Nie udało się wczytać feedu.", "Could not load the feed."));
 
       if (append) {
         const appendedItems = pageItems(payload);
@@ -154,7 +172,7 @@ export function NewsFeed({
       }
     } catch (loadError) {
       if (loadError instanceof DOMException && loadError.name === "AbortError") return;
-      setError(loadError instanceof Error ? loadError.message : "Could not load the feed.");
+      setError(loadError instanceof Error ? loadError.message : l("Nie udało się wczytać feedu.", "Could not load the feed."));
     } finally {
       if (abortRef.current === controller) setIsLoading(false);
     }
@@ -257,11 +275,11 @@ export function NewsFeed({
     try {
       const response = await apiBatchRead(visibleUnreadItems.map((item) => item.id));
       const payload = (await response.json().catch(() => null)) as { error?: string; ok?: boolean } | null;
-      if (!response.ok || !payload?.ok) throw new Error(payload?.error || "Could not mark items read.");
+      if (!response.ok || !payload?.ok) throw new Error(payload?.error || l("Nie udało się oznaczyć materiałów jako przeczytane.", "Could not mark stories as read."));
       visibleUnreadItems.forEach((item) => trackInteraction("read", item, items.indexOf(item), undefined, "bulk"));
     } catch (markError) {
       setPage(previousPage);
-      setError(markError instanceof Error ? markError.message : "Could not mark items read.");
+      setError(markError instanceof Error ? markError.message : l("Nie udało się oznaczyć materiałów jako przeczytane.", "Could not mark stories as read."));
     } finally {
       setIsMarkingRead(false);
     }
@@ -274,15 +292,15 @@ export function NewsFeed({
 
   return (
     <>
-      <section className="sticky top-14 z-40 -mx-4 grid gap-3 border-y bg-background/96 p-3 backdrop-blur-xl md:static md:mx-0 md:rounded-2xl md:border md:bg-card/75 md:p-4 md:shadow-sm" aria-label="Sterowanie listą newsów">
+      <section className="sticky top-14 z-40 -mx-4 grid gap-3 border-y bg-background/96 p-3 backdrop-blur-xl md:static md:mx-0 md:rounded-2xl md:border md:bg-card/75 md:p-4 md:shadow-sm" aria-label={l("Sterowanie listą newsów", "News feed controls")}>
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <span className="hidden size-8 items-center justify-center rounded-lg bg-accent text-accent-foreground md:flex">
               <SlidersHorizontal className="size-4" aria-hidden="true" />
             </span>
             <div>
-              <h2 className="text-sm font-semibold">Twój feed</h2>
-              <p className="text-xs text-muted-foreground">{items.length} materiałów w tym widoku</p>
+              <h2 className="text-sm font-semibold">{l("Twój feed", "Your feed")}</h2>
+              <p className="text-xs text-muted-foreground">{l(`${items.length} materiałów w tym widoku`, `${items.length} stories in this view`)}</p>
             </div>
           </div>
           <Button
@@ -294,61 +312,61 @@ export function NewsFeed({
             onClick={() => setFiltersOpen((value) => !value)}
           >
             <SlidersHorizontal aria-hidden="true" />
-            Filtry
+            {l("Filtry", "Filters")}
           </Button>
           <div className="hidden flex-wrap items-center gap-1.5 md:flex">
             <Button type="button" variant={selection.view === "unread" ? "secondary" : "outline"} size="sm" onClick={() => changeSelection({ view: selection.view === "unread" ? "all" : "unread" })}>
-              <EyeOff aria-hidden="true" /> {selection.view === "unread" ? "Tylko nieprzeczytane" : "Ukryj przeczytane"}
+              <EyeOff aria-hidden="true" /> {selection.view === "unread" ? l("Tylko nieprzeczytane", "Unread only") : l("Ukryj przeczytane", "Hide read")}
             </Button>
             <Button type="button" variant="outline" size="sm" disabled={isMarkingRead || !visibleUnreadItems.length} onClick={() => void markVisibleAsRead()}>
-              {isMarkingRead ? <Loader2 className="animate-spin" aria-hidden="true" /> : <CheckCheck aria-hidden="true" />} Oznacz przeczytane
+              {isMarkingRead ? <Loader2 className="animate-spin" aria-hidden="true" /> : <CheckCheck aria-hidden="true" />} {l("Oznacz przeczytane", "Mark as read")}
             </Button>
           </div>
         </div>
 
         <div className={cn(filtersOpen ? "grid" : "hidden", "gap-3 md:grid")}>
-          <div className="grid grid-cols-3 gap-1.5 rounded-xl bg-muted/35 p-1" aria-label="Sortowanie newsów">
+          <div className="grid grid-cols-3 gap-1.5 rounded-xl bg-muted/35 p-1" aria-label={l("Sortowanie newsów", "News sorting")}>
             {FEED_SORTS.map((sort) => (
               <Button key={sort} type="button" size="sm" variant={selection.sort === sort ? "default" : "ghost"} onClick={() => changeSelection({ sort })}>
-                {SORT_LABELS[sort]}
+                {l(SORT_LABELS[sort][0], SORT_LABELS[sort][1])}
               </Button>
             ))}
           </div>
 
           <div className="grid gap-2 sm:grid-cols-3">
           <label className="grid gap-1 text-xs font-medium text-muted-foreground">
-            Kategoria
+            {l("Kategoria", "Category")}
             <select
               className="h-9 w-full rounded-lg border bg-background px-2.5 text-sm font-medium text-foreground outline-none transition focus:border-ring focus:ring-3 focus:ring-ring/25"
               value={selection.feed}
               onChange={(event) => changeSelection({ feed: event.target.value as ReaderFeedId })}
             >
               {READER_FEEDS.map((feed) => (
-                <option key={feed.id} value={feed.id}>{feed.label} ({page.feedCounts[feed.id] || 0})</option>
+                <option key={feed.id} value={feed.id}>{l(FEED_LABELS[feed.id][0], FEED_LABELS[feed.id][1])} ({page.feedCounts[feed.id] || 0})</option>
               ))}
             </select>
           </label>
           <label className="grid gap-1 text-xs font-medium text-muted-foreground">
-            Status
+            {l("Status", "Status")}
             <select
               className="h-9 w-full rounded-lg border bg-background px-2.5 text-sm font-medium text-foreground outline-none transition focus:border-ring focus:ring-3 focus:ring-ring/25"
               value={selection.view}
               onChange={(event) => changeSelection({ view: event.target.value as ReaderViewId })}
             >
               {VISIBLE_READER_VIEWS.map((view) => (
-                <option key={view.id} value={view.id}>{view.label} ({page.viewCounts[view.id] || 0})</option>
+                <option key={view.id} value={view.id}>{l(VIEW_LABELS[view.id][0], VIEW_LABELS[view.id][1])} ({page.viewCounts[view.id] || 0})</option>
               ))}
             </select>
           </label>
           <label className="grid gap-1 text-xs font-medium text-muted-foreground">
-            Okres
+            {l("Okres", "Period")}
             <select
               className="h-9 w-full rounded-lg border bg-background px-2.5 text-sm font-medium text-foreground outline-none transition focus:border-ring focus:ring-3 focus:ring-ring/25"
               value={selection.period}
               onChange={(event) => changeSelection({ period: event.target.value as FeedPeriod })}
             >
               {FEED_PERIODS.map((period) => (
-                <option key={period} value={period}>{PERIOD_LABELS[period]}</option>
+                <option key={period} value={period}>{l(PERIOD_LABELS[period][0], PERIOD_LABELS[period][1])}</option>
               ))}
             </select>
           </label>
@@ -356,17 +374,17 @@ export function NewsFeed({
 
           <div className="flex flex-wrap items-center gap-1.5 md:hidden">
             <Button type="button" variant={selection.view === "unread" ? "secondary" : "outline"} size="sm" onClick={() => changeSelection({ view: selection.view === "unread" ? "all" : "unread" })}>
-              <EyeOff aria-hidden="true" /> {selection.view === "unread" ? "Tylko nieprzeczytane" : "Ukryj przeczytane"}
+              <EyeOff aria-hidden="true" /> {selection.view === "unread" ? l("Tylko nieprzeczytane", "Unread only") : l("Ukryj przeczytane", "Hide read")}
             </Button>
             <Button type="button" variant="outline" size="sm" disabled={isMarkingRead || !visibleUnreadItems.length} onClick={() => void markVisibleAsRead()}>
-              {isMarkingRead ? <Loader2 className="animate-spin" aria-hidden="true" /> : <CheckCheck aria-hidden="true" />} Oznacz przeczytane
+              {isMarkingRead ? <Loader2 className="animate-spin" aria-hidden="true" /> : <CheckCheck aria-hidden="true" />} {l("Oznacz przeczytane", "Mark as read")}
             </Button>
           </div>
         </div>
 
         {isLoading || error ? (
           <div>
-            {isLoading ? <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground" role="status"><Loader2 className="size-3 animate-spin" aria-hidden="true" />Aktualizuję feed…</span> : null}
+            {isLoading ? <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground" role="status"><Loader2 className="size-3 animate-spin" aria-hidden="true" />{l("Aktualizuję feed…", "Updating feed…")}</span> : null}
             {error ? <span className="text-xs text-destructive" role="alert">{error}</span> : null}
           </div>
         ) : null}
@@ -375,19 +393,19 @@ export function NewsFeed({
       <div className={cn("grid gap-4 transition-opacity", isLoading && "pointer-events-none opacity-60")}>
         {items.length ? (
           <>
-            <NewsFeedSection exposureContextId={page.rankingContextId} label="Najważniejsze" items={page.grouped.top} rankOffset={0} onExposure={trackExposure} onFeedbackChange={updateFeedback} onItemStateChange={updateItemState} onFastRead={(item, rank) => trackInteraction("fast_read", item, rank)} onSourceOpen={(item, rank) => trackInteraction("source_open", item, rank, sourceAttributionMetadata(item))} />
-            <NewsFeedSection exposureContextId={page.rankingContextId} label="Do działania" items={page.grouped.actionable} rankOffset={actionableOffset} onExposure={trackExposure} onFeedbackChange={updateFeedback} onItemStateChange={updateItemState} onFastRead={(item, rank) => trackInteraction("fast_read", item, rank)} onSourceOpen={(item, rank) => trackInteraction("source_open", item, rank, sourceAttributionMetadata(item))} />
-            <NewsFeedSection exposureContextId={page.rankingContextId} label="Warto wiedzieć" items={page.grouped.worthKnowing} rankOffset={worthOffset} onExposure={trackExposure} onFeedbackChange={updateFeedback} onItemStateChange={updateItemState} onFastRead={(item, rank) => trackInteraction("fast_read", item, rank)} onSourceOpen={(item, rank) => trackInteraction("source_open", item, rank, sourceAttributionMetadata(item))} />
+            <NewsFeedSection exposureContextId={page.rankingContextId} label={l("Najważniejsze", "Top stories")} items={page.grouped.top} rankOffset={0} onExposure={trackExposure} onFeedbackChange={updateFeedback} onItemStateChange={updateItemState} onFastRead={(item, rank) => trackInteraction("fast_read", item, rank)} onSourceOpen={(item, rank) => trackInteraction("source_open", item, rank, sourceAttributionMetadata(item))} />
+            <NewsFeedSection exposureContextId={page.rankingContextId} label={l("Do działania", "Actionable")} items={page.grouped.actionable} rankOffset={actionableOffset} onExposure={trackExposure} onFeedbackChange={updateFeedback} onItemStateChange={updateItemState} onFastRead={(item, rank) => trackInteraction("fast_read", item, rank)} onSourceOpen={(item, rank) => trackInteraction("source_open", item, rank, sourceAttributionMetadata(item))} />
+            <NewsFeedSection exposureContextId={page.rankingContextId} label={l("Warto wiedzieć", "Worth knowing")} items={page.grouped.worthKnowing} rankOffset={worthOffset} onExposure={trackExposure} onFeedbackChange={updateFeedback} onItemStateChange={updateItemState} onFastRead={(item, rank) => trackInteraction("fast_read", item, rank)} onSourceOpen={(item, rank) => trackInteraction("source_open", item, rank, sourceAttributionMetadata(item))} />
             {page.grouped.more.length ? (
               <section className="grid gap-2">
-                <Button type="button" variant="outline" onClick={() => setMoreExpanded((value) => !value)}>{moreExpanded ? "Ukryj pozostałe" : `Pokaż jeszcze ${page.grouped.more.length}`}</Button>
-                <NewsFeedSection exposureContextId={page.rankingContextId} label="Pozostałe" items={moreItems} rankOffset={moreOffset} onExposure={trackExposure} onFeedbackChange={updateFeedback} onItemStateChange={updateItemState} onFastRead={(item, rank) => trackInteraction("fast_read", item, rank)} onSourceOpen={(item, rank) => trackInteraction("source_open", item, rank, sourceAttributionMetadata(item))} />
+                <Button type="button" variant="outline" onClick={() => setMoreExpanded((value) => !value)}>{moreExpanded ? l("Ukryj pozostałe", "Hide remaining") : l(`Pokaż jeszcze ${page.grouped.more.length}`, `Show ${page.grouped.more.length} more`)}</Button>
+                <NewsFeedSection exposureContextId={page.rankingContextId} label={l("Pozostałe", "More")} items={moreItems} rankOffset={moreOffset} onExposure={trackExposure} onFeedbackChange={updateFeedback} onItemStateChange={updateItemState} onFastRead={(item, rank) => trackInteraction("fast_read", item, rank)} onSourceOpen={(item, rank) => trackInteraction("source_open", item, rank, sourceAttributionMetadata(item))} />
               </section>
             ) : null}
-            {page.nextCursor ? <Button type="button" variant="outline" disabled={isLoading} onClick={() => void loadFeed(selection, page.nextCursor, true)}>Wczytaj więcej</Button> : null}
+            {page.nextCursor ? <Button type="button" variant="outline" disabled={isLoading} onClick={() => void loadFeed(selection, page.nextCursor, true)}>{l("Wczytaj więcej", "Load more")}</Button> : null}
           </>
         ) : (
-          <Card><CardContent className="flex items-center gap-3 text-muted-foreground"><Inbox className="size-5" aria-hidden="true" /><p className="text-sm">Brak materiałów pasujących do tego widoku.</p></CardContent></Card>
+          <Card><CardContent className="flex items-center gap-3 text-muted-foreground"><Inbox className="size-5" aria-hidden="true" /><p className="text-sm">{l("Brak materiałów pasujących do tego widoku.", "No stories match this view.")}</p></CardContent></Card>
         )}
       </div>
     </>
