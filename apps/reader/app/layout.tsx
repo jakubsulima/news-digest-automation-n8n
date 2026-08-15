@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 
+import { MobileBottomNav } from "@/components/mobile-bottom-nav";
 import { ReaderLocaleProvider } from "@/components/reader-locale-provider";
 import { getReaderLocale } from "@/lib/reader-locale-server";
 
@@ -45,7 +46,10 @@ export default async function RootLayout({
     <html lang={locale} suppressHydrationWarning>
       <body>
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
-        <ReaderLocaleProvider locale={locale}>{children}</ReaderLocaleProvider>
+        <ReaderLocaleProvider locale={locale}>
+          {children}
+          <MobileBottomNav />
+        </ReaderLocaleProvider>
       </body>
     </html>
   );

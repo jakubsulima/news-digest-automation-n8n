@@ -2,7 +2,6 @@ import { Search } from "lucide-react";
 import Link from "next/link";
 
 import { NotebookNotes } from "@/components/notebook-notes";
-import { MobileBottomNav } from "@/components/mobile-bottom-nav";
 import { PageHeader } from "@/components/page-header";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -120,7 +119,6 @@ export default async function NotebookPage({ searchParams }: NotebookPageProps) 
         </nav>
       ) : null}
     </main>
-    <MobileBottomNav />
     </>
   );
 }

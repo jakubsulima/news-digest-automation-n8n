@@ -11,26 +11,28 @@ export default function NotebookLoading() {
           <Skeleton className="h-4 w-full max-w-sm" />
         </div>
       </header>
-      <Card className="bg-card/80">
-        <CardContent className="grid gap-3">
+      <Card className="-mx-4 rounded-none border-y bg-card/60 shadow-none ring-0 md:mx-0 md:rounded-xl md:shadow-sm md:ring-1">
+        <CardContent className="grid gap-3 p-4 md:p-3">
           <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
-            <Skeleton className="h-8 w-full" />
-            <Skeleton className="h-8 w-24" />
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-24" />
           </div>
           <div className="flex flex-wrap gap-2 border-t pt-3">
-            {[0, 1, 2, 3].map((index) => <Skeleton key={index} className="h-7 w-24" />)}
+            {[0, 1, 2, 3].map((index) => <Skeleton key={index} className="h-8 w-24 rounded-lg" />)}
           </div>
         </CardContent>
       </Card>
-      {[0, 1, 2].map((index) => (
-        <Card key={index}>
-          <CardContent className="grid gap-3">
-            <Skeleton className="h-5 w-48" />
-            <Skeleton className="h-16 w-full" />
-            <Skeleton className="h-8 w-full" />
-          </CardContent>
-        </Card>
-      ))}
+      <Card className="border-dashed bg-card/60">
+        <CardContent className="grid justify-items-center gap-3 py-12 text-center">
+          <Skeleton className="size-12 rounded-full" />
+          <div className="grid w-full max-w-xs justify-items-center gap-2">
+            <Skeleton className="h-5 w-36" />
+            <Skeleton className="h-4 w-full" />
+            <Skeleton className="h-4 w-9/12" />
+          </div>
+          <Skeleton className="h-9 w-36 rounded-lg" />
+        </CardContent>
+      </Card>
     </main>
   );
 }

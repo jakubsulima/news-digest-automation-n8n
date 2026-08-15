@@ -52,10 +52,10 @@ function BriefHighlights({ highlights }: { highlights: DigestBrief["highlights"]
                 <span className="text-muted-foreground" aria-hidden="true">·</span>
                 <span className="text-amber-700 dark:text-amber-400">{l("Ważne", "Important")}</span>
               </div>
-              <h3 className="line-clamp-2 text-base font-semibold leading-5 text-foreground transition-colors group-hover:text-primary sm:text-lg sm:leading-6">
+              <h3 className="line-clamp-2 min-w-0 max-w-full break-words text-base font-semibold leading-5 text-foreground transition-colors [overflow-wrap:anywhere] group-hover:text-primary sm:text-lg sm:leading-6">
                 {highlight.title}
               </h3>
-              <p className="mt-1.5 line-clamp-1 text-[0.82rem] leading-4 text-muted-foreground md:mt-2 md:line-clamp-2 md:text-sm md:leading-5">
+              <p className="mt-1.5 line-clamp-1 min-w-0 max-w-full break-words text-[0.82rem] leading-4 text-muted-foreground [overflow-wrap:anywhere] md:mt-2 md:line-clamp-2 md:text-sm md:leading-5">
                 <span className="font-semibold text-foreground/75">{l("Dlaczego ważne: ", "Why it matters: ")}</span>
                 {readerFriendlyWhy(highlight.whyItMatters, locale)}
               </p>
@@ -96,7 +96,7 @@ export function DigestBriefCard({ brief }: DigestBriefProps) {
             {brief.highlights.slice(0, 4).map((highlight) => (
               <li key={`summary-${highlight.newsItemId}`} className="grid grid-cols-[0.5rem_1fr] gap-3 text-[0.82rem] leading-[1.2rem] text-foreground/90 md:text-[0.95rem] md:leading-6">
                 <span className="mt-2 size-2 rounded-full bg-primary" aria-hidden="true" />
-                <span className="line-clamp-2">{readerFriendlySummary(highlight.whatHappened)}</span>
+                <span className="line-clamp-2 min-w-0 break-words [overflow-wrap:anywhere]">{readerFriendlySummary(highlight.whatHappened)}</span>
               </li>
             ))}
           </ul>

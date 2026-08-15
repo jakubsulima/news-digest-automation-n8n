@@ -133,19 +133,19 @@ export function NewsItemCard({
     <Card
       size="sm"
       className={cn(
-        "overflow-visible rounded-none bg-transparent py-0 shadow-none ring-0 transition-colors md:rounded-xl md:bg-card md:shadow-sm md:ring-foreground/8 md:hover:ring-foreground/15",
+        "min-w-0 max-w-full overflow-x-clip rounded-none bg-transparent py-0 shadow-none ring-0 transition-colors md:rounded-xl md:bg-card md:shadow-sm md:ring-foreground/8 md:hover:ring-foreground/15",
         isRead && "opacity-70 md:bg-card/60",
       )}
     >
-      <CardHeader className="gap-2 px-4 pb-1 pt-4 md:px-4 md:pt-3.5">
-        <div className="flex items-start justify-between gap-2">
-          <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-muted-foreground">
-            <Badge variant="ghost" className="h-auto px-0 py-0 font-semibold text-primary">
+      <CardHeader className="min-w-0 gap-2 px-4 pb-1 pt-4 md:px-4 md:pt-3.5">
+        <div className="flex min-w-0 items-start justify-between gap-2">
+          <div className="flex min-w-0 max-w-full flex-1 flex-wrap items-center gap-x-1.5 gap-y-1 overflow-hidden text-xs text-muted-foreground">
+            <Badge variant="ghost" className="h-auto max-w-full whitespace-normal break-words px-0 py-0 font-semibold text-primary [overflow-wrap:anywhere]">
               {localizedCategory(item.category, locale)}
             </Badge>
             {rankedItem?.isNew ? <Badge>{l("Nowy", "New")}</Badge> : null}
             {rankedItem?.isUpdated ? <Badge variant="secondary">{l("Aktualizacja", "Updated")}</Badge> : null}
-            <span className="truncate">{item.source}</span>
+            <span className="min-w-0 max-w-full truncate">{item.source}</span>
             <span aria-hidden="true">·</span>
             <span>{formatDate(item.publishedAt, locale)}</span>
             {item.sourceCount > 1 ? (
@@ -166,9 +166,9 @@ export function NewsItemCard({
           </Link>
         </div>
 
-        <CardTitle className={cn("line-clamp-3 text-[1.02rem] font-semibold leading-snug md:line-clamp-none", compact && "sm:text-[1.05rem]")}>
+        <CardTitle className={cn("line-clamp-3 min-w-0 max-w-full break-words text-[1.02rem] font-semibold leading-snug [overflow-wrap:anywhere] md:line-clamp-none", compact && "sm:text-[1.05rem]")}>
           <Link
-            className="decoration-foreground/30 hover:text-primary hover:underline"
+            className="block min-w-0 max-w-full break-words decoration-foreground/30 [overflow-wrap:anywhere] hover:text-primary hover:underline"
             href={`/news/${item.id}`}
             onClick={onFastRead}
           >
@@ -176,11 +176,11 @@ export function NewsItemCard({
           </Link>
         </CardTitle>
       </CardHeader>
-      <CardContent className="grid gap-2 px-4 pb-4 md:px-4 md:pb-3.5">
-        <div className="grid gap-2">
-          <p className="text-sm leading-5 text-muted-foreground">
+      <CardContent className="grid min-w-0 gap-2 px-4 pb-4 md:px-4 md:pb-3.5">
+        <div className="grid min-w-0 gap-2">
+          <p className="min-w-0 max-w-full break-words text-sm leading-5 text-muted-foreground [overflow-wrap:anywhere]">
             {item.preview?.whyItMatters ? <span className="font-semibold text-foreground/75">{l("Dlaczego ważne: ", "Why it matters: ")}</span> : null}
-            <span className={cn(!expanded && "line-clamp-3 md:line-clamp-none")}>
+            <span className={cn("min-w-0 max-w-full break-words [overflow-wrap:anywhere]", !expanded && "line-clamp-3 md:line-clamp-none")}>
               {item.preview?.whyItMatters || (expanded || !hasLongSummary ? cleanSummary : previewSummary)}
             </span>
             {hasLongSummary ? (
@@ -199,10 +199,10 @@ export function NewsItemCard({
           </p>
           {hasExplanation ? (
             whyOpen ? (
-              <div className="grid gap-1 rounded-lg border bg-muted/25 p-2.5 text-xs leading-5 text-muted-foreground">
-                {rankedItem?.rankingReasons.map((reason) => <p key={reason}>{reason}</p>)}
-                {item.whyInteresting ? <p>{item.whyInteresting}</p> : null}
-                {item.recommendedAction ? <p className="font-medium text-foreground/80">{item.recommendedAction}</p> : null}
+              <div className="grid min-w-0 gap-1 break-words rounded-lg border bg-muted/25 p-2.5 text-xs leading-5 text-muted-foreground [overflow-wrap:anywhere]">
+                {rankedItem?.rankingReasons.map((reason) => <p className="min-w-0" key={reason}>{reason}</p>)}
+                {item.whyInteresting ? <p className="min-w-0">{item.whyInteresting}</p> : null}
+                {item.recommendedAction ? <p className="min-w-0 font-medium text-foreground/80">{item.recommendedAction}</p> : null}
                 {item.changedFields.length ? <p>{l("Zmiany", "Changed")}: {item.changedFields.join(", ")}.</p> : null}
               </div>
             ) : null

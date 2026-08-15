@@ -2,7 +2,6 @@ import { ExternalLink, Info, SlidersHorizontal } from "lucide-react";
 import { notFound } from "next/navigation";
 
 import { PageHeader } from "@/components/page-header";
-import { MobileBottomNav } from "@/components/mobile-bottom-nav";
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -68,7 +67,7 @@ export default async function NewsDetailPage({ params }: NewsDetailPageProps) {
 
   return (
     <>
-    <main className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-4 py-5 sm:px-6 sm:py-7">
+    <main className="mx-auto flex w-full min-w-0 max-w-3xl flex-col gap-4 overflow-x-clip px-4 py-5 sm:px-6 sm:py-7">
       <PageHeader
         backHref="/news"
         title={localize(locale, "Szczegóły wiadomości", "Story details")}
@@ -102,24 +101,24 @@ export default async function NewsDetailPage({ params }: NewsDetailPageProps) {
         />
       </section>
 
-      <Card className="-mx-4 rounded-none border-y border-border/70 bg-card/80 shadow-none ring-0 md:mx-0 md:rounded-xl md:shadow-sm md:ring-1">
-        <CardHeader>
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 text-xs text-muted-foreground">
-            <Badge variant="secondary" className="bg-accent text-accent-foreground">
+      <Card className="-mx-4 min-w-0 overflow-x-clip rounded-none border-y border-border/70 bg-card/80 shadow-none ring-0 md:mx-0 md:rounded-xl md:shadow-sm md:ring-1">
+        <CardHeader className="min-w-0">
+          <div className="flex min-w-0 max-w-full flex-wrap items-center gap-x-2 gap-y-1.5 overflow-hidden text-xs text-muted-foreground">
+            <Badge variant="secondary" className="max-w-full whitespace-normal break-words bg-accent text-accent-foreground [overflow-wrap:anywhere]">
               {item.category}
             </Badge>
-            <span>{item.source}</span>
+            <span className="min-w-0 max-w-full break-words [overflow-wrap:anywhere]">{item.source}</span>
             <span aria-hidden="true">·</span>
             <span>{formatDate(item.publishedAt, locale)}</span>
             <Badge variant="outline">{localizedPriority(item.editorialScore, locale)}</Badge>
             {item.sourceCount > 1 ? <Badge variant="outline">{item.sourceCount} {localize(locale, "źródeł", "sources")}</Badge> : null}
           </div>
 
-          <CardTitle className="text-xl leading-tight sm:text-2xl">
+          <CardTitle className="min-w-0 max-w-full break-words text-xl leading-tight [overflow-wrap:anywhere] sm:text-2xl">
             {item.title}
           </CardTitle>
         </CardHeader>
-        <CardContent className="grid gap-5">
+        <CardContent className="grid min-w-0 gap-5">
           <SelectableNoteRegion articleId={item.cachedArticle?.articleId} newsItemId={item.id}>
             <NewsPreviewCard preview={item.preview} summary={item.summary} />
             {!item.preview && (item.whyInteresting || item.recommendedAction) ? (
@@ -128,14 +127,14 @@ export default async function NewsDetailPage({ params }: NewsDetailPageProps) {
                   <Info aria-hidden="true" className="size-4 text-primary" />
                   {localize(locale, "Dlaczego ten news?", "Why this story?")}
                 </summary>
-                <section className="grid gap-2 border-t px-3 py-3 text-sm leading-6 text-muted-foreground">
+                <section className="grid min-w-0 gap-2 break-words border-t px-3 py-3 text-sm leading-6 text-muted-foreground [overflow-wrap:anywhere]">
                   {item.whyInteresting ? <p>{item.whyInteresting}</p> : null}
                   {item.recommendedAction ? <p>{item.recommendedAction}</p> : null}
                 </section>
               </details>
             ) : null}
             {item.cachedArticle ? (
-              <section className="grid gap-4 border-t border-border pt-5">
+              <section className="grid min-w-0 gap-4 border-t border-border pt-5">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <h2 className="text-lg font-semibold">{localize(locale, "Treść artykułu", "Article content")}</h2>
                   <span className="text-xs text-muted-foreground">
@@ -146,7 +145,7 @@ export default async function NewsDetailPage({ params }: NewsDetailPageProps) {
                 <p className="text-xs leading-5 text-muted-foreground">
                   {localize(locale, "Kopia została zapisana, gdy artykuł był publicznie dostępny. Źródło mogło od tego czasu się zmienić.", "This copy was saved while the article was publicly available. The source may have changed since then.")}
                 </p>
-                <div className="grid gap-4 text-[0.98rem] leading-7 text-foreground/90">
+                <div className="grid min-w-0 max-w-full gap-4 break-words text-[0.98rem] leading-7 text-foreground/90 [overflow-wrap:anywhere]">
                   {item.cachedArticle.text.split(/\n{2,}/).map((paragraph, index) => (
                     <p key={`${index}-${paragraph.slice(0, 32)}`}>{paragraph}</p>
                   ))}
@@ -179,9 +178,9 @@ export default async function NewsDetailPage({ params }: NewsDetailPageProps) {
               <h2 className="text-sm font-semibold">{localize(locale, "Źródła", "Sources")}</h2>
               <div className="grid gap-2">
                 {item.sourceVariants.map((source) => (
-                  <a key={source.articleId} className="flex items-center justify-between gap-3 rounded-md border p-2 text-sm hover:bg-muted/40" href={source.url} target="_blank" rel="noreferrer">
-                    <span>{source.name}</span>
-                    <span className="text-xs text-muted-foreground">{formatDate(source.publishedAt, locale)}</span>
+                  <a key={source.articleId} className="flex min-w-0 items-center justify-between gap-3 overflow-hidden rounded-md border p-2 text-sm hover:bg-muted/40" href={source.url} target="_blank" rel="noreferrer">
+                    <span className="min-w-0 break-words [overflow-wrap:anywhere]">{source.name}</span>
+                    <span className="shrink-0 text-xs text-muted-foreground">{formatDate(source.publishedAt, locale)}</span>
                   </a>
                 ))}
               </div>
@@ -214,7 +213,6 @@ export default async function NewsDetailPage({ params }: NewsDetailPageProps) {
         </CardContent>
       </Card>
     </main>
-    <MobileBottomNav />
     </>
   );
 }
