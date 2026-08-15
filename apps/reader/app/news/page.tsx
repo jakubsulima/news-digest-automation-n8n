@@ -1,6 +1,5 @@
 import { AppNavbar } from "@/components/app-navbar";
 import { NewsFeed } from "@/components/news-feed";
-import { MobileBottomNav } from "@/components/mobile-bottom-nav";
 import { PageHeader } from "@/components/page-header";
 import { requireCurrentReader } from "@/lib/auth";
 import { normalizeReaderFeedId } from "@/lib/feed-categories";
@@ -64,7 +63,6 @@ export default async function NewsPage({ searchParams }: NewsPageProps) {
           initialView={activeView}
         />
       </main>
-      <MobileBottomNav />
     </>
   );
 }

@@ -29,7 +29,7 @@ export function NewsPreviewCard({ className, compact = false, preview, summary, 
 
   if (!preview) {
     return (
-      <p className={cn("text-sm leading-5 text-muted-foreground", compact && "text-xs leading-5", className)}>
+      <p className={cn("min-w-0 max-w-full break-words text-sm leading-5 text-muted-foreground [overflow-wrap:anywhere]", compact && "text-xs leading-5", className)}>
         {cleanSummary}
         {summaryAction ? <span className="ml-1 inline-flex align-middle">{summaryAction}</span> : null}
       </p>
@@ -37,13 +37,13 @@ export function NewsPreviewCard({ className, compact = false, preview, summary, 
   }
 
   return (
-    <section className={cn("grid gap-2 rounded-md border border-border bg-muted/20 p-2.5", compact && "gap-1.5 p-2", className)}>
+    <section className={cn("grid min-w-0 max-w-full gap-2 overflow-hidden rounded-md border border-border bg-muted/20 p-2.5", compact && "gap-1.5 p-2", className)}>
       {PREVIEW_SECTIONS.map((section) => (
         <div key={section.key} className="grid gap-1">
           <h3 className={cn("text-xs font-semibold uppercase tracking-normal text-foreground", compact && "text-[11px]")}>
             {l(section.labels[0], section.labels[1])}
           </h3>
-          <p className={cn("text-sm leading-5 text-muted-foreground", compact && "text-xs leading-5")}>
+          <p className={cn("min-w-0 max-w-full break-words text-sm leading-5 text-muted-foreground [overflow-wrap:anywhere]", compact && "text-xs leading-5")}>
             {preview[section.key]}
           </p>
         </div>

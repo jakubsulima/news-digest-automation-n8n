@@ -1,27 +1,15 @@
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 
-function FieldSkeleton({ wide = false }: { wide?: boolean }) {
+function SettingsCardSkeleton({ rows = 2 }: { rows?: number }) {
   return (
-    <div className="grid gap-2">
-      <Skeleton className="h-4 w-28" />
-      <Skeleton className={wide ? "h-20 w-full" : "h-8 w-full"} />
-    </div>
-  );
-}
-
-function SettingsCardSkeleton({ fields = 4, title }: { fields?: number; title: string }) {
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{title}</CardTitle>
+    <Card className="border-border/70 bg-card/70 shadow-sm ring-0">
+      <CardHeader className="gap-2 border-b border-border/60">
+        <Skeleton className="h-5 w-40" />
+        <Skeleton className="h-4 w-64 max-w-full" />
       </CardHeader>
       <CardContent className="grid gap-4">
-        <div className="grid gap-4 sm:grid-cols-2">
-          {Array.from({ length: fields }).map((_, index) => (
-            <FieldSkeleton key={index} />
-          ))}
-        </div>
+        {Array.from({ length: rows }).map((_, index) => <Skeleton key={index} className="h-11 w-full rounded-lg" />)}
       </CardContent>
     </Card>
   );
@@ -42,19 +30,28 @@ export default function SettingsLoading() {
         {[0, 1, 2].map((index) => <Skeleton key={index} className="h-10 w-full" />)}
       </div>
 
-      <Card className="bg-card/70">
-        <CardHeader>
-          <CardTitle>Appearance</CardTitle>
+      <Card className="border-border/70 bg-card/70 shadow-sm ring-0">
+        <CardHeader className="gap-2 border-b border-border/60">
+          <Skeleton className="h-5 w-44" />
+          <Skeleton className="h-4 w-64 max-w-full" />
         </CardHeader>
-        <CardContent>
-          <Skeleton className="h-14 w-full" />
+        <CardContent className="grid gap-4">
+          <div className="grid gap-2">
+            <Skeleton className="h-4 w-20" />
+            <Skeleton className="h-12 w-full rounded-lg" />
+          </div>
+          <div className="grid gap-2">
+            <Skeleton className="h-4 w-16" />
+            <Skeleton className="h-16 w-full rounded-lg" />
+          </div>
+          <Skeleton className="h-11 w-full rounded-lg md:hidden" />
         </CardContent>
       </Card>
 
-      <Skeleton className="h-16 w-full rounded-xl" />
+      <Skeleton className="h-17 w-full rounded-xl" />
 
-      <SettingsCardSkeleton title="Digest presets" fields={5} />
-      <SettingsCardSkeleton title="Output limits" fields={2} />
+      <SettingsCardSkeleton rows={3} />
+      <SettingsCardSkeleton rows={2} />
     </main>
   );
 }

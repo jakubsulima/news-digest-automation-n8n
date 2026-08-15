@@ -4,7 +4,6 @@ import { AppNavbar } from "@/components/app-navbar";
 import { Button } from "@/components/ui/button";
 import { DigestRunPanel } from "@/components/digest-run-panel";
 import { DigestBriefCard } from "@/components/digest-brief";
-import { MobileBottomNav } from "@/components/mobile-bottom-nav";
 import { retryDigestRun } from "@/lib/actions";
 import { requireCurrentReader } from "@/lib/auth";
 import { getDigestRunStatus } from "@/lib/digest-runs";
@@ -72,7 +71,6 @@ export default async function HomePage() {
         />
         {brief ? <DigestBriefCard brief={brief} /> : null}
       </main>
-      <MobileBottomNav />
     </>
   );
 }

@@ -11,7 +11,6 @@ import { KeywordGroupManager } from "@/components/keyword-group-manager";
 import { LanguageToggle } from "@/components/language-toggle";
 import { Label } from "@/components/ui/label";
 import { PageHeader } from "@/components/page-header";
-import { MobileBottomNav } from "@/components/mobile-bottom-nav";
 import { SourceEditorShell } from "@/components/source-editor-shell";
 import { ThemeToggle } from "@/components/theme-toggle";
 import {
@@ -1388,7 +1387,6 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
         </Card>
       ) : null}
     </main>
-    <MobileBottomNav />
     </>
   );
 }

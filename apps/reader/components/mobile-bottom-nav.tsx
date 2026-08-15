@@ -18,6 +18,10 @@ export function MobileBottomNav() {
   const pathname = usePathname();
   const l = useLocalize();
 
+  if (pathname.startsWith("/login")) {
+    return null;
+  }
+
   return (
     <nav
       className="mobile-bottom-nav fixed inset-x-0 bottom-0 z-50 border-t bg-background/96 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl md:hidden"
