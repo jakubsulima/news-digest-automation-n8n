@@ -13,6 +13,7 @@ import { SelectableNoteRegion } from "@/components/selectable-note-region";
 import { requireCurrentReader } from "@/lib/auth";
 import { getReaderNewsItem } from "@/lib/news";
 import { formatScoreComponentLabel } from "@/lib/news-display";
+import { normalizeNewsListHref } from "@/lib/news-navigation";
 import { priorityLabel } from "@/lib/reader-feed-ranking";
 import { localeTag, localize, type ReaderLocale } from "@/lib/reader-locale";
 import { getReaderLocale } from "@/lib/reader-locale-server";
@@ -23,6 +24,9 @@ const DISPLAY_TIME_ZONE = "Europe/Warsaw";
 type NewsDetailPageProps = {
   params: Promise<{
     id: string;
+  }>;
+  searchParams?: Promise<{
+    from?: string | string[];
   }>;
 };
 
@@ -52,8 +56,9 @@ function localizedPriority(score: number, locale: ReaderLocale) {
   return localize(locale, "Tło", "Background");
 }
 
-export default async function NewsDetailPage({ params }: NewsDetailPageProps) {
-  const { id } = await params;
+export default async function NewsDetailPage({ params, searchParams }: NewsDetailPageProps) {
+  const [{ id }, query] = await Promise.all([params, searchParams]);
+  const returnHref = normalizeNewsListHref(Array.isArray(query?.from) ? query.from[0] : query?.from);
   const [user, locale] = await Promise.all([requireCurrentReader(), getReaderLocale()]);
   const item = await getReaderNewsItem(id, user.id);
 
@@ -69,10 +74,23 @@ export default async function NewsDetailPage({ params }: NewsDetailPageProps) {
     <>
     <main className="mx-auto flex w-full min-w-0 max-w-3xl flex-col gap-4 overflow-x-clip px-4 py-5 sm:px-6 sm:py-7">
       <PageHeader
-        backHref="/news"
-        title={localize(locale, "Szczegóły wiadomości", "Story details")}
-        description={localize(locale, "Czytaj, zapisz albo dopasuj kolejne rekomendacje.", "Read, save, or fine-tune future recommendations.")}
+        backHref={returnHref}
+        title={localize(locale, "Dodatkowe informacje", "Additional information")}
+        description={localize(locale, "Uzasadnienie wyboru, notatki i zapisane informacje o newsie.", "Selection rationale, notes, and saved story information.")}
       />
+
+      <a
+        className={buttonVariants({ size: "lg", className: "h-auto min-h-12 w-full justify-between whitespace-normal px-4 py-3 text-left" })}
+        href={item.sourceUrl}
+        target="_blank"
+        rel="noreferrer"
+      >
+        <span className="min-w-0">
+          <span className="block font-semibold">{localize(locale, "Otwórz pełny news", "Open full story")}</span>
+          <span className="block truncate text-xs font-normal opacity-80">{item.source}</span>
+        </span>
+        <ExternalLink className="shrink-0" aria-hidden="true" />
+      </a>
 
       <section
         className="-mx-4 flex flex-wrap items-center gap-2 border-y bg-card/70 p-3 md:mx-0 md:rounded-xl md:border md:p-2 md:shadow-sm"
@@ -115,7 +133,9 @@ export default async function NewsDetailPage({ params }: NewsDetailPageProps) {
           </div>
 
           <CardTitle className="min-w-0 max-w-full break-words text-xl leading-tight [overflow-wrap:anywhere] sm:text-2xl">
-            {item.title}
+            <a className="hover:text-primary hover:underline" href={item.sourceUrl} target="_blank" rel="noreferrer">
+              {item.title}
+            </a>
           </CardTitle>
         </CardHeader>
         <CardContent className="grid min-w-0 gap-5">
@@ -175,12 +195,15 @@ export default async function NewsDetailPage({ params }: NewsDetailPageProps) {
 
           {item.sourceVariants.length > 1 ? (
             <section className="grid gap-2">
-              <h2 className="text-sm font-semibold">{localize(locale, "Źródła", "Sources")}</h2>
+              <h2 className="text-sm font-semibold">{localize(locale, "Źródła tego newsa", "Sources for this story")}</h2>
               <div className="grid gap-2">
                 {item.sourceVariants.map((source) => (
                   <a key={source.articleId} className="flex min-w-0 items-center justify-between gap-3 overflow-hidden rounded-md border p-2 text-sm hover:bg-muted/40" href={source.url} target="_blank" rel="noreferrer">
                     <span className="min-w-0 break-words [overflow-wrap:anywhere]">{source.name}</span>
-                    <span className="shrink-0 text-xs text-muted-foreground">{formatDate(source.publishedAt, locale)}</span>
+                    <span className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
+                      {formatDate(source.publishedAt, locale)}
+                      <ExternalLink className="size-3.5" aria-hidden="true" />
+                    </span>
                   </a>
                 ))}
               </div>

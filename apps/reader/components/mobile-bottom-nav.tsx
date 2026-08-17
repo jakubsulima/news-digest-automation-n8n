@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 import { useLocalize } from "@/components/reader-locale-provider";
+import { useRememberedNewsHref } from "@/components/use-remembered-news-href";
 import { cn } from "@/lib/utils";
 
 const MOBILE_NAV_ITEMS = [
@@ -17,6 +18,7 @@ const MOBILE_NAV_ITEMS = [
 export function MobileBottomNav() {
   const pathname = usePathname();
   const l = useLocalize();
+  const newsHref = useRememberedNewsHref();
 
   if (pathname.startsWith("/login")) {
     return null;
@@ -36,7 +38,7 @@ export function MobileBottomNav() {
           return (
             <Link
               key={item.href}
-              href={item.href}
+              href={item.href === "/news" ? newsHref : item.href}
               aria-current={active ? "page" : undefined}
               className={cn(
                 "relative flex min-w-0 flex-col items-center justify-center gap-1 rounded-lg px-1 text-[0.68rem] font-medium text-muted-foreground outline-none transition-colors focus-visible:ring-3 focus-visible:ring-ring/40",

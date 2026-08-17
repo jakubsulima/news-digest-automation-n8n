@@ -14,8 +14,9 @@ type NewsFeedSectionProps = {
     itemId: string,
     state: Pick<RankedNewsItem, "archivedAt" | "readAt" | "savedAt">,
   ) => void;
-  onSourceOpen: (item: RankedNewsItem, rank: number) => void;
+  onSourceOpen: (item: RankedNewsItem, rank: number, sourceUrl: string) => void;
   rankOffset: number;
+  returnHref: string;
 };
 
 export function NewsFeedSection({
@@ -28,6 +29,7 @@ export function NewsFeedSection({
   onItemStateChange,
   onSourceOpen,
   rankOffset,
+  returnHref,
 }: NewsFeedSectionProps) {
   if (!items.length) return null;
 
@@ -48,7 +50,8 @@ export function NewsFeedSection({
                 onFastRead={() => onFastRead(item, rank)}
                 onFeedbackChange={onFeedbackChange}
                 onItemStateChange={onItemStateChange}
-                onSourceOpen={() => onSourceOpen(item, rank)}
+                onSourceOpen={(sourceUrl) => onSourceOpen(item, rank, sourceUrl)}
+                returnHref={returnHref}
               />
             </RecommendationExposure>
           </div>

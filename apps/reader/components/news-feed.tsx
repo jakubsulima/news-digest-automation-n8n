@@ -12,6 +12,12 @@ import type { ReaderFeedPage } from "@/lib/reader-feed";
 import { FEED_PERIODS, FEED_SORTS, type FeedPeriod, type FeedSort, type RankedNewsItem } from "@/lib/reader-feed-ranking";
 import { READER_VIEWS, type ReaderViewId } from "@/lib/reader-feed-filters";
 import type { FeedbackReason, FeedbackSentiment } from "@/lib/reader-feedback";
+import {
+  NEWS_LIST_STATE_STORAGE_KEY,
+  newsListHref,
+  normalizeNewsListHref,
+  rememberNewsListHref,
+} from "@/lib/news-navigation";
 import { cn } from "@/lib/utils";
 
 type NewsFeedProps = {
@@ -27,6 +33,15 @@ type FeedSelection = {
   period: FeedPeriod;
   sort: FeedSort;
   view: ReaderViewId;
+};
+
+type StoredFeedState = {
+  filtersOpen: boolean;
+  href: string;
+  moreExpanded: boolean;
+  page: ReaderFeedPage;
+  scrollY: number;
+  selection: FeedSelection;
 };
 
 const SORT_LABELS: Record<FeedSort, readonly [string, string]> = {
@@ -63,12 +78,38 @@ function pageItems(page: ReaderFeedPage) {
   return [page.grouped.top, page.grouped.actionable, page.grouped.worthKnowing, page.grouped.more].flat();
 }
 
-function sourceAttributionMetadata(item: RankedNewsItem) {
-  const source = item.sourceVariants.find((variant) => variant.url === item.sourceUrl) || item.sourceVariants[0];
+function sourceAttributionMetadata(item: RankedNewsItem, openedUrl = item.sourceUrl) {
+  const source = item.sourceVariants.find((variant) => variant.url === openedUrl)
+    || item.sourceVariants.find((variant) => variant.url === item.sourceUrl)
+    || item.sourceVariants[0];
   return {
     readerSourceId: source?.readerSourceId ?? null,
-    sourceUrl: source?.sourceFeedUrl ?? item.sourceUrl,
+    sourceUrl: source?.sourceFeedUrl ?? openedUrl,
   };
+}
+
+function readStoredFeedState(href: string): StoredFeedState | null {
+  try {
+    const parsed = JSON.parse(window.sessionStorage.getItem(NEWS_LIST_STATE_STORAGE_KEY) || "null") as Partial<StoredFeedState> | null;
+    return parsed?.href === href
+      && typeof parsed.filtersOpen === "boolean"
+      && typeof parsed.moreExpanded === "boolean"
+      && typeof parsed.scrollY === "number"
+      && Boolean(parsed.page?.grouped)
+      && Boolean(parsed.selection)
+      ? parsed as StoredFeedState
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function storeFeedState(state: StoredFeedState) {
+  try {
+    window.sessionStorage.setItem(NEWS_LIST_STATE_STORAGE_KEY, JSON.stringify(state));
+  } catch {
+    // The feed still works when private browsing or storage limits block persistence.
+  }
 }
 
 async function apiBatchRead(itemIds: string[]) {
@@ -108,13 +149,33 @@ export function NewsFeed({
   const [isMarkingRead, setIsMarkingRead] = useState(false);
   const [moreExpanded, setMoreExpanded] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const [canPersist, setCanPersist] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const canPersistRef = useRef(false);
+  const isLeavingRef = useRef(false);
   const sessionIdRef = useRef<string | null>(null);
   const exposedRecommendationsRef = useRef<Set<string>>(new Set());
   const didRecordVisitRef = useRef(false);
   const items = useMemo(() => pageItems(page), [page]);
   const visibleUnreadItems = items.filter((item) => !item.readAt && !item.archivedAt);
+  const currentListHref = newsListHref(selection);
+  const stateRef = useRef<StoredFeedState>({
+    filtersOpen,
+    href: currentListHref,
+    moreExpanded,
+    page,
+    scrollY: 0,
+    selection,
+  });
+  stateRef.current = {
+    filtersOpen,
+    href: currentListHref,
+    moreExpanded,
+    page,
+    scrollY: typeof window === "undefined" ? 0 : window.scrollY,
+    selection,
+  };
 
   useEffect(() => {
     sessionIdRef.current ||= crypto.randomUUID();
@@ -125,14 +186,78 @@ export function NewsFeed({
     return () => abortRef.current?.abort();
   }, []);
 
+  useEffect(() => {
+    const href = normalizeNewsListHref(`${window.location.pathname}${window.location.search}`);
+    rememberNewsListHref(href);
+    const stored = readStoredFeedState(href);
+
+    if (stored) {
+      setSelection(stored.selection);
+      setPage(stored.page);
+      setMoreExpanded(stored.moreExpanded);
+      setFiltersOpen(stored.filtersOpen);
+    }
+
+    let secondFrame: number | null = null;
+    const firstFrame = window.requestAnimationFrame(() => {
+      secondFrame = window.requestAnimationFrame(() => {
+        if (stored?.scrollY) window.scrollTo({ top: stored.scrollY });
+        canPersistRef.current = true;
+        setCanPersist(true);
+      });
+      stateRef.current.scrollY = stored?.scrollY ?? window.scrollY;
+    });
+
+    return () => {
+      window.cancelAnimationFrame(firstFrame);
+      if (secondFrame !== null) window.cancelAnimationFrame(secondFrame);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!canPersist) return;
+    storeFeedState({ ...stateRef.current, scrollY: window.scrollY });
+  }, [canPersist, filtersOpen, moreExpanded, page, selection]);
+
+  useEffect(() => {
+    function rememberScrollPosition() {
+      if (isLeavingRef.current) return;
+      stateRef.current.scrollY = window.scrollY;
+    }
+
+    function persistBeforeNavigation(event: MouseEvent) {
+      if (event.button !== 0 || event.defaultPrevented) return;
+      const target = event.target;
+      const anchor = target instanceof Element ? target.closest("a") : null;
+      if (!anchor || anchor.target === "_blank" || !anchor.href) return;
+
+      const targetUrl = new URL(anchor.href, window.location.href);
+      if (targetUrl.origin !== window.location.origin || targetUrl.href === window.location.href) return;
+
+      isLeavingRef.current = true;
+      const state = { ...stateRef.current, scrollY: window.scrollY };
+      stateRef.current = state;
+      storeFeedState(state);
+    }
+
+    window.addEventListener("scroll", rememberScrollPosition, { passive: true });
+    document.addEventListener("click", persistBeforeNavigation, true);
+    return () => {
+      window.removeEventListener("scroll", rememberScrollPosition);
+      document.removeEventListener("click", persistBeforeNavigation, true);
+    };
+  }, []);
+
+  useEffect(() => () => {
+    if (!isLeavingRef.current && canPersistRef.current && stateRef.current.href) {
+      storeFeedState(stateRef.current);
+    }
+  }, []);
+
   function writeUrl(next: FeedSelection) {
-    const params = new URLSearchParams();
-    if (next.feed !== "all") params.set("feed", next.feed);
-    if (next.view !== "all") params.set("view", next.view);
-    if (next.sort !== "for-you") params.set("sort", next.sort);
-    if (next.period !== "latest") params.set("period", next.period);
-    const query = params.toString();
-    window.history.replaceState(null, "", query ? `/news?${query}` : "/news");
+    const href = newsListHref(next);
+    window.history.replaceState(window.history.state, "", href);
+    rememberNewsListHref(href);
   }
 
   async function loadFeed(next: FeedSelection, cursor: string | null = null, append = false) {
@@ -393,13 +518,13 @@ export function NewsFeed({
       <div className={cn("grid gap-4 transition-opacity", isLoading && "pointer-events-none opacity-60")}>
         {items.length ? (
           <>
-            <NewsFeedSection exposureContextId={page.rankingContextId} label={l("Najważniejsze", "Top stories")} items={page.grouped.top} rankOffset={0} onExposure={trackExposure} onFeedbackChange={updateFeedback} onItemStateChange={updateItemState} onFastRead={(item, rank) => trackInteraction("fast_read", item, rank)} onSourceOpen={(item, rank) => trackInteraction("source_open", item, rank, sourceAttributionMetadata(item))} />
-            <NewsFeedSection exposureContextId={page.rankingContextId} label={l("Do działania", "Actionable")} items={page.grouped.actionable} rankOffset={actionableOffset} onExposure={trackExposure} onFeedbackChange={updateFeedback} onItemStateChange={updateItemState} onFastRead={(item, rank) => trackInteraction("fast_read", item, rank)} onSourceOpen={(item, rank) => trackInteraction("source_open", item, rank, sourceAttributionMetadata(item))} />
-            <NewsFeedSection exposureContextId={page.rankingContextId} label={l("Warto wiedzieć", "Worth knowing")} items={page.grouped.worthKnowing} rankOffset={worthOffset} onExposure={trackExposure} onFeedbackChange={updateFeedback} onItemStateChange={updateItemState} onFastRead={(item, rank) => trackInteraction("fast_read", item, rank)} onSourceOpen={(item, rank) => trackInteraction("source_open", item, rank, sourceAttributionMetadata(item))} />
+            <NewsFeedSection exposureContextId={page.rankingContextId} label={l("Najważniejsze", "Top stories")} items={page.grouped.top} rankOffset={0} returnHref={currentListHref} onExposure={trackExposure} onFeedbackChange={updateFeedback} onItemStateChange={updateItemState} onFastRead={(item, rank) => trackInteraction("fast_read", item, rank)} onSourceOpen={(item, rank, sourceUrl) => trackInteraction("source_open", item, rank, sourceAttributionMetadata(item, sourceUrl))} />
+            <NewsFeedSection exposureContextId={page.rankingContextId} label={l("Do działania", "Actionable")} items={page.grouped.actionable} rankOffset={actionableOffset} returnHref={currentListHref} onExposure={trackExposure} onFeedbackChange={updateFeedback} onItemStateChange={updateItemState} onFastRead={(item, rank) => trackInteraction("fast_read", item, rank)} onSourceOpen={(item, rank, sourceUrl) => trackInteraction("source_open", item, rank, sourceAttributionMetadata(item, sourceUrl))} />
+            <NewsFeedSection exposureContextId={page.rankingContextId} label={l("Warto wiedzieć", "Worth knowing")} items={page.grouped.worthKnowing} rankOffset={worthOffset} returnHref={currentListHref} onExposure={trackExposure} onFeedbackChange={updateFeedback} onItemStateChange={updateItemState} onFastRead={(item, rank) => trackInteraction("fast_read", item, rank)} onSourceOpen={(item, rank, sourceUrl) => trackInteraction("source_open", item, rank, sourceAttributionMetadata(item, sourceUrl))} />
             {page.grouped.more.length ? (
               <section className="grid gap-2">
                 <Button type="button" variant="outline" onClick={() => setMoreExpanded((value) => !value)}>{moreExpanded ? l("Ukryj pozostałe", "Hide remaining") : l(`Pokaż jeszcze ${page.grouped.more.length}`, `Show ${page.grouped.more.length} more`)}</Button>
-                <NewsFeedSection exposureContextId={page.rankingContextId} label={l("Pozostałe", "More")} items={moreItems} rankOffset={moreOffset} onExposure={trackExposure} onFeedbackChange={updateFeedback} onItemStateChange={updateItemState} onFastRead={(item, rank) => trackInteraction("fast_read", item, rank)} onSourceOpen={(item, rank) => trackInteraction("source_open", item, rank, sourceAttributionMetadata(item))} />
+                <NewsFeedSection exposureContextId={page.rankingContextId} label={l("Pozostałe", "More")} items={moreItems} rankOffset={moreOffset} returnHref={currentListHref} onExposure={trackExposure} onFeedbackChange={updateFeedback} onItemStateChange={updateItemState} onFastRead={(item, rank) => trackInteraction("fast_read", item, rank)} onSourceOpen={(item, rank, sourceUrl) => trackInteraction("source_open", item, rank, sourceAttributionMetadata(item, sourceUrl))} />
               </section>
             ) : null}
             {page.nextCursor ? <Button type="button" variant="outline" disabled={isLoading} onClick={() => void loadFeed(selection, page.nextCursor, true)}>{l("Wczytaj więcej", "Load more")}</Button> : null}
