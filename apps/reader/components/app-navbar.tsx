@@ -5,6 +5,7 @@ import Link from "next/link";
 
 import { useLocalize } from "@/components/reader-locale-provider";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { useRememberedNewsHref } from "@/components/use-remembered-news-href";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -22,6 +23,7 @@ const NAV_ITEMS = [
 
 export function AppNavbar({ email, mobileContext, signOut }: AppNavbarProps) {
   const l = useLocalize();
+  const newsHref = useRememberedNewsHref();
 
   return (
     <header className="sticky top-0 z-50 border-b bg-background/92 backdrop-blur-xl supports-[backdrop-filter]:bg-background/78">
@@ -54,7 +56,7 @@ export function AppNavbar({ email, mobileContext, signOut }: AppNavbarProps) {
             return (
               <Link
                 key={item.href}
-                href={item.href}
+                href={item.href === "/news" ? newsHref : item.href}
                 className={cn(
                   buttonVariants({ variant: "ghost", size: "icon-lg" }),
                   "md:w-auto md:px-3",

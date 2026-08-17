@@ -15,6 +15,7 @@ import type { NewsItemWithState } from "@/lib/news";
 import type { RankedNewsItem } from "@/lib/reader-feed-ranking";
 import type { FeedbackReason, FeedbackSentiment } from "@/lib/reader-feedback";
 import { localeTag, type ReaderLocale } from "@/lib/reader-locale";
+import { newsDetailHref } from "@/lib/news-navigation";
 import { cn } from "@/lib/utils";
 
 const SUMMARY_MAX_CHARS = 260;
@@ -29,7 +30,8 @@ type NewsItemCardProps = {
     itemId: string,
     state: Pick<NewsItemWithState, "archivedAt" | "readAt" | "savedAt">,
   ) => void;
-  onSourceOpen?: () => void;
+  onSourceOpen?: (sourceUrl: string) => void;
+  returnHref?: string;
 };
 
 function formatDate(value: string | null, locale: ReaderLocale) {
@@ -95,6 +97,7 @@ export function NewsItemCard({
   onFeedbackChange,
   onItemStateChange,
   onSourceOpen,
+  returnHref = "/news",
 }: NewsItemCardProps) {
   const locale = useReaderLocale();
   const l = useLocalize();
@@ -110,6 +113,10 @@ export function NewsItemCard({
   const previewSummary = compactSummary(cleanSummary);
   const compact = density === "compact";
   const rankedItem = "rankingReasons" in item ? item : null;
+  const detailHref = newsDetailHref(item.id, returnHref);
+  const sourceLinks = item.sourceVariants.length
+    ? item.sourceVariants
+    : [{ articleId: item.id, name: item.source, url: item.sourceUrl }];
   const hasExplanation = Boolean(
     rankedItem?.rankingReasons.length
       || item.whyInteresting
@@ -155,25 +162,29 @@ export function NewsItemCard({
               </>
             ) : null}
           </div>
-          <Link
+          <a
             className={cn(buttonVariants({ variant: "ghost", size: "icon-lg" }), "shrink-0 text-primary md:w-auto md:bg-primary md:px-3 md:text-primary-foreground md:shadow-sm")}
-            href={`/news/${item.id}`}
-            onClick={onFastRead}
-            aria-label={l(`Otwórz: ${item.title}`, `Open: ${item.title}`)}
+            href={item.sourceUrl}
+            target="_blank"
+            rel="noreferrer"
+            onClick={() => onSourceOpen?.(item.sourceUrl)}
+            aria-label={l(`Otwórz pełny news: ${item.title}`, `Open full story: ${item.title}`)}
           >
-            <ChevronRight className="size-6 md:size-4" aria-hidden="true" />
-            <span className="hidden md:inline">{l("Czytaj", "Read")}</span>
-          </Link>
+            <ExternalLink className="size-5 md:size-4" aria-hidden="true" />
+            <span className="hidden md:inline">{l("Pełny news", "Full story")}</span>
+          </a>
         </div>
 
         <CardTitle className={cn("line-clamp-3 min-w-0 max-w-full break-words text-[1.02rem] font-semibold leading-snug [overflow-wrap:anywhere] md:line-clamp-none", compact && "sm:text-[1.05rem]")}>
-          <Link
+          <a
             className="block min-w-0 max-w-full break-words decoration-foreground/30 [overflow-wrap:anywhere] hover:text-primary hover:underline"
-            href={`/news/${item.id}`}
-            onClick={onFastRead}
+            href={item.sourceUrl}
+            target="_blank"
+            rel="noreferrer"
+            onClick={() => onSourceOpen?.(item.sourceUrl)}
           >
             {item.title}
-          </Link>
+          </a>
         </CardTitle>
       </CardHeader>
       <CardContent className="grid min-w-0 gap-2 px-4 pb-4 md:px-4 md:pb-3.5">
@@ -207,18 +218,38 @@ export function NewsItemCard({
               </div>
             ) : null
           ) : null}
+          {sourceLinks.length > 1 ? (
+            <div className="flex min-w-0 flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+              <span>{l("Źródła:", "Sources:")}</span>
+              {sourceLinks.map((source) => (
+                <a
+                  key={source.articleId}
+                  className="inline-flex min-w-0 max-w-full items-center gap-1 rounded-md border bg-background/70 px-2 py-1 font-medium text-foreground/80 hover:border-primary/40 hover:text-primary"
+                  href={source.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  onClick={() => onSourceOpen?.(source.url)}
+                >
+                  <span className="max-w-48 truncate">{source.name}</span>
+                  <ExternalLink className="size-3 shrink-0" aria-hidden="true" />
+                </a>
+              ))}
+            </div>
+          ) : null}
         </div>
 
-        <div className="hidden min-w-0 flex-wrap items-center justify-between gap-2 border-t pt-2.5 md:flex">
-          <NewsItemFeedbackActions
-            buttonSize="sm"
-            buttonClassName="h-8 border-transparent bg-muted/55 px-2.5 hover:bg-muted focus-visible:border-transparent"
-            itemId={item.id}
-            feedback={item.feedback}
-            feedbackReason={item.feedbackReason}
-            showLabels
-            onFeedbackChange={(feedback, reason) => onFeedbackChange?.(item.id, feedback, reason)}
-          />
+        <div className="flex min-w-0 flex-wrap items-center justify-between gap-2 border-t pt-2.5">
+          <div className="hidden md:block">
+            <NewsItemFeedbackActions
+              buttonSize="sm"
+              buttonClassName="h-8 border-transparent bg-muted/55 px-2.5 hover:bg-muted focus-visible:border-transparent"
+              itemId={item.id}
+              feedback={item.feedback}
+              feedbackReason={item.feedbackReason}
+              showLabels
+              onFeedbackChange={(feedback, reason) => onFeedbackChange?.(item.id, feedback, reason)}
+            />
+          </div>
 
           <div className="ml-auto flex items-center gap-1">
             {hasExplanation ? (
@@ -226,7 +257,7 @@ export function NewsItemCard({
                 type="button"
                 variant="ghost"
                 size="sm"
-                className="h-8 px-2 text-xs text-muted-foreground"
+                className="hidden h-8 px-2 text-xs text-muted-foreground md:inline-flex"
                 aria-expanded={whyOpen}
                 onClick={() => setWhyOpen((value) => !value)}
               >
@@ -234,11 +265,20 @@ export function NewsItemCard({
                 {l("Dlaczego", "Why")}
               </Button>
             ) : null}
+            <Link
+              className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "h-8 px-2 text-xs text-muted-foreground hover:text-foreground")}
+              href={detailHref}
+              onClick={onFastRead}
+            >
+              <Info aria-hidden="true" />
+              {l("Szczegóły wyboru", "Selection details")}
+              <ChevronRight className="size-3.5" aria-hidden="true" />
+            </Link>
             <Button
               type="button"
               variant="ghost"
               size="sm"
-              className={cn("h-8 px-2 text-xs text-muted-foreground", actionsOpen && "bg-muted text-foreground")}
+              className={cn("hidden h-8 px-2 text-xs text-muted-foreground md:inline-flex", actionsOpen && "bg-muted text-foreground")}
               title={l("Więcej akcji", "More actions")}
               aria-label={l("Więcej akcji", "More actions")}
               aria-expanded={actionsOpen}
@@ -276,13 +316,13 @@ export function NewsItemCard({
               href={item.sourceUrl}
               target="_blank"
               rel="noreferrer"
-              onClick={onSourceOpen}
+              onClick={() => onSourceOpen?.(item.sourceUrl)}
               title={l("Otwórz źródło", "Open source")}
               aria-label={l("Otwórz źródło", "Open source")}
             >
               <ExternalLink aria-hidden="true" />
             </a>
-            <span className="ml-1 text-xs text-muted-foreground">{l("Czytaj · Zapisz · Notatka · Źródło", "Read · Save · Note · Source")}</span>
+            <span className="ml-1 text-xs text-muted-foreground">{l("Przeczytane · Zapisz · Notatka · Źródło", "Read state · Save · Note · Source")}</span>
           </div>
         ) : null}
       </CardContent>
