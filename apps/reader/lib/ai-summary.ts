@@ -13,6 +13,7 @@ type NvidiaChatResponse = {
 type NvidiaChatPurpose = "article-preview" | "summary-shortening" | "daily-brief";
 
 const NVIDIA_LOG_PREFIX = "[nvidia-ai]";
+const NVIDIA_REQUEST_TIMEOUT_MS = 20_000;
 
 export type NvidiaArticlePreview = {
   clickIf: string;
@@ -109,6 +110,8 @@ async function requestNvidiaChat({
 
   const model = nvidiaModel();
   const startedAt = Date.now();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), NVIDIA_REQUEST_TIMEOUT_MS);
 
   try {
     const response = await fetch(nvidiaApiUrl(), {
@@ -128,6 +131,7 @@ async function requestNvidiaChat({
         model,
         stream: false,
       }),
+      signal: controller.signal,
     });
 
     if (!response.ok) {
@@ -169,6 +173,8 @@ async function requestNvidiaChat({
       purpose,
     });
     return null;
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
@@ -446,7 +452,7 @@ export async function digestBriefWithNvidia({
           },
           {
             role: "user",
-            content: `Przygotuj pełny obraz sytuacji do przeczytania w maksymalnie 5 minut (około 600–850 słów łącznie). Nie twórz listy wszystkich artykułów. Grupuj fakty w rozwój sytuacji i pokaż zależności między nimi. Priorytety czytelnika: ${interests || "brak wag kategorii"}. Preferowane tematy: ${interestProfile.preferredKeywords.slice(0, 30).join(", ") || "brak"}.
+            content: `Przygotuj pełny obraz sytuacji do przeczytania w maksymalnie 5 minut (około 600–850 słów łącznie). Spośród materiałów wybierz najważniejsze fakty, odrzuć powtórzenia i połącz powiązane doniesienia. Nie twórz listy wszystkich artykułów. Grupuj fakty w rozwój sytuacji i pokaż zależności między nimi. Priorytety czytelnika: ${interests || "brak wag kategorii"}. Preferowane tematy: ${interestProfile.preferredKeywords.slice(0, 30).join(", ") || "brak"}.
 
 Wymagania:
 - summary: 3–5 zdań dających obraz dnia i dominujące zależności;

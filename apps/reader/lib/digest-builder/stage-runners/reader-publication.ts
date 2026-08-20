@@ -4,12 +4,7 @@ import type { Database, Json } from "../../database.types";
 import { isDigestBriefSchemaError } from "../../digest-brief";
 import { getDigestRunById } from "../../digest-runs";
 import { getDigestSettingsForRun } from "../../digest-settings";
-import {
-  digestBriefWithNvidia,
-  previewArticleWithNvidia,
-  shortenSummaryWithNvidia,
-  type NvidiaArticlePreview,
-} from "../../ai-summary";
+import { digestBriefWithNvidia, fallbackDigestBrief } from "../../ai-summary";
 import { createSupabaseAdminClient } from "../../supabase";
 import { cleanArticleSummary, plainTextFromHtml } from "../../text";
 import { SUPABASE_WRITE_BATCH_SIZE } from "../constants";
@@ -28,39 +23,17 @@ function publishedSummary(snapshot: StorySnapshotRow) {
   return jsonString(snapshot.metadata, "summary") || jsonString(snapshot.metadata, "title") || "No summary available.";
 }
 
-function previewSummary(preview: NvidiaArticlePreview) {
-  return [
-    `Co się wydarzyło: ${preview.whatHappened}`,
-    `Dlaczego to ważne: ${preview.whyItMatters}`,
-    `Warto przeczytać, jeśli: ${preview.clickIf}`,
-  ].join("\n");
-}
-
-async function compactPublishedSummary({
+function compactPublishedSummary({
   maxChars,
   summary,
   title,
-  useAiSummaries,
 }: {
   maxChars: number;
   summary: string;
   title: string;
-  useAiSummaries: boolean;
 }) {
   const cleanSummary = cleanArticleSummary(summary, title) || plainTextFromHtml(title);
-  const fallback = compactText(cleanSummary, maxChars);
-
-  if (!useAiSummaries || fallback.length <= maxChars * 0.75) {
-    return fallback;
-  }
-
-  const aiSummary = await shortenSummaryWithNvidia({
-    maxChars,
-    summary: cleanSummary,
-    title,
-  }).catch(() => null);
-
-  return aiSummary ? compactText(aiSummary, maxChars) : fallback;
+  return compactText(cleanSummary, maxChars);
 }
 
 const NEWS_RETENTION_DAYS = 90;
@@ -207,28 +180,18 @@ export const runReaderPublicationStage: StageRunner = async ({ digestRunId }) =>
     const practicalBucket = jsonString(snapshot.metadata, "practicalBucket") || "ignore";
     const existingItem = existingByClusterId.get(snapshot.story_cluster_id);
     const sourceSummary = publishedSummary(snapshot);
-    const cleanSummary = cleanArticleSummary(sourceSummary, title) || plainTextFromHtml(title);
-    const preview = settings.useAiSummaries
-      ? await previewArticleWithNvidia({
-          summary: cleanSummary,
-          title,
-        })
-      : null;
-    const summary = preview
-      ? previewSummary(preview)
-      : await compactPublishedSummary({
-          maxChars: settings.summaryMaxChars,
-          summary: sourceSummary,
-          title,
-          useAiSummaries: settings.useAiSummaries,
-        });
+    const summary = compactPublishedSummary({
+      maxChars: settings.summaryMaxChars,
+      summary: sourceSummary,
+      title,
+    });
 
     rows.push({
       category: jsonString(snapshot.metadata, "category") || "general",
       changed_fields: changedFields,
       digest_date: run.report_date,
       editorial_score: snapshot.editorial_score,
-      entity_tags: preview?.entities.length ? preview.entities : deriveEntityTags(title),
+      entity_tags: deriveEntityTags(title),
       external_id: readerExternalIdForStory(snapshot.story_cluster_id),
       first_selected_at: existingItem?.first_selected_at || selectedAt,
       importance_score: Math.max(0, Math.min(100, Math.round(snapshot.editorial_score))),
@@ -249,7 +212,6 @@ export const runReaderPublicationStage: StageRunner = async ({ digestRunId }) =>
           editorial: snapshot.editorial_score,
           importance: Math.max(0, Math.min(100, Math.round(snapshot.editorial_score))),
         },
-        ...(preview ? { preview } : {}),
         storyClusterId: snapshot.story_cluster_id,
         whyInteresting: jsonString(snapshot.metadata, "whyInteresting"),
       },
@@ -261,9 +223,7 @@ export const runReaderPublicationStage: StageRunner = async ({ digestRunId }) =>
       story_cluster_id: snapshot.story_cluster_id,
       summary,
       title: plainTextFromHtml(title),
-      topic_tags: preview?.topics.length
-        ? preview.topics
-        : deriveTopicTags(title, jsonString(snapshot.metadata, "category") || "general", practicalBucket),
+      topic_tags: deriveTopicTags(title, jsonString(snapshot.metadata, "category") || "general", practicalBucket),
     });
   }
 
@@ -286,22 +246,25 @@ export const runReaderPublicationStage: StageRunner = async ({ digestRunId }) =>
     }));
   }
 
-  const brief = await digestBriefWithNvidia({
-    interestProfile: {
-      feedTargets: settings.feedTargets,
-      preferredKeywords: settings.preferredKeywords,
-    },
-    articles: rows.map((row) => ({
-      category: row.category,
-      importanceScore: row.importance_score || 0,
-      publishedAt: row.published_at || null,
-      source: row.source,
-      sourceCount: row.source_count || 1,
-      summary: row.summary,
-      title: row.title,
-      whyInteresting: jsonString(row.raw_payload || {}, "whyInteresting") || null,
-    })),
-  });
+  const briefingArticles = rows.map((row) => ({
+    category: row.category,
+    importanceScore: row.importance_score || 0,
+    publishedAt: row.published_at || null,
+    source: row.source,
+    sourceCount: row.source_count || 1,
+    summary: row.summary,
+    title: row.title,
+    whyInteresting: jsonString(row.raw_payload || {}, "whyInteresting") || null,
+  }));
+  const brief = settings.useAiSummaries
+    ? await digestBriefWithNvidia({
+        interestProfile: {
+          feedTargets: settings.feedTargets,
+          preferredKeywords: settings.preferredKeywords,
+        },
+        articles: briefingArticles,
+      })
+    : fallbackDigestBrief(briefingArticles);
   const publishedItems = rows.length
     ? await supabase
         .from("news_items")
