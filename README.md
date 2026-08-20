@@ -115,7 +115,7 @@ infra/supabase/migrations/016_reader_preference_signals.sql
 infra/supabase/migrations/017_source_discovery.sql
 infra/supabase/migrations/018_post_migration_advisor_fixes.sql
 infra/supabase/migrations/019_reader_notes.sql
-infra/supabase/migrations/20260820170000_enable_nemotron_summaries.sql
+infra/supabase/migrations/20260820173904_enable_nemotron_summaries.sql
 ```
 
 Apply all migrations before deploying the current reader code. Migration `018` contains the RLS and index optimizations required after migrations `013`–`017`.
