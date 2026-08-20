@@ -30,9 +30,9 @@ function publishedSummary(snapshot: StorySnapshotRow) {
 
 function previewSummary(preview: NvidiaArticlePreview) {
   return [
-    `What happened: ${preview.whatHappened}`,
-    `Why it matters: ${preview.whyItMatters}`,
-    `Click if: ${preview.clickIf}`,
+    `Co się wydarzyło: ${preview.whatHappened}`,
+    `Dlaczego to ważne: ${preview.whyItMatters}`,
+    `Warto przeczytać, jeśli: ${preview.clickIf}`,
   ].join("\n");
 }
 

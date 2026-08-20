@@ -17,14 +17,22 @@ function SettingsCardSkeleton({ rows = 2 }: { rows?: number }) {
 
 export default function SettingsLoading() {
   return (
-    <main className="mx-auto flex w-full max-w-5xl flex-col gap-4 px-4 py-5 sm:px-6 sm:py-7">
-      <header className="flex items-start gap-3">
-        <Skeleton className="size-9 shrink-0 rounded-lg" />
-        <div className="grid min-w-0 flex-1 gap-2 pt-0.5">
-          <Skeleton className="h-7 w-48" />
-          <Skeleton className="h-4 w-56 max-w-full" />
+    <>
+      <header className="sticky top-0 z-50 border-b bg-background/92 backdrop-blur-xl">
+        <div className="mx-auto flex h-14 w-full max-w-5xl items-center gap-2 px-4 sm:h-16 sm:px-6">
+          <Skeleton className="size-9 shrink-0 rounded-lg" />
+          <Skeleton className="h-5 w-40" />
+          <Skeleton className="ml-auto h-4 w-20" />
         </div>
       </header>
+      <main className="mx-auto flex w-full max-w-5xl flex-col gap-4 px-4 py-5 sm:px-6 sm:py-7">
+        <header className="flex items-start gap-3">
+          <Skeleton className="size-9 shrink-0 rounded-lg" />
+          <div className="grid min-w-0 flex-1 gap-2 pt-0.5">
+            <Skeleton className="h-7 w-48" />
+            <Skeleton className="h-4 w-56 max-w-full" />
+          </div>
+        </header>
 
       <div className="grid grid-cols-3 gap-1 rounded-xl border bg-muted/30 p-1">
         {[0, 1, 2].map((index) => <Skeleton key={index} className="h-10 w-full" />)}
@@ -52,6 +60,7 @@ export default function SettingsLoading() {
 
       <SettingsCardSkeleton rows={3} />
       <SettingsCardSkeleton rows={2} />
-    </main>
+      </main>
+    </>
   );
 }

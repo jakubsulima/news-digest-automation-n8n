@@ -103,6 +103,10 @@ export function DigestBriefCard({ brief }: DigestBriefProps) {
         ) : (
           <p className="mt-4 text-[0.95rem] leading-6 text-foreground/90">{brief.summary}</p>
         )}
+
+        <p className="mt-4 border-t pt-3 text-xs leading-relaxed text-muted-foreground">
+          {brief.coverageNote}
+        </p>
       </div>
 
       {brief.highlights.length ? (

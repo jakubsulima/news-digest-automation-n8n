@@ -10,6 +10,10 @@ type NvidiaChatResponse = {
   }>;
 };
 
+type NvidiaChatPurpose = "article-preview" | "summary-shortening" | "daily-brief";
+
+const NVIDIA_LOG_PREFIX = "[nvidia-ai]";
+
 export type NvidiaArticlePreview = {
   clickIf: string;
   entities: string[];
@@ -67,8 +71,106 @@ export type DigestBriefInterestProfile = {
   preferredKeywords: string[];
 };
 
-const DEFAULT_NVIDIA_API_URL = "https://api.nvcf.nvidia.com/v2/nim/v1/generate";
-const DEFAULT_NVIDIA_MODEL = "meta/llama-3.1-8b-instruct";
+const DEFAULT_NVIDIA_API_URL = "https://integrate.api.nvidia.com/v1/chat/completions";
+const DEFAULT_NVIDIA_MODEL = "nvidia/nemotron-3-nano-30b-a3b";
+
+const missingApiKeyWarnings = new Set<NvidiaChatPurpose>();
+
+function nvidiaApiUrl() {
+  return process.env.NVIDIA_API_URL || DEFAULT_NVIDIA_API_URL;
+}
+
+function nvidiaModel() {
+  return process.env.NVIDIA_MODEL || process.env.NVIDIA_NIM_MODEL || DEFAULT_NVIDIA_MODEL;
+}
+
+function logMissingApiKey(purpose: NvidiaChatPurpose) {
+  if (missingApiKeyWarnings.has(purpose)) {
+    return;
+  }
+
+  missingApiKeyWarnings.add(purpose);
+  console.warn(NVIDIA_LOG_PREFIX, "request_skipped", { purpose, reason: "missing_api_key" });
+}
+
+async function requestNvidiaChat({
+  body,
+  purpose,
+}: {
+  body: Record<string, unknown>;
+  purpose: NvidiaChatPurpose;
+}) {
+  const apiKey = process.env.NVIDIA_API_KEY;
+
+  if (!apiKey) {
+    logMissingApiKey(purpose);
+    return null;
+  }
+
+  const model = nvidiaModel();
+  const startedAt = Date.now();
+
+  try {
+    const response = await fetch(nvidiaApiUrl(), {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        ...body,
+        chat_template_kwargs: {
+          ...(typeof body.chat_template_kwargs === "object" && body.chat_template_kwargs
+            ? body.chat_template_kwargs
+            : {}),
+          enable_thinking: false,
+        },
+        model,
+        stream: false,
+      }),
+    });
+
+    if (!response.ok) {
+      console.warn(NVIDIA_LOG_PREFIX, "request_failed", {
+        elapsedMs: Date.now() - startedAt,
+        model,
+        purpose,
+        status: response.status,
+      });
+      return null;
+    }
+
+    const payload = (await response.json().catch(() => null)) as NvidiaChatResponse | null;
+    const content = payload?.choices?.[0]?.message?.content;
+
+    if (!content) {
+      console.warn(NVIDIA_LOG_PREFIX, "response_missing_content", {
+        elapsedMs: Date.now() - startedAt,
+        model,
+        purpose,
+        status: response.status,
+      });
+      return null;
+    }
+
+    console.info(NVIDIA_LOG_PREFIX, "request_succeeded", {
+      elapsedMs: Date.now() - startedAt,
+      model,
+      purpose,
+      status: response.status,
+    });
+
+    return content;
+  } catch (error) {
+    console.warn(NVIDIA_LOG_PREFIX, "request_error", {
+      elapsedMs: Date.now() - startedAt,
+      error: error instanceof Error ? error.message : "unknown_error",
+      model,
+      purpose,
+    });
+    return null;
+  }
+}
 
 export function hasNvidiaSummaryConfig() {
   return Boolean(process.env.NVIDIA_API_KEY);
@@ -83,44 +185,25 @@ export async function shortenSummaryWithNvidia({
   summary: string;
   title: string;
 }) {
-  const apiKey = process.env.NVIDIA_API_KEY;
-
-  if (!apiKey) {
-    return null;
-  }
-
-  const response = await fetch(process.env.NVIDIA_API_URL || DEFAULT_NVIDIA_API_URL, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
+  const content = await requestNvidiaChat({
+    body: {
       max_tokens: Math.max(80, Math.min(300, Math.ceil(maxChars / 3))),
       messages: [
         {
           role: "system",
           content:
-            "Rewrite news summaries for a private daily digest. Keep concrete facts, names, dates, and numbers. Do not add analysis.",
+            "Skracaj podsumowania newsów dla prywatnego dziennego digestu. Pisz naturalną polszczyzną. Zachowaj konkretne fakty, nazwy, daty i liczby. Nie dodawaj własnej analizy.",
         },
         {
           role: "user",
-          content: `Title: ${title}\n\nSummary: ${summary}\n\nReturn one concise paragraph under ${maxChars} characters.`,
+          content: `Tytuł: ${title}\n\nPodsumowanie: ${summary}\n\nZwróć jeden zwięzły akapit po polsku, krótszy niż ${maxChars} znaków.`,
         },
       ],
-      model: process.env.NVIDIA_MODEL || DEFAULT_NVIDIA_MODEL,
-      stream: false,
       temperature: 0.2,
       top_p: 0.7,
-    }),
+    },
+    purpose: "summary-shortening",
   });
-
-  if (!response.ok) {
-    return null;
-  }
-
-  const payload = (await response.json().catch(() => null)) as NvidiaChatResponse | null;
-  const content = payload?.choices?.[0]?.message?.content;
 
   return content ? plainTextFromHtml(content).trim() : null;
 }
@@ -333,9 +416,8 @@ export async function digestBriefWithNvidia({
   interestProfile: DigestBriefInterestProfile;
 }): Promise<NvidiaDigestBrief> {
   const fallback = fallbackDigestBrief(articles);
-  const apiKey = process.env.NVIDIA_API_KEY;
 
-  if (!apiKey || !articles.length) {
+  if (!articles.length) {
     return fallback;
   }
 
@@ -353,13 +435,8 @@ export async function digestBriefWithNvidia({
     .join(", ");
 
   try {
-    const response = await fetch(process.env.NVIDIA_API_URL || DEFAULT_NVIDIA_API_URL, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
+    const content = await requestNvidiaChat({
+      body: {
         max_tokens: 1_800,
         messages: [
           {
@@ -386,19 +463,11 @@ Materiały:
 ${sourceMaterial}`,
           },
         ],
-        model: process.env.NVIDIA_MODEL || DEFAULT_NVIDIA_MODEL,
-        stream: false,
         temperature: 0.1,
         top_p: 0.7,
-      }),
+      },
+      purpose: "daily-brief",
     });
-
-    if (!response.ok) {
-      return fallback;
-    }
-
-    const payload = (await response.json().catch(() => null)) as NvidiaChatResponse | null;
-    const content = payload?.choices?.[0]?.message?.content;
 
     return content ? parseDigestBriefJson(content, Math.min(articles.length, 30)) || fallback : fallback;
   } catch {
@@ -406,8 +475,8 @@ ${sourceMaterial}`,
   }
 }
 
-function parseStrictPreviewJson(content: string): NvidiaArticlePreview | null {
-  const parsed = JSON.parse(content.trim()) as unknown;
+export function parseArticlePreviewJson(content: string): NvidiaArticlePreview | null {
+  const parsed = jsonObjectFromModelOutput(content);
 
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
     return null;
@@ -442,47 +511,28 @@ export async function previewArticleWithNvidia({
   summary: string;
   title: string;
 }): Promise<NvidiaArticlePreview | null> {
-  const apiKey = process.env.NVIDIA_API_KEY;
-
-  if (!apiKey) {
-    return null;
-  }
-
   try {
-    const response = await fetch(process.env.NVIDIA_API_URL || DEFAULT_NVIDIA_API_URL, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
+    const content = await requestNvidiaChat({
+      body: {
         max_tokens: 320,
         messages: [
           {
-            role: "system",
-            content:
-              "You write concise article previews for a private news reader. Return only strict JSON with no markdown, prose, or code fences. Do not invent facts.",
+          role: "system",
+          content:
+              "Piszesz krótkie podglądy artykułów dla prywatnego czytnika newsów. Pisz po polsku. Zwróć wyłącznie poprawny JSON, bez markdownu, komentarzy i bloków kodu. Nie dopowiadaj faktów.",
           },
           {
             role: "user",
-            content: `Title: ${title}\n\nSummary: ${summary}\n\nReturn exactly this JSON shape with short, plain-English strings and at most 8 concise topics/entities:\n{"whatHappened":"","whyItMatters":"","clickIf":"","practicalBucket":"","topics":[],"entities":[]}`,
+            content: `Tytuł: ${title}\n\nPodsumowanie: ${summary}\n\nZwróć dokładnie ten kształt JSON z krótkimi polskimi tekstami i maksymalnie 8 zwięzłymi tematami/encjiami:\n{"whatHappened":"","whyItMatters":"","clickIf":"","practicalBucket":"","topics":[],"entities":[]}`,
           },
         ],
-        model: process.env.NVIDIA_MODEL || DEFAULT_NVIDIA_MODEL,
-        stream: false,
         temperature: 0.1,
         top_p: 0.7,
-      }),
+      },
+      purpose: "article-preview",
     });
 
-    if (!response.ok) {
-      return null;
-    }
-
-    const payload = (await response.json().catch(() => null)) as NvidiaChatResponse | null;
-    const content = payload?.choices?.[0]?.message?.content;
-
-    return content ? parseStrictPreviewJson(content) : null;
+    return content ? parseArticlePreviewJson(content) : null;
   } catch {
     return null;
   }
