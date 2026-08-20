@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { fallbackDigestBrief, parseDigestBriefJson } from "./ai-summary";
+import { fallbackDigestBrief, parseArticlePreviewJson, parseDigestBriefJson } from "./ai-summary";
 import { fallbackDigestBriefFromNews, isDigestBriefSchemaError } from "./digest-brief";
 
 describe("fallbackDigestBrief", () => {
@@ -89,6 +89,25 @@ describe("parseDigestBriefJson", () => {
         1,
       ),
     ).toBeNull();
+  });
+});
+
+describe("parseArticlePreviewJson", () => {
+  it("accepts a preview wrapped in a markdown JSON fence", () => {
+    expect(
+      parseArticlePreviewJson(`
+        \`\`\`json
+        {"whatHappened":"Firma wydała nowy model.","whyItMatters":"Zwiększa konkurencję.","clickIf":"Jeśli śledzisz rynek AI.","practicalBucket":"product_trend","topics":["AI"],"entities":["Example"]}
+        \`\`\`
+      `),
+    ).toEqual({
+      clickIf: "Jeśli śledzisz rynek AI.",
+      entities: ["Example"],
+      practicalBucket: "product_trend",
+      topics: ["AI"],
+      whatHappened: "Firma wydała nowy model.",
+      whyItMatters: "Zwiększa konkurencję.",
+    });
   });
 });
 

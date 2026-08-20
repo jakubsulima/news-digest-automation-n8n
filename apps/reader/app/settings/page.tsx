@@ -1,6 +1,7 @@
 import { ChevronDown, LogOut, Plus, Rss, Save } from "lucide-react";
 import Link from "next/link";
 
+import { AppNavbar } from "@/components/app-navbar";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -789,7 +790,12 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
 
   return (
     <>
-    <main className="mx-auto flex w-full max-w-5xl flex-col gap-4 px-4 py-5 sm:px-6 sm:py-7">
+      <AppNavbar
+        email={user.email || "Reader"}
+        mobileContext={localize(locale, "Ustawienia", "Settings")}
+        signOut={signOut}
+      />
+      <main className="mx-auto flex w-full max-w-5xl flex-col gap-4 px-4 py-5 sm:px-6 sm:py-7">
       <PageHeader
         backHref={null}
         title={localize(locale, "Ustawienia", "Settings")}

@@ -79,6 +79,9 @@ INGEST_SECRET=replace-with-long-random-secret
 CRON_SECRET=replace-with-long-random-cron-secret
 NEXT_PUBLIC_APP_URL=http://127.0.0.1:3000
 DIGEST_RUN_RETENTION_LIMIT=100
+NVIDIA_API_KEY=
+NVIDIA_API_URL=https://integrate.api.nvidia.com/v1/chat/completions
+NVIDIA_MODEL=nvidia/nemotron-3-nano-30b-a3b
 ```
 
 Notes:
@@ -87,6 +90,7 @@ Notes:
 - `ALLOWED_READER_EMAILS` is a comma-separated login allowlist.
 - Set `NEXT_PUBLIC_APP_URL` to the production Vercel URL after deployment.
 - `DIGEST_RUN_RETENTION_LIMIT` is optional. Queued and running runs are never pruned.
+- `NVIDIA_API_KEY`, `NVIDIA_API_URL`, and `NVIDIA_MODEL` enable the optional AI summaries and daily briefing. The API URL and model shown above are the defaults.
 
 ## Supabase Setup
 
@@ -111,6 +115,7 @@ infra/supabase/migrations/016_reader_preference_signals.sql
 infra/supabase/migrations/017_source_discovery.sql
 infra/supabase/migrations/018_post_migration_advisor_fixes.sql
 infra/supabase/migrations/019_reader_notes.sql
+infra/supabase/migrations/20260820170000_enable_nemotron_summaries.sql
 ```
 
 Apply all migrations before deploying the current reader code. Migration `018` contains the RLS and index optimizations required after migrations `013`–`017`.
