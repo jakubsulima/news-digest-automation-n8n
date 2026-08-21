@@ -679,7 +679,6 @@ function SettingsTabs({
               settingsTab: tab.id,
               sourceFeed: activeSourceFeed,
             })}
-            scroll={false}
           >
             <span className="truncate">{localize(locale, tab.labels[0], tab.labels[1])}</span>
           </Link>
