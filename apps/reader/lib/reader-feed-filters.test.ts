@@ -9,6 +9,7 @@ function item(overrides: Partial<NewsItemWithState> = {}): NewsItemWithState {
     changedFields: [],
     category: "Software / IT",
     digestDate: "2026-06-20",
+    digestRunId: "run-1",
     externalId: "external-1",
     editorialScore: 50,
     entityTags: [],

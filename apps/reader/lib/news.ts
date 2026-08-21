@@ -38,6 +38,7 @@ export type StoryUpdate = {
 export type NewsItemWithState = {
   id: string;
   storyClusterId: string | null;
+  digestRunId: string | null;
   externalId: string;
   digestDate: string;
   title: string;
@@ -198,6 +199,7 @@ function newsItemWithState(
   return {
     id: item.id,
     storyClusterId: item.story_cluster_id,
+    digestRunId: jsonString(rawPayload.digestRunId),
     externalId: item.external_id,
     digestDate: item.digest_date,
     title,

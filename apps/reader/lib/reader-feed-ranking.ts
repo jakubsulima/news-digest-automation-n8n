@@ -226,6 +226,7 @@ export function filterFeedItems(
   options: {
     feed: ReaderFeedId;
     latestDigestDate: string | null;
+    latestDigestRunId: string | null;
     period: FeedPeriod;
     previousVisitAt: string | null;
     view: ReaderViewId;
@@ -239,6 +240,9 @@ export function filterFeedItems(
     if (options.period === "history") return true;
     if (options.period === "since-visit") {
       return visit > 0 && (timestamp(item.firstSelectedAt) > visit || timestamp(item.lastMaterialChangeAt) > visit);
+    }
+    if (options.latestDigestRunId) {
+      return item.digestRunId === options.latestDigestRunId;
     }
     return Boolean(options.latestDigestDate && item.digestDate === options.latestDigestDate);
   });
