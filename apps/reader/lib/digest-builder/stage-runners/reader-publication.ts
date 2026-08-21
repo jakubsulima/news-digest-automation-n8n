@@ -5,6 +5,7 @@ import { isDigestBriefSchemaError } from "../../digest-brief";
 import { getDigestRunById } from "../../digest-runs";
 import { getDigestSettingsForRun } from "../../digest-settings";
 import { digestBriefWithNvidia, fallbackDigestBrief } from "../../ai-summary";
+import { readingTimeMinutesForDigestBrief } from "../../digest-brief-text";
 import { createSupabaseAdminClient } from "../../supabase";
 import { cleanArticleSummary, plainTextFromHtml } from "../../text";
 import { SUPABASE_WRITE_BATCH_SIZE } from "../constants";
@@ -306,14 +307,16 @@ export const runReaderPublicationStage: StageRunner = async ({ digestRunId }) =>
       : [];
   });
   const sections = brief.sections.flatMap((section) => {
-    const references = section.articleIndexes.flatMap((articleIndex) => {
-      const reference = referenceForArticleIndex(articleIndex);
-      return reference ? [reference] : [];
+    const paragraphs = section.paragraphs.flatMap((paragraph) => {
+      const references = Array.from(new Set(paragraph.articleIndexes)).flatMap((articleIndex) => {
+        const reference = referenceForArticleIndex(articleIndex);
+        return reference ? [reference] : [];
+      });
+
+      return references.length ? [{ references, text: paragraph.text }] : [];
     });
 
-    return references.length
-      ? [{ category: section.category, references, situation: section.situation, title: section.title }]
-      : [];
+    return paragraphs.length ? [{ category: section.category, paragraphs, title: section.title }] : [];
   });
   const watchlist = brief.watchlist.map((item) => ({
     references: item.articleIndexes.flatMap((articleIndex) => {
@@ -328,7 +331,12 @@ export const runReaderPublicationStage: StageRunner = async ({ digestRunId }) =>
     digest_date: run.report_date,
     digest_run_id: digestRunId,
     highlights,
-    reading_time_minutes: brief.readingTimeMinutes,
+    reading_time_minutes: readingTimeMinutesForDigestBrief({
+      coverageNote: brief.coverageNote,
+      sections,
+      summary: brief.summary,
+      watchlist,
+    }),
     sections,
     summary: brief.summary,
     watchlist,

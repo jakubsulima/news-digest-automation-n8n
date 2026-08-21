@@ -1,6 +1,7 @@
 import "server-only";
 
 import type { Json } from "./database.types";
+import { readingTimeMinutesForDigestBrief } from "./digest-brief-text";
 import { createSupabaseAdminClient } from "./supabase";
 
 export type DigestBriefHighlight = {
@@ -19,8 +20,10 @@ export type DigestBriefReference = {
 
 export type DigestBriefSection = {
   category: string;
-  references: DigestBriefReference[];
-  situation: string;
+  paragraphs: Array<{
+    references: DigestBriefReference[];
+    text: string;
+  }>;
   title: string;
 };
 
@@ -96,6 +99,8 @@ function parseHighlights(value: Json): DigestBriefHighlight[] {
 function parseReferences(value: Json | undefined): DigestBriefReference[] {
   if (!Array.isArray(value)) return [];
 
+  const seen = new Set<string>();
+
   return value.flatMap((entry) => {
     if (!entry || typeof entry !== "object" || Array.isArray(entry)) return [];
     const reference = entry as Record<string, Json | undefined>;
@@ -103,7 +108,26 @@ function parseReferences(value: Json | undefined): DigestBriefReference[] {
     const source = typeof reference.source === "string" ? reference.source : null;
     const title = typeof reference.title === "string" ? reference.title : null;
 
-    return newsItemId && source && title ? [{ newsItemId, source, title }] : [];
+    if (!newsItemId || !source || !title || seen.has(newsItemId)) return [];
+    seen.add(newsItemId);
+    return [{ newsItemId, source, title }];
+  });
+}
+
+function parseParagraphs(section: Record<string, Json | undefined>): DigestBriefSection["paragraphs"] {
+  const rawParagraphs = Array.isArray(section.paragraphs)
+    ? section.paragraphs
+    : typeof section.situation === "string"
+      ? [{ text: section.situation, references: section.references }]
+      : [];
+
+  return rawParagraphs.flatMap((entry) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) return [];
+    const paragraph = entry as Record<string, Json | undefined>;
+    const text = typeof paragraph.text === "string" ? paragraph.text.trim() : "";
+    const references = parseReferences(paragraph.references);
+
+    return text ? [{ references, text }] : [];
   });
 }
 
@@ -115,10 +139,10 @@ function parseSections(value: Json): DigestBriefSection[] {
     const section = entry as Record<string, Json | undefined>;
     const category = typeof section.category === "string" ? section.category : null;
     const title = typeof section.title === "string" ? section.title : null;
-    const situation = typeof section.situation === "string" ? section.situation : null;
+    const paragraphs = parseParagraphs(section);
 
-    return category && title && situation
-      ? [{ category, references: parseReferences(section.references), situation, title }]
+    return category && title && paragraphs.length
+      ? [{ category, paragraphs, title }]
       : [];
   });
 }
@@ -178,11 +202,14 @@ export function fallbackDigestBriefFromNews(items: DigestBriefFallbackArticle[])
   }));
   const sections = Array.from(new Set(latestItems.map((item) => item.category))).slice(0, 5).map((category) => {
     const categoryItems = latestItems.filter((item) => item.category === category).slice(0, 6);
+    const references = categoryItems.map((item) => ({ newsItemId: item.id, source: item.source, title: item.title }));
 
     return {
       category,
-      references: categoryItems.map((item) => ({ newsItemId: item.id, source: item.source, title: item.title })),
-      situation: compactToWordLimit(categoryItems.map((item) => item.summary).join(" "), 65),
+      paragraphs: [{
+        references,
+        text: compactToWordLimit(categoryItems.map((item) => item.summary).join(" "), 65),
+      }],
       title: fallbackSectionTitle(category),
     };
   });
@@ -193,7 +220,12 @@ export function fallbackDigestBriefFromNews(items: DigestBriefFallbackArticle[])
     coverageNote: "Widok awaryjny bez syntezy AI — pełny kontekst znajduje się w materiałach źródłowych.",
     digestDate,
     highlights,
-    readingTimeMinutes: Math.max(1, Math.min(5, Math.ceil(articleCount / 5))),
+    readingTimeMinutes: readingTimeMinutesForDigestBrief({
+      coverageNote: "Widok awaryjny bez syntezy AI — pełny kontekst znajduje się w materiałach źródłowych.",
+      sections,
+      summary: `Najnowszy digest obejmuje ${subject}. Poniżej znajdziesz przekrojowy obraz sytuacji w dostępnych materiałach.`,
+      watchlist: [],
+    }),
     sections,
     summary: `Najnowszy digest obejmuje ${subject}. Poniżej znajdziesz przekrojowy obraz sytuacji w dostępnych materiałach.`,
     watchlist: [],
@@ -218,15 +250,20 @@ export async function getLatestDigestBrief(): Promise<DigestBrief | null> {
     throw error;
   }
 
-  return data
-    ? {
-        coverageNote: data.coverage_note,
-        digestDate: data.digest_date,
-        highlights: parseHighlights(data.highlights),
-        readingTimeMinutes: data.reading_time_minutes,
-        sections: parseSections(data.sections),
-        summary: data.summary,
-        watchlist: parseWatchlist(data.watchlist),
-      }
-    : null;
+  if (!data) return null;
+
+  const sections = parseSections(data.sections);
+  const watchlist = parseWatchlist(data.watchlist);
+  const summary = data.summary;
+  const coverageNote = data.coverage_note;
+
+  return {
+    coverageNote,
+    digestDate: data.digest_date,
+    highlights: parseHighlights(data.highlights),
+    readingTimeMinutes: readingTimeMinutesForDigestBrief({ coverageNote, sections, summary, watchlist }),
+    sections,
+    summary,
+    watchlist,
+  };
 }

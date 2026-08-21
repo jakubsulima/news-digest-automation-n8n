@@ -1,8 +1,10 @@
 import { after, NextResponse } from "next/server";
 
-import { advanceDigestRunUntilIdle } from "@/lib/digest-stage-executor";
+import { advanceDigestRun } from "@/lib/digest-stage-executor";
 import { getDigestRunStatus, startOrGetActiveDigestRun } from "@/lib/digest-runs";
 import { getCurrentOperator } from "@/lib/operator";
+
+export const maxDuration = 120;
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : "Could not advance digest run.";
@@ -37,7 +39,7 @@ export async function POST() {
 
   after(async () => {
     try {
-      await advanceDigestRunUntilIdle(run.id);
+      await advanceDigestRun(run.id);
     } catch (error) {
       logBackgroundAdvanceError(error);
     }

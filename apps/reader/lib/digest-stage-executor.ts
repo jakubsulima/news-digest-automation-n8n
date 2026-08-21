@@ -6,8 +6,7 @@ import { errorMessage } from "./digest-builder/utils";
 import { getDigestRunById, pruneCompletedDigestRuns, sortDigestStages } from "./digest-runs";
 import { createSupabaseAdminClient } from "./supabase";
 
-const RUNNING_STAGE_STALE_MS = 90_000;
-const DEFAULT_ADVANCE_UNTIL_IDLE_BUDGET_MS = 55_000;
+const RUNNING_STAGE_STALE_MS = 150_000;
 
 type AdvanceDigestRunResult = {
   runId: string;
@@ -249,30 +248,4 @@ export async function advanceDigestRun(digestRunId: string): Promise<AdvanceDige
       message,
     };
   }
-}
-
-export async function advanceDigestRunUntilIdle(
-  digestRunId: string,
-  budgetMs = DEFAULT_ADVANCE_UNTIL_IDLE_BUDGET_MS,
-): Promise<AdvanceDigestRunResult> {
-  const startedAtMs = Date.now();
-
-  while (Date.now() - startedAtMs < budgetMs) {
-    const result = await advanceDigestRun(digestRunId);
-
-    if (result.status !== "queued" && result.status !== "running") {
-      return result;
-    }
-
-    if (!result.advancedStage) {
-      return result;
-    }
-  }
-
-  return {
-    runId: digestRunId,
-    status: "running",
-    advancedStage: null,
-    message: "Digest run advancement paused until the next scheduled wake-up.",
-  };
 }

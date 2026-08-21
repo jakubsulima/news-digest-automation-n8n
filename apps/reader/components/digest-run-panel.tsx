@@ -245,7 +245,7 @@ export function DigestRunPanel({ initialRun, retrySlot, storyCount }: DigestRunP
 
     resumeIfVisible();
 
-    const refreshTimer = window.setInterval(refreshIfVisible, ACTIVE_STATUS_REFRESH_MS);
+    const refreshTimer = window.setInterval(resumeIfVisible, ACTIVE_STATUS_REFRESH_MS);
     document.addEventListener("visibilitychange", resumeIfVisible);
 
     return () => {

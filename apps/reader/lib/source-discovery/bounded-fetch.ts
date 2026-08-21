@@ -9,6 +9,22 @@ import { defaultDnsLookup, resolveRemoteUrl } from "./url-safety";
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
 const DEFAULT_USER_AGENT = "DailyNewsDigestSourceDiscovery/1.0";
 
+function abortReason(signal: AbortSignal) {
+  return signal.reason instanceof Error ? signal.reason : new Error("Source request timed out.");
+}
+
+function abortable<T>(operation: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) {
+    return Promise.reject(abortReason(signal));
+  }
+
+  return new Promise<T>((resolve, reject) => {
+    const abort = () => reject(abortReason(signal));
+    signal.addEventListener("abort", abort, { once: true });
+    operation.then(resolve, reject).finally(() => signal.removeEventListener("abort", abort));
+  });
+}
+
 function requestHeaders(userAgent: string) {
   return {
     accept: "application/atom+xml, application/rss+xml, application/xml, text/xml, text/html;q=0.8",
@@ -157,32 +173,39 @@ export async function fetchBoundedText(
   const userAgent = dependencies.userAgent || DEFAULT_USER_AGENT;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(new Error("Source request timed out.")), timeoutMs);
-  let current = await resolveRemoteUrl(rawUrl, lookup);
 
   try {
+    let current = await abortable(resolveRemoteUrl(rawUrl, lookup), controller.signal);
+
     for (let redirectCount = 0; redirectCount <= maxRedirects; redirectCount += 1) {
-      const response = await discoveryRequest(
-        current.url,
-        current.addresses[0],
+      const response = await abortable(
+        discoveryRequest(
+          current.url,
+          current.addresses[0],
+          controller.signal,
+          maxBytes,
+          userAgent,
+          dependencies.fetchImpl,
+        ),
         controller.signal,
-        maxBytes,
-        userAgent,
-        dependencies.fetchImpl,
       );
       if (REDIRECT_STATUSES.has(response.status)) {
         const location = response.getHeader("location");
         if (!location) throw new Error("Source redirect is missing a Location header.");
-        await response.discard();
+        await abortable(response.discard(), controller.signal);
         if (redirectCount === maxRedirects) throw new Error("Source exceeded the five-redirect limit.");
-        current = await resolveRemoteUrl(new URL(location, current.url).toString(), lookup);
+        current = await abortable(
+          resolveRemoteUrl(new URL(location, current.url).toString(), lookup),
+          controller.signal,
+        );
         continue;
       }
       if (!response.ok) {
-        await response.discard();
+        await abortable(response.discard(), controller.signal);
         throw new Error(`Source returned HTTP ${response.status}.`);
       }
       return {
-        body: await response.readBody(),
+        body: await abortable(response.readBody(), controller.signal),
         contentType: response.getHeader("content-type") || "",
         finalUrl: current.url.toString(),
         redirectCount,

@@ -72,6 +72,21 @@ describe("source discovery URL safety", () => {
       maxBytes: 100,
     })).rejects.toThrow(/limit/i);
   });
+
+  it("applies the request timeout while DNS resolution is still pending", async () => {
+    const result = await Promise.race([
+      fetchBoundedText("https://example.com/feed", {
+        lookup: async () => new Promise(() => undefined),
+        timeoutMs: 5,
+      }).then(
+        () => "resolved",
+        (error: unknown) => error instanceof Error ? error.message : String(error),
+      ),
+      new Promise<string>((resolve) => setTimeout(() => resolve("outer deadline reached"), 50)),
+    ]);
+
+    expect(result).toMatch(/timed out/i);
+  });
 });
 
 describe("RSS and Atom discovery", () => {
