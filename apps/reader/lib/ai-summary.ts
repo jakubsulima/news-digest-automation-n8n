@@ -336,7 +336,7 @@ export function fallbackDigestBrief(articles: DigestBriefArticle[]): NvidiaDiges
       title: fallbackSectionTitle(category),
     };
   });
-  const subject = articles.length === 1 ? "jedną wybraną wiadomość" : `${articles.length} wybranych wiadomości`;
+  const subject = articles.length === 1 ? "jedną wybraną wiadomość" : "wybrane wiadomości";
 
   return {
     coverageNote: "Briefing awaryjny utworzony bez syntezy AI; sprawdź połączone materiały źródłowe.",
@@ -531,7 +531,6 @@ export async function digestBriefWithNvidia({
   const aiStartedAt = Date.now();
 
   const sourceMaterial = articles
-    .slice(0, 30)
     .map(
       (article, index) =>
         `Techniczny ID źródła (tylko do pól articleIndex/articleIndexes): ${index}\nKategoria: ${article.category}\nWażność: ${article.importanceScore}/100\nTytuł: ${article.title}\nŹródło: ${article.source} (${article.sourceCount} ${article.sourceCount === 1 ? "źródło" : "źródła"})\nPublikacja: ${article.publishedAt || "brak daty"}\nDlaczego wybrane: ${article.whyInteresting || "brak osobnej adnotacji"}\nTreść: ${article.summary.slice(0, 900)}`,
@@ -555,6 +554,8 @@ Najpierw podawaj obiektywne fakty. Krótką interpretację dodawaj tylko wtedy, 
 
 Nie dodawaj wiedzy spoza materiałów, nie zgaduj motywacji i nie dopisuj skutków bez wskazanego mechanizmu. Unikaj urzędowego tonu, sloganów, streszczania źródeł po kolei oraz zdań typu „artykuł 0 mówi”, „materiał 1 opisuje” lub „w dostarczonych materiałach”. Techniczne ID źródeł i nazwy pól JSON mogą wystąpić wyłącznie jako metadane w articleIndex i articleIndexes.
 
+Nie podawaj w tekście łącznej liczby newsów ani nie opisuj rozmiaru digestu. Liczba wybieranych wiadomości jest ustawieniem użytkownika i może się zmieniać.
+
 Zwróć wyłącznie poprawny JSON, bez markdownu.`;
   const briefShape =
     '{"summary":"lead 60-90 słów","highlights":[{"articleIndex":0,"whatHappened":"","whyItMatters":""}],"sections":[{"category":"","title":"","paragraphs":[{"text":"","articleIndexes":[0]}]}],"watchlist":[{"signal":"","why":"","articleIndexes":[0]}],"coverageNote":""}';
@@ -572,7 +573,7 @@ Wymagania redakcyjne:
 - łączna długość tekstu faktycznie wyświetlanego (summary, akapity sekcji, watchlist i coverageNote) ma wynosić 450–650 słów; nie wydłużaj tekstu przez powtórzenia lub ogólniki;
 - watchlist to 1–4 konkretne, wynikające z materiałów sygnały, decyzje lub terminy do obserwowania wraz z rzeczowym powodem; nie wymyślaj dat ani scenariuszy;
 - coverageNote to uczciwe zdanie o ograniczeniu materiału;
-- articleIndex i articleIndexes są niewidocznymi metadanymi źródeł: wpisuj w nich wyłącznie techniczne ID od 0 do ${Math.min(articles.length, 30) - 1} i nigdy nie przywołuj ich w tekście;
+- articleIndex i articleIndexes są niewidocznymi metadanymi źródeł: wpisuj w nich wyłącznie techniczne ID od 0 do ${articles.length - 1} i nigdy nie przywołuj ich w tekście;
 - readingTimeMinutes pomiń — czas zostanie obliczony z faktycznie wyświetlanego tekstu.
 
 Zwróć dokładnie ten kształt JSON:
@@ -613,7 +614,7 @@ ${sourceMaterial}`,
       timeoutMs: DAILY_BRIEF_INITIAL_TIMEOUT_MS,
     });
 
-    const articleCount = Math.min(articles.length, 30);
+    const articleCount = articles.length;
     const firstBrief = content ? parseDigestBriefJson(content, articleCount) : null;
     const firstQuality = firstBrief ? validateDigestBriefQuality(firstBrief) : null;
 

@@ -79,13 +79,19 @@ export async function getReaderFeedPage(userId: string, request: ReaderFeedReque
     ? "v2"
     : settings.recommendationPolicyMode === "v1" ? "v1" : "shadow";
   const previousVisitAt = request.previousVisitAt === undefined ? storedPreviousVisitAt : request.previousVisitAt;
-  const latestDigestDate = items.reduce<string | null>(
-    (latest, item) => (!latest || item.digestDate > latest ? item.digestDate : latest),
-    null,
-  );
+  const latestDigestItem = items.reduce<(typeof items)[number] | null>((latest, item) => {
+    if (!latest) return item;
+    const itemSelectedAt = Date.parse(item.lastSelectedAt || "") || 0;
+    const latestSelectedAt = Date.parse(latest.lastSelectedAt || "") || 0;
+    if (itemSelectedAt !== latestSelectedAt) return itemSelectedAt > latestSelectedAt ? item : latest;
+    return item.digestDate > latest.digestDate ? item : latest;
+  }, null);
+  const latestDigestDate = latestDigestItem?.digestDate || null;
+  const latestDigestRunId = latestDigestItem?.digestRunId || null;
   const periodItems = filterFeedItems(items, {
     feed: request.feed,
     latestDigestDate,
+    latestDigestRunId,
     period: request.period,
     previousVisitAt,
     view: request.view,
@@ -101,7 +107,7 @@ export async function getReaderFeedPage(userId: string, request: ReaderFeedReque
   const cursorId = decodeFeedCursor(request.cursor);
   const cursorIndex = cursorId ? ranked.findIndex((item) => item.id === cursorId) : -1;
   const offset = cursorIndex >= 0 ? cursorIndex + 1 : 0;
-  const limit = Math.max(10, Math.min(100, request.limit || 30));
+  const limit = Math.max(5, Math.min(100, request.limit ?? settings.publishTopN));
   const pageItems = ranked.slice(offset, offset + limit);
   const hasMore = offset + pageItems.length < ranked.length;
 
@@ -109,6 +115,7 @@ export async function getReaderFeedPage(userId: string, request: ReaderFeedReque
     READER_FEEDS.map((feed) => [feed.id, filterFeedItems(items, {
       feed: feed.id,
       latestDigestDate,
+      latestDigestRunId,
       period: request.period,
       previousVisitAt,
       view: request.view,
@@ -118,6 +125,7 @@ export async function getReaderFeedPage(userId: string, request: ReaderFeedReque
     READER_VIEWS.map((view) => [view.id, filterFeedItems(items, {
       feed: request.feed,
       latestDigestDate,
+      latestDigestRunId,
       period: request.period,
       previousVisitAt,
       view: view.id,

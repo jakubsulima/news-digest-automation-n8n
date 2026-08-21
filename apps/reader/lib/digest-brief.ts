@@ -213,8 +213,7 @@ export function fallbackDigestBriefFromNews(items: DigestBriefFallbackArticle[])
       title: fallbackSectionTitle(category),
     };
   });
-  const articleCount = latestItems.length;
-  const subject = articleCount === 1 ? "jedną wiadomość" : `${articleCount} wiadomości`;
+  const subject = latestItems.length === 1 ? "jedną wiadomość" : "wybrane wiadomości";
 
   return {
     coverageNote: "Widok awaryjny bez syntezy AI — pełny kontekst znajduje się w materiałach źródłowych.",

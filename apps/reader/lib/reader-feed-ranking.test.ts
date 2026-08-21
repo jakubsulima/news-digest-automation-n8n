@@ -16,6 +16,7 @@ function item(id: string, overrides: Partial<NewsItemWithState> = {}): NewsItemW
     category: "Software / Engineering",
     changedFields: ["new"],
     digestDate: "2026-07-11",
+    digestRunId: "run-latest",
     editorialScore: 60,
     entityTags: [],
     externalId: `story:${id}`,
@@ -116,11 +117,28 @@ describe("reader feed ranking", () => {
       item("updated", { digestDate: "2026-07-10", firstSelectedAt: "2026-07-10T08:00:00.000Z", lastMaterialChangeAt: "2026-07-11T09:00:00.000Z" }),
       item("latest"),
     ];
-    const common = { feed: "all" as const, latestDigestDate: "2026-07-11", previousVisitAt: "2026-07-11T07:00:00.000Z", view: "all" as const };
+    const common = { feed: "all" as const, latestDigestDate: "2026-07-11", latestDigestRunId: null, previousVisitAt: "2026-07-11T07:00:00.000Z", view: "all" as const };
 
     expect(filterFeedItems(items, { ...common, period: "latest" }).map((value) => value.id)).toEqual(["latest"]);
     expect(filterFeedItems(items, { ...common, period: "since-visit" }).map((value) => value.id)).toEqual(["updated", "latest"]);
     expect(filterFeedItems(items, { ...common, period: "history" })).toHaveLength(3);
+  });
+
+  it("shows only the newest run when several digests share the same date", () => {
+    const items = [
+      item("earlier", { digestRunId: "run-earlier", lastSelectedAt: "2026-07-11T08:00:00.000Z" }),
+      item("latest-1", { digestRunId: "run-latest", lastSelectedAt: "2026-07-11T10:00:00.000Z" }),
+      item("latest-2", { digestRunId: "run-latest", lastSelectedAt: "2026-07-11T10:00:00.000Z" }),
+    ];
+
+    expect(filterFeedItems(items, {
+      feed: "all",
+      latestDigestDate: "2026-07-11",
+      latestDigestRunId: "run-latest",
+      period: "latest",
+      previousVisitAt: null,
+      view: "all",
+    }).map((value) => value.id)).toEqual(["latest-1", "latest-2"]);
   });
 
   it("groups top, actionable, worth-knowing, and remaining stories without duplication", () => {

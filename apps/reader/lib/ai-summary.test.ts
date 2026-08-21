@@ -278,7 +278,7 @@ describe("digestBriefWithNvidia", () => {
       summary: "Krótki lead.",
       watchlist: [],
     });
-    const fetchMock = vi.fn(async () => ({
+    const fetchMock = vi.fn(async (_input: unknown, _init?: RequestInit) => ({
       json: async () => ({ choices: [{ message: { content: responseContent } }] }),
       ok: true,
       status: 200,
@@ -301,6 +301,48 @@ describe("digestBriefWithNvidia", () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(result.coverageNote).toBe("Brak danych.");
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+  });
+
+  it("includes selected articles beyond the former fixed limit of 30", async () => {
+    vi.stubEnv("NVIDIA_API_KEY", "test-key");
+    const responseContent = JSON.stringify({
+      coverageNote: "Brak danych.",
+      highlights: [{ articleIndex: 30, whatHappened: "Fakt", whyItMatters: "Znaczenie" }],
+      sections: [{
+        category: "business",
+        paragraphs: [{ articleIndexes: [30], text: "Krótka sekcja." }],
+        title: "Gospodarka",
+      }],
+      summary: "Krótki lead.",
+      watchlist: [],
+    });
+    const fetchMock = vi.fn(async (_input: unknown, _init?: RequestInit) => ({
+      json: async () => ({ choices: [{ message: { content: responseContent } }] }),
+      ok: true,
+      status: 200,
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await digestBriefWithNvidia({
+      articles: Array.from({ length: 31 }, (_, index) => ({
+        category: "business",
+        importanceScore: 90,
+        publishedAt: null,
+        source: `Source ${index}`,
+        sourceCount: 1,
+        summary: `Material ${index}`,
+        title: `Tytuł ${index}`,
+        whyInteresting: null,
+      })),
+      interestProfile: { feedTargets: {}, preferredKeywords: [] },
+    });
+    const firstRequest = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+
+    expect(firstRequest.messages[1].content).toContain("Techniczny ID źródła (tylko do pól articleIndex/articleIndexes): 30");
+    expect(firstRequest.messages[0].content).toContain("Nie podawaj w tekście łącznej liczby newsów");
+    expect(result.highlights[0]?.articleIndex).toBe(30);
     vi.unstubAllGlobals();
     vi.unstubAllEnvs();
   });
