@@ -1,5 +1,6 @@
 import "server-only";
 
+import { readingTimeMinutesForDigestBrief, wordCount } from "./digest-brief-text";
 import { plainTextFromHtml } from "./text";
 
 type NvidiaChatResponse = {
@@ -14,6 +15,15 @@ type NvidiaChatPurpose = "article-preview" | "summary-shortening" | "daily-brief
 
 const NVIDIA_LOG_PREFIX = "[nvidia-ai]";
 const NVIDIA_REQUEST_TIMEOUT_MS = 20_000;
+const DAILY_BRIEF_INITIAL_TIMEOUT_MS = 18_000;
+const DAILY_BRIEF_TOTAL_TIMEOUT_MS = 28_000;
+const DAILY_BRIEF_MIN_CORRECTION_TIMEOUT_MS = 1_000;
+const FULL_BRIEF_MIN_WORDS = 450;
+const FULL_BRIEF_MAX_WORDS = 650;
+const LEAD_MIN_WORDS = 60;
+const LEAD_MAX_WORDS = 90;
+const SECTION_MIN_WORDS = 90;
+const SECTION_MAX_WORDS = 140;
 
 export type NvidiaArticlePreview = {
   clickIf: string;
@@ -42,9 +52,11 @@ export type NvidiaDigestBriefHighlight = {
 };
 
 export type NvidiaDigestBriefSection = {
-  articleIndexes: number[];
   category: string;
-  situation: string;
+  paragraphs: Array<{
+    articleIndexes: number[];
+    text: string;
+  }>;
   title: string;
 };
 
@@ -97,9 +109,11 @@ function logMissingApiKey(purpose: NvidiaChatPurpose) {
 async function requestNvidiaChat({
   body,
   purpose,
+  timeoutMs = NVIDIA_REQUEST_TIMEOUT_MS,
 }: {
   body: Record<string, unknown>;
   purpose: NvidiaChatPurpose;
+  timeoutMs?: number;
 }) {
   const apiKey = process.env.NVIDIA_API_KEY;
 
@@ -111,7 +125,7 @@ async function requestNvidiaChat({
   const model = nvidiaModel();
   const startedAt = Date.now();
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), NVIDIA_REQUEST_TIMEOUT_MS);
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
     const response = await fetch(nvidiaApiUrl(), {
@@ -198,7 +212,7 @@ export async function shortenSummaryWithNvidia({
         {
           role: "system",
           content:
-            "Skracaj podsumowania newsów dla prywatnego dziennego digestu. Pisz naturalną polszczyzną. Zachowaj konkretne fakty, nazwy, daty i liczby. Nie dodawaj własnej analizy.",
+            "Skracaj newsy dla prywatnego dziennego digestu. Pisz naturalną, prostą polszczyzną i zaczynaj od najważniejszego faktu. Zachowuj nazwy, daty, liczby oraz istotny kontekst. Nie opisuj tekstu ani źródła słowami typu „artykuł”, „materiał” lub „podsumowanie” — od razu przedstaw informację. Nie dodawaj opinii, przewidywań ani faktów spoza wejścia.",
         },
         {
           role: "user",
@@ -261,6 +275,29 @@ function boundedArticleIndexes(value: unknown, articleCount: number, maxItems = 
   ).slice(0, maxItems);
 }
 
+function parseSectionParagraphs(
+  section: Record<string, unknown>,
+  articleCount: number,
+): NvidiaDigestBriefSection["paragraphs"] {
+  const rawParagraphs = Array.isArray(section.paragraphs)
+    ? section.paragraphs
+    : typeof section.situation === "string"
+      ? [{ text: section.situation, articleIndexes: section.articleIndexes }]
+      : [];
+
+  return rawParagraphs.flatMap((value) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      return [];
+    }
+
+    const paragraph = value as Record<string, unknown>;
+    const text = boundedString(paragraph.text, 2_000, SECTION_MAX_WORDS);
+    const articleIndexes = boundedArticleIndexes(paragraph.articleIndexes, articleCount);
+
+    return text && articleIndexes.length ? [{ articleIndexes, text }] : [];
+  });
+}
+
 function fallbackSectionTitle(category: string) {
   const labels: Record<string, string> = {
     ai: "AI",
@@ -289,9 +326,13 @@ export function fallbackDigestBrief(articles: DigestBriefArticle[]): NvidiaDiges
     const categoryArticles = articleIndexes.map((articleIndex) => articles[articleIndex]);
 
     return {
-      articleIndexes,
       category,
-      situation: compactToWordLimit(categoryArticles.map((article) => article.summary).join(" "), 65),
+      paragraphs: [
+        {
+          articleIndexes,
+          text: compactToWordLimit(categoryArticles.map((article) => article.summary).join(" "), 65),
+        },
+      ],
       title: fallbackSectionTitle(category),
     };
   });
@@ -300,7 +341,12 @@ export function fallbackDigestBrief(articles: DigestBriefArticle[]): NvidiaDiges
   return {
     coverageNote: "Briefing awaryjny utworzony bez syntezy AI; sprawdź połączone materiały źródłowe.",
     highlights,
-    readingTimeMinutes: Math.max(1, Math.min(5, Math.ceil(articles.length / 5))),
+    readingTimeMinutes: readingTimeMinutesForDigestBrief({
+      coverageNote: "Briefing awaryjny utworzony bez syntezy AI; sprawdź połączone materiały źródłowe.",
+      sections,
+      summary: `Dzisiejszy digest obejmuje ${subject}. Poniżej znajdziesz przekrojowy obraz sytuacji w dostępnych materiałach.`,
+      watchlist: [],
+    }),
     sections,
     summary: `Dzisiejszy digest obejmuje ${subject}. Poniżej znajdziesz przekrojowy obraz sytuacji w dostępnych materiałach.`,
     watchlist: [],
@@ -333,7 +379,7 @@ export function parseDigestBriefJson(content: string, articleCount: number): Nvi
     }
 
     const brief = parsed as Record<string, unknown>;
-    const summary = boundedString(brief.summary, 1_000, 80);
+    const summary = boundedString(brief.summary, 1_000, LEAD_MAX_WORDS);
     const coverageNote = boundedString(brief.coverageNote, 420, 25);
 
     if (!summary || !coverageNote || !Array.isArray(brief.highlights) || !Array.isArray(brief.sections)) {
@@ -360,7 +406,7 @@ export function parseDigestBriefJson(content: string, articleCount: number): Nvi
         return { articleIndex, whatHappened, whyItMatters };
       })
       .filter((highlight): highlight is NvidiaDigestBriefHighlight => Boolean(highlight))
-      .slice(0, 5);
+      .slice(0, 4);
 
     const sections = brief.sections
       .map((value) => {
@@ -371,15 +417,14 @@ export function parseDigestBriefJson(content: string, articleCount: number): Nvi
         const section = value as Record<string, unknown>;
         const category = boundedString(section.category, 80, 8);
         const title = boundedString(section.title, 120, 12);
-        const situation = boundedString(section.situation, 850, 65);
-        const articleIndexes = boundedArticleIndexes(section.articleIndexes, articleCount);
+        const paragraphs = parseSectionParagraphs(section, articleCount);
 
-        return category && title && situation && articleIndexes.length
-          ? { articleIndexes, category, situation, title }
+        return category && title && paragraphs.length
+          ? { category, paragraphs, title }
           : null;
       })
       .filter((section): section is NvidiaDigestBriefSection => Boolean(section))
-      .slice(0, 5);
+      .slice(0, 4);
     const watchlist = Array.isArray(brief.watchlist)
       ? brief.watchlist
           .map((value) => {
@@ -397,14 +442,12 @@ export function parseDigestBriefJson(content: string, articleCount: number): Nvi
           .filter((item): item is NvidiaDigestBriefWatchItem => Boolean(item))
           .slice(0, 4)
       : [];
-    const briefingWordCount = [
-      summary,
+    const readingTimeMinutes = readingTimeMinutesForDigestBrief({
       coverageNote,
-      ...highlights.flatMap((highlight) => [highlight.whatHappened, highlight.whyItMatters]),
-      ...sections.map((section) => section.situation),
-      ...watchlist.flatMap((item) => [item.signal, item.why]),
-    ].join(" ").split(/\s+/).filter(Boolean).length;
-    const readingTimeMinutes = Math.max(1, Math.min(5, Math.ceil(briefingWordCount / 180)));
+      sections,
+      summary,
+      watchlist,
+    });
 
     return highlights.length && sections.length
       ? { coverageNote, highlights, readingTimeMinutes, sections, summary, watchlist }
@@ -412,6 +455,64 @@ export function parseDigestBriefJson(content: string, articleCount: number): Nvi
   } catch {
     return null;
   }
+}
+
+export function validateDigestBriefQuality(brief: NvidiaDigestBrief) {
+  const reasons: string[] = [];
+  const leadWords = wordCount(brief.summary);
+  const sectionWordCounts = brief.sections.map((section) =>
+    wordCount(section.paragraphs.map((paragraph) => paragraph.text).join(" ")),
+  );
+  const totalWords = readingTimeMinutesForDigestBrief({
+    coverageNote: brief.coverageNote,
+    sections: brief.sections,
+    summary: brief.summary,
+    watchlist: brief.watchlist,
+  });
+  const actualTotalWords = [
+    brief.summary,
+    ...brief.sections.flatMap((section) => section.paragraphs.map((paragraph) => paragraph.text)),
+    ...brief.watchlist.flatMap((item) => [item.signal, item.why]),
+    brief.coverageNote,
+  ].join(" ").split(/\s+/).filter(Boolean).length;
+  const readerFacingText = [
+    brief.summary,
+    ...brief.highlights.flatMap((highlight) => [highlight.whatHappened, highlight.whyItMatters]),
+    ...brief.sections.flatMap((section) => [
+      section.title,
+      ...section.paragraphs.map((paragraph) => paragraph.text),
+    ]),
+    ...brief.watchlist.flatMap((item) => [item.signal, item.why]),
+    brief.coverageNote,
+  ].join(" ").toLowerCase();
+  const polishMarkerCount = readerFacingText.match(/\b(?:ale|bez|dla|jest|który|która|może|oraz|przez|się|są|to|wraz|wpływ|został|została)\b/giu)?.length || 0;
+  const englishMarkerCount = readerFacingText.match(/\b(?:and|are|could|for|from|has|have|into|may|the|this|that|was|were|while|with|would)\b/giu)?.length || 0;
+
+  if (leadWords < LEAD_MIN_WORDS || leadWords > LEAD_MAX_WORDS) {
+    reasons.push(`lead must contain ${LEAD_MIN_WORDS}-${LEAD_MAX_WORDS} words`);
+  }
+  if (brief.sections.length < 3 || brief.sections.length > 4) {
+    reasons.push("briefing must contain 3-4 thematic sections");
+  }
+  if (sectionWordCounts.some((count) => count < SECTION_MIN_WORDS || count > SECTION_MAX_WORDS)) {
+    reasons.push(`each section must contain ${SECTION_MIN_WORDS}-${SECTION_MAX_WORDS} words`);
+  }
+  if (!brief.watchlist.length) {
+    reasons.push("briefing must contain at least one concrete watchlist signal");
+  }
+  if (actualTotalWords < FULL_BRIEF_MIN_WORDS || actualTotalWords > FULL_BRIEF_MAX_WORDS) {
+    reasons.push(`briefing must contain ${FULL_BRIEF_MIN_WORDS}-${FULL_BRIEF_MAX_WORDS} displayed words`);
+  }
+  if (englishMarkerCount >= 6 && englishMarkerCount > polishMarkerCount * 2) {
+    reasons.push("all reader-facing text must be written in Polish");
+  }
+
+  return {
+    actualTotalWords,
+    readingTimeMinutes: totalWords,
+    valid: reasons.length === 0,
+    reasons,
+  };
 }
 
 export async function digestBriefWithNvidia({
@@ -427,11 +528,13 @@ export async function digestBriefWithNvidia({
     return fallback;
   }
 
+  const aiStartedAt = Date.now();
+
   const sourceMaterial = articles
     .slice(0, 30)
     .map(
       (article, index) =>
-        `[${index}] Kategoria: ${article.category}\nWażność: ${article.importanceScore}/100\nTytuł: ${article.title}\nŹródło: ${article.source} (${article.sourceCount} ${article.sourceCount === 1 ? "źródło" : "źródła"})\nPublikacja: ${article.publishedAt || "brak daty"}\nDlaczego wybrane: ${article.whyInteresting || "brak osobnej adnotacji"}\nMateriał: ${article.summary.slice(0, 900)}`,
+        `Techniczny ID źródła (tylko do pól articleIndex/articleIndexes): ${index}\nKategoria: ${article.category}\nWażność: ${article.importanceScore}/100\nTytuł: ${article.title}\nŹródło: ${article.source} (${article.sourceCount} ${article.sourceCount === 1 ? "źródło" : "źródła"})\nPublikacja: ${article.publishedAt || "brak daty"}\nDlaczego wybrane: ${article.whyInteresting || "brak osobnej adnotacji"}\nTreść: ${article.summary.slice(0, 900)}`,
     )
     .join("\n\n");
   const interests = Object.entries(interestProfile.feedTargets)
@@ -440,30 +543,64 @@ export async function digestBriefWithNvidia({
     .map(([category, target]) => `${category}: ${target}`)
     .join(", ");
 
+  const systemPrompt = `Jesteś redaktorem prywatnego briefingu newsowego. Twoim celem jest wyjaśnić wydarzenia tak, aby czytelnik zrozumiał je bez otwierania artykułów źródłowych.
+
+Wszystkie pola widoczne dla czytelnika pisz po polsku, nawet gdy materiały wejściowe są po angielsku. Pozostawiaj w oryginale wyłącznie nazwy własne, nazwy produktów i powszechnie używane skróty. Pisz prostymi, pełnymi zdaniami. Jedno zdanie powinno przekazywać jedną główną myśl.
+
+Każdy akapit musi być samodzielnie zrozumiały. W pierwszym zdaniu nazwij osobę, firmę, instytucję lub państwo i napisz wprost, co się wydarzyło. Następnie dodaj tylko kontekst potrzebny do zrozumienia skali, przyczyny albo następnego kroku. Rozwiń nieoczywisty skrót lub termin przy pierwszym użyciu. Nie zaczynaj od „to”, „ten ruch”, „ta sytuacja” ani podobnego odwołania bez jasno nazwanego poprzednika.
+
+Najpierw podawaj obiektywne fakty. Krótką interpretację dodawaj tylko wtedy, gdy z materiałów wynika konkretny mechanizm wpływu. Nazwij wtedy, kogo wpływ dotyczy i przez co może nastąpić. Używaj ostrożnych słów: „może”, „prawdopodobnie”, „sugeruje” lub „jeśli ten kierunek się utrzyma”. Nie zastępuj wyjaśnienia pustymi zwrotami typu „ma szersze znaczenie”, „podkreśla rosnące ryzyko” albo „może wpłynąć na rynek”.
+
+Łącz doniesienia wyłącznie wtedy, gdy mają bezpośredni, dający się nazwać związek: dotyczą tej samej decyzji, organizacji, zdarzenia, łańcucha przyczynowego lub mierzalnego trendu. Wspólna kategoria, taka jak „biznes”, „AI” czy „geopolityka”, nie jest związkiem. Niezależne newsy opisz w osobnych akapitach. Nie twórz zależności tylko po to, aby tekst brzmiał jak synteza.
+
+Nie dodawaj wiedzy spoza materiałów, nie zgaduj motywacji i nie dopisuj skutków bez wskazanego mechanizmu. Unikaj urzędowego tonu, sloganów, streszczania źródeł po kolei oraz zdań typu „artykuł 0 mówi”, „materiał 1 opisuje” lub „w dostarczonych materiałach”. Techniczne ID źródeł i nazwy pól JSON mogą wystąpić wyłącznie jako metadane w articleIndex i articleIndexes.
+
+Zwróć wyłącznie poprawny JSON, bez markdownu.`;
+  const briefShape =
+    '{"summary":"lead 60-90 słów","highlights":[{"articleIndex":0,"whatHappened":"","whyItMatters":""}],"sections":[{"category":"","title":"","paragraphs":[{"text":"","articleIndexes":[0]}]}],"watchlist":[{"signal":"","why":"","articleIndexes":[0]}],"coverageNote":""}';
+  const requirements = `
+Wymagania redakcyjne:
+- wszystkie wartości tekstowe w JSON-ie, poza nazwami własnymi, zapisz po polsku;
+- summary to lead o długości 60–90 słów: podaj 2–4 najważniejsze fakty dnia i tylko jedną rzeczywiście udokumentowaną zależność; czytelnik ma od razu wiedzieć, kto zrobił co;
+- highlights to 3–4 najważniejsze fakty; whatHappened odpowiada konkretnie „kto zrobił co”, a whyItMatters nazywa podmiot dotknięty zmianą i mechanizm wpływu; jeśli nie da się tego wyjaśnić konkretnie, opisz tylko bezpośrednie znaczenie faktu;
+- sections to 3–4 tematyczne sekcje po 90–140 słów; każda sekcja ma 1–3 samodzielne akapity, a każdy akapit ma własne articleIndexes wskazujące dokładnie wykorzystane materiały;
+- każdy akapit buduj w kolejności: jedno zdanie z głównym faktem, 1–3 zdania niezbędnego kontekstu, opcjonalnie jedno zdanie o możliwym wpływie lub niewiadomej;
+- używaj krótkich tytułów mówiących wprost, czego dotyczy sekcja; unikaj abstrakcyjnych tytułów typu „Zmieniający się krajobraz”, „Nowa dynamika” lub „Rosnące wyzwania”;
+- większość tekstu mają stanowić sprawdzalne fakty; pomijaj opinię, jeśli materiały nie dają podstaw do opisania konkretnego wpływu;
+- używaj nazw osób, firm, instytucji i zdarzeń zamiast odwołań typu „pierwszy artykuł”, „artykuł 0”, „materiał nr 2”, „powyższe źródło” czy „articleIndex”; żaden techniczny indeks nie może trafić do summary, whatHappened, whyItMatters, title, text, signal, why ani coverageNote;
+- nie powtarzaj tej samej informacji w leadzie, highlights i sekcjach, chyba że krótka wzmianka jest konieczna do zrozumienia szerszego związku;
+- łączna długość tekstu faktycznie wyświetlanego (summary, akapity sekcji, watchlist i coverageNote) ma wynosić 450–650 słów; nie wydłużaj tekstu przez powtórzenia lub ogólniki;
+- watchlist to 1–4 konkretne, wynikające z materiałów sygnały, decyzje lub terminy do obserwowania wraz z rzeczowym powodem; nie wymyślaj dat ani scenariuszy;
+- coverageNote to uczciwe zdanie o ograniczeniu materiału;
+- articleIndex i articleIndexes są niewidocznymi metadanymi źródeł: wpisuj w nich wyłącznie techniczne ID od 0 do ${Math.min(articles.length, 30) - 1} i nigdy nie przywołuj ich w tekście;
+- readingTimeMinutes pomiń — czas zostanie obliczony z faktycznie wyświetlanego tekstu.
+
+Zwróć dokładnie ten kształt JSON:
+${briefShape}`;
+  const correctionPrompt = (initialOutput: string | null, reasons: string[]) => `Przepisz poniższy briefing tak, aby każdy akapit był zrozumiały bez znajomości artykułów źródłowych. Wszystkie pola tekstowe napisz po polsku. Nazwij wprost podmioty i działania, wyjaśnij nieoczywiste terminy, rozdziel niepowiązane newsy oraz usuń ogólniki, niejasne zaimki i sztuczne zależności. Zachowaj obiektywne fakty, a interpretację ogranicz do krótkich, warunkowych wniosków z konkretnym mechanizmem wpływu. Usuń techniczne indeksy z treści; pozostaw je tylko w articleIndex i articleIndexes. Nie dodawaj nowych faktów tylko po to, by tekst był dłuższy. Zwróć wyłącznie cały poprawny JSON, bez komentarza.
+
+Problemy do naprawy: ${reasons.join("; ") || "odpowiedź nie była poprawnym JSON-em"}.
+
+${requirements}
+
+Pierwsza odpowiedź:
+${initialOutput || "brak poprawnej odpowiedzi"}
+
+Materiały:
+${sourceMaterial}`;
+
   try {
     const content = await requestNvidiaChat({
       body: {
-        max_tokens: 1_800,
+        max_tokens: 2_400,
         messages: [
           {
             role: "system",
-            content:
-              "Jesteś redaktorem pięciominutowego briefingu sytuacyjnego dla prywatnego czytnika newsów. Syntetyzuj, łącz powiązane doniesienia i oddzielaj fakt od ostrożnego wniosku. Używaj wyłącznie informacji z materiałów. Nie dopowiadaj faktów, liczb ani tła, którego w nich nie ma. Nie powtarzaj tej samej informacji w kilku sekcjach. Pisz konkretną, naturalną polszczyzną. Zwróć wyłącznie poprawny JSON, bez markdownu.",
+            content: systemPrompt,
           },
           {
             role: "user",
-            content: `Przygotuj pełny obraz sytuacji do przeczytania w maksymalnie 5 minut (około 600–850 słów łącznie). Spośród materiałów wybierz najważniejsze fakty, odrzuć powtórzenia i połącz powiązane doniesienia. Nie twórz listy wszystkich artykułów. Grupuj fakty w rozwój sytuacji i pokaż zależności między nimi. Priorytety czytelnika: ${interests || "brak wag kategorii"}. Preferowane tematy: ${interestProfile.preferredKeywords.slice(0, 30).join(", ") || "brak"}.
-
-Wymagania:
-- summary: 3–5 zdań dających obraz dnia i dominujące zależności;
-- highlights: 3–5 najważniejszych zmian; whatHappened opisuje konkretny fakt, whyItMatters jego konsekwencję; każdy element wskazuje najlepszy articleIndex;
-- sections: 2–5 tematycznych syntez obejmujących wszystkie istotne materiały; situation ma przedstawiać stan, zmiany i konsekwencje, nie listę nagłówków; articleIndexes zawiera wszystkie materiały użyte w danej syntezie;
-- watchlist: maksymalnie 4 konkretne sygnały, decyzje lub terminy do obserwowania wraz z powodem; nie wymyślaj dat;
-- coverageNote: jedno uczciwe zdanie o tym, czego dostępne materiały nie pozwalają wiarygodnie ocenić;
-- readingTimeMinutes: liczba całkowita 1–5.
-
-Zwróć dokładnie ten kształt JSON:
-{"summary":"","highlights":[{"articleIndex":0,"whatHappened":"","whyItMatters":""}],"sections":[{"category":"","title":"","situation":"","articleIndexes":[0]}],"watchlist":[{"signal":"","why":"","articleIndexes":[0]}],"coverageNote":"","readingTimeMinutes":5}
+            content: `Przygotuj pełny briefing dnia na podstawie materiałów. Priorytety czytelnika: ${interests || "brak wag kategorii"}. Preferowane tematy: ${interestProfile.preferredKeywords.slice(0, 30).join(", ") || "brak"}.${requirements}
 
 Materiały:
 ${sourceMaterial}`,
@@ -473,9 +610,59 @@ ${sourceMaterial}`,
         top_p: 0.7,
       },
       purpose: "daily-brief",
+      timeoutMs: DAILY_BRIEF_INITIAL_TIMEOUT_MS,
     });
 
-    return content ? parseDigestBriefJson(content, Math.min(articles.length, 30)) || fallback : fallback;
+    const articleCount = Math.min(articles.length, 30);
+    const firstBrief = content ? parseDigestBriefJson(content, articleCount) : null;
+    const firstQuality = firstBrief ? validateDigestBriefQuality(firstBrief) : null;
+
+    if (!content && !hasNvidiaSummaryConfig()) {
+      return fallback;
+    }
+
+    if (firstBrief && firstQuality?.valid) {
+      return firstBrief;
+    }
+
+    const correctionTimeoutMs = Math.min(
+      NVIDIA_REQUEST_TIMEOUT_MS,
+      DAILY_BRIEF_TOTAL_TIMEOUT_MS - (Date.now() - aiStartedAt),
+    );
+
+    if (correctionTimeoutMs < DAILY_BRIEF_MIN_CORRECTION_TIMEOUT_MS) {
+      return firstBrief || fallback;
+    }
+
+    const correctionContent = await requestNvidiaChat({
+      body: {
+        max_tokens: 2_400,
+        messages: [
+          { role: "system", content: systemPrompt },
+          {
+            role: "user",
+            content: correctionPrompt(
+              content,
+              firstQuality?.reasons || ["odpowiedź nie była poprawnym JSON-em"],
+            ),
+          },
+        ],
+        temperature: 0.1,
+        top_p: 0.7,
+      },
+      purpose: "daily-brief",
+      timeoutMs: correctionTimeoutMs,
+    });
+    const correctedBrief = correctionContent ? parseDigestBriefJson(correctionContent, articleCount) : null;
+    const correctedQuality = correctedBrief ? validateDigestBriefQuality(correctedBrief) : null;
+
+    if (correctedBrief && correctedQuality?.valid) {
+      return correctedBrief;
+    }
+
+    // The correction prompt explicitly targets clarity and language. Prefer its
+    // parseable result even when it still misses a secondary length constraint.
+    return correctedBrief || firstBrief || fallback;
   } catch {
     return fallback;
   }
@@ -523,9 +710,9 @@ export async function previewArticleWithNvidia({
         max_tokens: 320,
         messages: [
           {
-          role: "system",
-          content:
-              "Piszesz krótkie podglądy artykułów dla prywatnego czytnika newsów. Pisz po polsku. Zwróć wyłącznie poprawny JSON, bez markdownu, komentarzy i bloków kodu. Nie dopowiadaj faktów.",
+            role: "system",
+            content:
+              "Piszesz krótkie podglądy newsów dla prywatnego czytnika. Używaj naturalnej, prostej polszczyzny. whatHappened ma podawać obiektywny fakt bez wstępu typu „artykuł opisuje”. whyItMatters może zawierać najwyżej jeden ostrożny wniosek o prawdopodobnym wpływie, jasno oznaczony słowami „może”, „prawdopodobnie” lub „sugeruje”. Nie dopowiadaj faktów i nie odwołuj się do technicznych indeksów ani do samego tekstu źródłowego. Zwróć wyłącznie poprawny JSON, bez markdownu, komentarzy i bloków kodu.",
           },
           {
             role: "user",

@@ -7,6 +7,38 @@ import { cookies } from "next/headers";
 import type { Database } from "./database.types";
 import { requireEnv } from "./env";
 
+const SUPABASE_REQUEST_TIMEOUT_MS = 15_000;
+
+export async function fetchSupabaseWithTimeout(
+  input: Parameters<typeof fetch>[0],
+  init?: Parameters<typeof fetch>[1],
+  timeoutMs = SUPABASE_REQUEST_TIMEOUT_MS,
+  fetchImpl: typeof fetch = fetch,
+) {
+  const controller = new AbortController();
+  const externalSignal = init?.signal;
+  const abortFromExternalSignal = () => controller.abort(externalSignal?.reason);
+  const timeout = setTimeout(
+    () => controller.abort(new Error("Supabase request timed out.")),
+    timeoutMs,
+  );
+
+  if (externalSignal?.aborted) {
+    abortFromExternalSignal();
+  } else {
+    externalSignal?.addEventListener("abort", abortFromExternalSignal, { once: true });
+  }
+
+  try {
+    return await fetchImpl(input, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timeout);
+    externalSignal?.removeEventListener("abort", abortFromExternalSignal);
+  }
+}
+
+const timedSupabaseFetch: typeof fetch = (input, init) => fetchSupabaseWithTimeout(input, init);
+
 export async function createSupabaseServerClient() {
   const cookieStore = await cookies();
 
@@ -40,6 +72,9 @@ export function createSupabaseAdminClient() {
       auth: {
         persistSession: false,
         autoRefreshToken: false,
+      },
+      global: {
+        fetch: timedSupabaseFetch,
       },
     },
   );

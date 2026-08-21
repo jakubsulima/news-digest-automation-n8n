@@ -1,6 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import { fallbackDigestBrief, parseArticlePreviewJson, parseDigestBriefJson } from "./ai-summary";
+import {
+  fallbackDigestBrief,
+  digestBriefWithNvidia,
+  parseArticlePreviewJson,
+  parseDigestBriefJson,
+  validateDigestBriefQuality,
+} from "./ai-summary";
 import { fallbackDigestBriefFromNews, isDigestBriefSchemaError } from "./digest-brief";
 
 describe("fallbackDigestBrief", () => {
@@ -26,7 +32,7 @@ describe("fallbackDigestBrief", () => {
       { articleIndex: 4, whatHappened: "Summary 5", whyItMatters: "Ważny sygnał ze źródła Source 5." },
     ]);
     expect(brief.sections).toHaveLength(2);
-    expect(brief.readingTimeMinutes).toBe(2);
+    expect(brief.readingTimeMinutes).toBe(1);
   });
 });
 
@@ -37,7 +43,7 @@ describe("parseDigestBriefJson", () => {
       {
         "summary": "Najważniejsze procesy są ze sobą powiązane.",
         "highlights": [{"articleIndex": 0, "whatHappened": "Państwa uzgodniły zmianę.", "whyItMatters": "Wpływa na handel."}],
-        "sections": [{"category": "geopolitics", "title": "Nowy układ", "situation": "Rozmowy zmieniły układ negocjacji.", "articleIndexes": [0, 1]}],
+        "sections": [{"category": "geopolitics", "title": "Nowy układ", "paragraphs": [{"text": "Rozmowy zmieniły układ negocjacji.", "articleIndexes": [0, 1, 1, 9]}]}],
         "watchlist": [{"signal": "Kolejna decyzja", "why": "Pokaże kierunek zmian.", "articleIndexes": [1]}],
         "coverageNote": "Materiały nie pokazują reakcji drugiej strony.",
         "readingTimeMinutes": 4
@@ -58,9 +64,8 @@ describe("parseDigestBriefJson", () => {
       readingTimeMinutes: 1,
       sections: [
         {
-          articleIndexes: [0, 1],
           category: "geopolitics",
-          situation: "Rozmowy zmieniły układ negocjacji.",
+          paragraphs: [{ articleIndexes: [0, 1], text: "Rozmowy zmieniły układ negocjacji." }],
           title: "Nowy układ",
         },
       ],
@@ -89,6 +94,30 @@ describe("parseDigestBriefJson", () => {
         1,
       ),
     ).toBeNull();
+  });
+
+  it("keeps legacy situation sections readable as one sourced paragraph", () => {
+    expect(
+      parseDigestBriefJson(
+        JSON.stringify({
+          coverageNote: "Brak danych o reakcji rynku.",
+          highlights: [{ articleIndex: 0, whatHappened: "Fakt", whyItMatters: "Znaczenie" }],
+          sections: [{
+            articleIndexes: [0, 0, 4],
+            category: "business",
+            situation: "Starszy zapis sekcji pozostaje czytelny.",
+            title: "Gospodarka",
+          }],
+          summary: "Lead starego formatu.",
+          watchlist: [],
+        }),
+        1,
+      ),
+    ).toMatchObject({
+      sections: [{
+        paragraphs: [{ articleIndexes: [0], text: "Starszy zapis sekcji pozostaje czytelny." }],
+      }],
+    });
   });
 });
 
@@ -157,16 +186,158 @@ describe("fallbackDigestBriefFromNews", () => {
         },
       ],
       readingTimeMinutes: 1,
-      sections: [
-        {
-          category: "geopolitics",
-          references: [{ newsItemId: "newest", source: "Newest source", title: "Newest article" }],
-          situation: "Newest summary",
-          title: "Geopolityka",
-        },
+        sections: [
+          {
+            category: "geopolitics",
+            paragraphs: [{
+              references: [{ newsItemId: "newest", source: "Newest source", title: "Newest article" }],
+              text: "Newest summary",
+            }],
+            title: "Geopolityka",
+          },
       ],
       summary: "Najnowszy digest obejmuje jedną wiadomość. Poniżej znajdziesz przekrojowy obraz sytuacji w dostępnych materiałach.",
       watchlist: [],
     });
+  });
+});
+
+describe("validateDigestBriefQuality", () => {
+  it("requires a full lead, thematic sections, watch signals, and the 450-650 word range", () => {
+    const brief = fallbackDigestBrief(
+      Array.from({ length: 4 }, (_, index) => ({
+        category: `category-${index}`,
+        importanceScore: 90,
+        publishedAt: null,
+        source: `Source ${index}`,
+        sourceCount: 1,
+        summary: "Krótki materiał.",
+        title: `Article ${index}`,
+        whyInteresting: null,
+      })),
+    );
+
+    const quality = validateDigestBriefQuality(brief);
+
+    expect(quality.valid).toBe(false);
+    expect(quality.reasons).toEqual(expect.arrayContaining([
+      "lead must contain 60-90 words",
+      "briefing must contain at least one concrete watchlist signal",
+    ]));
+  });
+
+  it("accepts a focused 450-650 word briefing", () => {
+    const words = (prefix: string, count: number) => Array.from({ length: count }, (_, index) => `${prefix}${index + 1}`).join(" ");
+    const brief = parseDigestBriefJson(JSON.stringify({
+      coverageNote: words("ograniczenie", 12),
+      highlights: [{ articleIndex: 0, whatHappened: "Fakt", whyItMatters: "Znaczenie" }],
+      sections: Array.from({ length: 4 }, (_, index) => ({
+        category: `category-${index}`,
+        paragraphs: [{ articleIndexes: [0], text: words(`sekcja${index}-`, 110) }],
+        title: `Sekcja ${index}`,
+      })),
+      summary: words("lead", 75),
+      watchlist: [{ articleIndexes: [0], signal: words("sygnal", 8), why: words("powod", 12) }],
+    }), 1);
+
+    expect(brief).not.toBeNull();
+    expect(brief?.readingTimeMinutes).toBe(4);
+    expect(validateDigestBriefQuality(brief!).valid).toBe(true);
+  });
+
+  it("rejects reader-facing content written predominantly in English", () => {
+    const repeated = (word: string, count: number) => Array.from({ length: count }, () => word).join(" ");
+    const brief = parseDigestBriefJson(JSON.stringify({
+      coverageNote: repeated("the", 12),
+      highlights: [{ articleIndex: 0, whatHappened: "The company changed its policy.", whyItMatters: "This may affect customers." }],
+      sections: Array.from({ length: 4 }, (_, index) => ({
+        category: `category-${index}`,
+        paragraphs: [{ articleIndexes: [0], text: repeated("the", 95) }],
+        title: `The section ${index}`,
+      })),
+      summary: repeated("the", 70),
+      watchlist: [{ articleIndexes: [0], signal: repeated("the", 8), why: repeated("the", 12) }],
+    }), 1);
+
+    expect(brief).not.toBeNull();
+    expect(validateDigestBriefQuality(brief!).reasons).toContain("all reader-facing text must be written in Polish");
+  });
+});
+
+describe("digestBriefWithNvidia", () => {
+  it("makes exactly one correction request after an incomplete first response", async () => {
+    vi.stubEnv("NVIDIA_API_KEY", "test-key");
+    const responseContent = JSON.stringify({
+      coverageNote: "Brak danych.",
+      highlights: [{ articleIndex: 0, whatHappened: "Fakt", whyItMatters: "Znaczenie" }],
+      sections: [{
+        category: "business",
+        paragraphs: [{ articleIndexes: [0], text: "Krótka sekcja." }],
+        title: "Gospodarka",
+      }],
+      summary: "Krótki lead.",
+      watchlist: [],
+    });
+    const fetchMock = vi.fn(async () => ({
+      json: async () => ({ choices: [{ message: { content: responseContent } }] }),
+      ok: true,
+      status: 200,
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await digestBriefWithNvidia({
+      articles: [{
+        category: "business",
+        importanceScore: 90,
+        publishedAt: null,
+        source: "Source",
+        sourceCount: 1,
+        summary: "Material",
+        title: "Tytuł",
+        whyInteresting: null,
+      }],
+      interestProfile: { feedTargets: {}, preferredKeywords: [] },
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(result.coverageNote).toBe("Brak danych.");
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+  });
+
+  it("caps the combined duration of the initial and correction requests", async () => {
+    vi.useFakeTimers();
+    vi.stubEnv("NVIDIA_API_KEY", "test-key");
+    const fetchMock = vi.fn((_input: unknown, init?: RequestInit) => new Promise((_resolve, reject) => {
+      init?.signal?.addEventListener("abort", () => reject(init.signal?.reason || new Error("aborted")), { once: true });
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const digestPromise = digestBriefWithNvidia({
+      articles: [{
+        category: "business",
+        importanceScore: 90,
+        publishedAt: null,
+        source: "Source",
+        sourceCount: 1,
+        summary: "Material",
+        title: "Tytuł",
+        whyInteresting: null,
+      }],
+      interestProfile: { feedTargets: {}, preferredKeywords: [] },
+    });
+    const outcomePromise = Promise.race([
+      digestPromise.then(() => "resolved"),
+      new Promise<string>((resolve) => setTimeout(() => resolve("deadline"), 31_000)),
+    ]);
+
+    await vi.advanceTimersByTimeAsync(31_000);
+    const outcome = await outcomePromise;
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+
+    expect(outcome).toBe("resolved");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });

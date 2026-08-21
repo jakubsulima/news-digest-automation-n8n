@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowRight, ChevronRight, Clock3, ListTree, Newspaper } from "lucide-react";
+import { ArrowRight, ChevronRight, Clock3, ExternalLink, ListTree, Newspaper } from "lucide-react";
 import Link from "next/link";
 
 import { useLocalize, useReaderLocale } from "@/components/reader-locale-provider";
@@ -28,10 +28,6 @@ function readerFriendlyWhy(value: string, locale: ReaderLocale) {
   const technicalReason = value.match(/^Selected as ([^:.;]+)/i)?.[1]?.toLowerCase();
   const copy = technicalReason ? TECHNICAL_REASON_COPY[technicalReason] : null;
   return copy ? localize(locale, copy[0], copy[1]) : technicalReason ? localize(locale, "To ważny sygnał, który może wymagać dalszej analizy.", "This is an important signal that may need further analysis.") : value;
-}
-
-function readerFriendlySummary(value: string) {
-  return value.replace(/^View CSAF Summary\s*/i, "").trim();
 }
 
 function BriefHighlights({ highlights }: { highlights: DigestBrief["highlights"] }) {
@@ -77,13 +73,13 @@ export function DigestBriefCard({ brief }: DigestBriefProps) {
 
   return (
     <section className="-mx-4 overflow-hidden bg-background md:mx-0 md:rounded-2xl md:border md:bg-card md:shadow-sm" aria-label={l("Podsumowanie dnia", "Daily summary")}>
-      <div className="border-b px-4 py-4 md:px-5 md:py-5">
+      <div className="border-b px-4 py-5 md:px-7 md:py-7">
         <div className="flex items-center gap-3">
           <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
             <ListTree className="size-5" strokeWidth={2} aria-hidden="true" />
           </span>
           <div className="min-w-0 flex-1">
-            <h1 className="text-xl font-semibold tracking-tight">{l("Podsumowanie dnia", "Daily summary")}</h1>
+            <h1 className="text-xl font-semibold tracking-tight md:text-2xl">{l("Pełne podsumowanie dnia", "Full daily briefing")}</h1>
           </div>
           <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
             <Clock3 className="size-3.5" aria-hidden="true" />
@@ -91,41 +87,94 @@ export function DigestBriefCard({ brief }: DigestBriefProps) {
           </span>
         </div>
 
-        {brief.highlights.length ? (
-          <ul className="mt-4 grid gap-2.5 md:mt-5 md:gap-4" aria-label={l("Skrót dnia", "Daily brief")}>
-            {brief.highlights.slice(0, 4).map((highlight) => (
-              <li key={`summary-${highlight.newsItemId}`} className="grid grid-cols-[0.5rem_1fr] gap-3 text-[0.82rem] leading-[1.2rem] text-foreground/90 md:text-[0.95rem] md:leading-6">
-                <span className="mt-2 size-2 rounded-full bg-primary" aria-hidden="true" />
-                <span className="line-clamp-2 min-w-0 break-words [overflow-wrap:anywhere]">{readerFriendlySummary(highlight.whatHappened)}</span>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="mt-4 text-[0.95rem] leading-6 text-foreground/90">{brief.summary}</p>
-        )}
-
-        <p className="mt-4 border-t pt-3 text-xs leading-relaxed text-muted-foreground">
-          {brief.coverageNote}
+        <p className="mt-5 max-w-3xl text-base leading-7 text-foreground/90 md:mt-6 md:text-[1.05rem] md:leading-8">
+          {brief.summary}
         </p>
       </div>
 
-      {brief.highlights.length ? (
-        <section aria-labelledby="brief-highlights-heading">
-          <h2 id="brief-highlights-heading" className="px-4 pb-2 pt-4 text-lg font-semibold md:px-5 md:pt-5">
-            {l("Najważniejsze", "Top stories")}
-          </h2>
-          <BriefHighlights highlights={brief.highlights} />
-          <div className="hidden border-t px-4 py-4 md:block md:px-5">
-            <Link
-              href="/news"
-              className={buttonVariants({ variant: "outline", size: "lg", className: "h-11 w-full md:w-auto" })}
-            >
-              {l("Wszystkie newsy", "All news")}
-              <ArrowRight aria-hidden="true" />
-            </Link>
-          </div>
-        </section>
-      ) : null}
+      <div className="px-4 py-6 md:px-7 md:py-8">
+        <div className="grid gap-8 md:gap-10">
+          {brief.sections.map((section) => (
+            <article key={`${section.category}-${section.title}`}>
+              <div className="mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                <h2 className="text-lg font-semibold tracking-tight md:text-xl">{section.title}</h2>
+                <span className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">{section.category}</span>
+              </div>
+              <div className="grid gap-4 text-[0.98rem] leading-7 text-foreground/90 md:text-base md:leading-8">
+                {section.paragraphs.map((paragraph, index) => (
+                  <div key={`${section.title}-${index}`}>
+                    <p className="break-words [overflow-wrap:anywhere]">{paragraph.text}</p>
+                    <ReferenceLinks references={paragraph.references} />
+                  </div>
+                ))}
+              </div>
+            </article>
+          ))}
+
+          {brief.watchlist.length ? (
+            <section className="rounded-xl border border-primary/20 bg-primary/[0.045] p-4 md:p-5" aria-labelledby="brief-watchlist-heading">
+              <h2 id="brief-watchlist-heading" className="text-lg font-semibold tracking-tight md:text-xl">
+                {l("Co obserwować", "What to watch")}
+              </h2>
+              <ul className="mt-4 grid gap-4">
+                {brief.watchlist.map((item, index) => (
+                  <li key={`${item.signal}-${index}`} className="grid gap-1.5">
+                    <p className="font-semibold leading-6">{item.signal}</p>
+                    <p className="text-sm leading-6 text-foreground/80">{item.why}</p>
+                    <ReferenceLinks references={item.references} />
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ) : null}
+
+          <p className="border-t pt-4 text-xs leading-6 text-muted-foreground">
+            <span className="font-semibold text-foreground/70">{l("Ograniczenia materiału: ", "Material limits: ")}</span>
+            {brief.coverageNote}
+          </p>
+        </div>
+
+        {brief.highlights.length ? (
+          <section className="-mx-4 mt-8 border-t md:-mx-7 md:mt-10" aria-labelledby="brief-highlights-heading">
+            <h2 id="brief-highlights-heading" className="px-4 pb-2 pt-5 text-lg font-semibold md:px-7 md:pt-6">
+              {l("Najważniejsze", "Top stories")}
+            </h2>
+            <BriefHighlights highlights={brief.highlights} />
+            <div className="hidden border-t px-4 py-4 md:block md:px-7">
+              <Link
+                href="/news"
+                className={buttonVariants({ variant: "outline", size: "lg", className: "h-11 w-full md:w-auto" })}
+              >
+                {l("Wszystkie newsy", "All news")}
+                <ArrowRight aria-hidden="true" />
+              </Link>
+            </div>
+          </section>
+        ) : null}
+      </div>
     </section>
+  );
+}
+
+function ReferenceLinks({ references }: { references: DigestBrief["sections"][number]["paragraphs"][number]["references"] }) {
+  const l = useLocalize();
+
+  if (!references.length) return null;
+
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs leading-5 text-muted-foreground" aria-label={l("Źródła akapitu", "Paragraph sources")}>
+      <span className="font-semibold text-foreground/60">{l("Źródła:", "Sources:")}</span>
+      {references.map((reference) => (
+        <Link
+          key={reference.newsItemId}
+          href={`/news/${reference.newsItemId}`}
+          title={reference.title}
+          className="inline-flex max-w-full items-center gap-1 rounded-full border border-border/80 bg-background px-2 py-0.5 transition-colors hover:border-primary/50 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+        >
+          <span className="max-w-[15rem] truncate">{reference.source}</span>
+          <ExternalLink className="size-3 shrink-0" aria-hidden="true" />
+        </Link>
+      ))}
+    </div>
   );
 }
