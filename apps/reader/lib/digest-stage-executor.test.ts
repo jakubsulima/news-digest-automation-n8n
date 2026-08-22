@@ -234,4 +234,41 @@ describe("advanceDigestRun", () => {
       state.operations.filter((operation) => operation.payload.status === "failed").map((operation) => operation.table),
     ).toEqual(["pipeline_stage_runs", "digest_runs"]);
   });
+
+  it("keeps advancing consecutive stages without a browser wake-up", async () => {
+    const sourceFetch = stage();
+    const claimedSourceFetch = stage({
+      attempt_count: 1,
+      started_at: "2026-06-19T10:00:00.000Z",
+      status: "running",
+    });
+    const completedSourceFetch = stage({
+      ...claimedSourceFetch,
+      finished_at: "2026-06-19T10:00:01.000Z",
+      status: "succeeded",
+    });
+    const articleNormalization = stage({ id: "stage-2", stage_name: "article_normalization" });
+    const claimedArticleNormalization = stage({
+      ...articleNormalization,
+      attempt_count: 1,
+      started_at: "2026-06-19T10:00:01.000Z",
+      status: "running",
+    });
+
+    state.getDigestRunById
+      .mockResolvedValueOnce(run({ stages: [sourceFetch] }))
+      .mockResolvedValueOnce(run({ stages: [completedSourceFetch, articleNormalization], status: "running" }))
+      .mockResolvedValueOnce(run({ stages: [completedSourceFetch, articleNormalization], status: "succeeded" }));
+    state.maybeSingleResults = [
+      { data: claimedSourceFetch, error: null },
+      { data: claimedArticleNormalization, error: null },
+    ];
+    const executor = await import("./digest-stage-executor");
+
+    await expect(executor.advanceDigestRunUntilIdle("run-1")).resolves.toMatchObject({
+      status: "succeeded",
+    });
+    expect(state.runStageForRun).toHaveBeenNthCalledWith(1, claimedSourceFetch, "run-1");
+    expect(state.runStageForRun).toHaveBeenNthCalledWith(2, claimedArticleNormalization, "run-1");
+  });
 });
