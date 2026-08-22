@@ -33,19 +33,20 @@ const STATUS_OPTIONS: Array<{ id: ReaderNoteStatus | null; labels: readonly [str
 ];
 
 type NotebookPageProps = {
-  searchParams?: Promise<{ kind?: string | string[]; page?: string | string[]; q?: string | string[]; status?: string | string[] }>;
+  searchParams?: Promise<{ cursor?: string | string[]; kind?: string | string[]; page?: string | string[]; q?: string | string[]; status?: string | string[] }>;
 };
 
 function first(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] : value;
 }
 
-function notebookHref({ kind, page = 1, query, status }: { kind: ReaderNoteKind | null; page?: number; query: string; status: ReaderNoteStatus | null }) {
+function notebookHref({ cursor, kind, page = 1, query, status }: { cursor?: string | null; kind: ReaderNoteKind | null; page?: number; query: string; status: ReaderNoteStatus | null }) {
   const params = new URLSearchParams();
   if (query) params.set("q", query);
   if (kind) params.set("kind", kind);
   if (status === null) params.set("status", "all");
   else if (status !== "open") params.set("status", status);
+  if (cursor) params.set("cursor", cursor);
   if (page > 1) params.set("page", String(page));
   const encoded = params.toString();
   return encoded ? `/notebook?${encoded}` : "/notebook";
@@ -55,6 +56,7 @@ export default async function NotebookPage({ searchParams }: NotebookPageProps) 
   const user = await requireCurrentReader();
   const locale = await getReaderLocale();
   const params = await searchParams;
+  const cursor = first(params?.cursor) || null;
   const query = first(params?.q)?.trim().slice(0, 200) || "";
   const rawKind = first(params?.kind);
   const rawStatus = first(params?.status);
@@ -62,10 +64,8 @@ export default async function NotebookPage({ searchParams }: NotebookPageProps) 
   const status = rawStatus === "all" ? null : READER_NOTE_STATUSES.includes(rawStatus as ReaderNoteStatus) ? rawStatus as ReaderNoteStatus : "open";
   const requestedPage = Number.parseInt(first(params?.page) || "1", 10);
   const page = Number.isFinite(requestedPage) ? Math.max(1, requestedPage) : 1;
-  const allNotes = await getReaderNotes(user.id, { kind, query, status });
-  const pageCount = Math.max(1, Math.ceil(allNotes.length / PAGE_SIZE));
-  const currentPage = Math.min(page, pageCount);
-  const notes = allNotes.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+  const notesPage = await getReaderNotes(user.id, { cursor, kind, limit: PAGE_SIZE, query, status });
+  const currentPage = page;
 
   return (
     <>
@@ -109,13 +109,13 @@ export default async function NotebookPage({ searchParams }: NotebookPageProps) 
         </div>
       </section>
 
-      <NotebookNotes key={`${query}:${kind || "all"}:${status || "all"}:${currentPage}`} initialNotes={notes} />
+      <NotebookNotes key={`${cursor || "start"}:${query}:${kind || "all"}:${status || "all"}`} initialNotes={notesPage.items} />
 
-      {pageCount > 1 ? (
+      {notesPage.totalCount > 0 ? (
         <nav className="flex items-center justify-between" aria-label={localize(locale, "Strony notatnika", "Notebook pages")}>
-          {currentPage > 1 ? <Link className={buttonVariants({ variant: "outline" })} href={notebookHref({ kind, page: currentPage - 1, query, status })}>{localize(locale, "Poprzednia", "Previous")}</Link> : <span />}
-          <span className="text-sm text-muted-foreground">{localize(locale, `Strona ${currentPage} z ${pageCount}`, `Page ${currentPage} of ${pageCount}`)}</span>
-          {currentPage < pageCount ? <Link className={buttonVariants({ variant: "outline" })} href={notebookHref({ kind, page: currentPage + 1, query, status })}>{localize(locale, "Następna", "Next")}</Link> : <span />}
+          {currentPage > 1 ? <Link className={buttonVariants({ variant: "outline" })} href={notebookHref({ kind, query, status })}>{localize(locale, "Początek", "Start")}</Link> : <span />}
+          <span className="text-sm text-muted-foreground">{localize(locale, `${notesPage.totalCount} notatek`, `${notesPage.totalCount} notes`)}</span>
+          {notesPage.nextCursor ? <Link className={buttonVariants({ variant: "outline" })} href={notebookHref({ cursor: notesPage.nextCursor, kind, page: currentPage + 1, query, status })}>{localize(locale, "Następna", "Next")}</Link> : <span />}
         </nav>
       ) : null}
     </main>

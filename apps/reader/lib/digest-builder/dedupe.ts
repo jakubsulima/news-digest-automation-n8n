@@ -1,15 +1,16 @@
 import { createHash } from "node:crypto";
 
 import { readerFeedForCategory } from "../feed-categories";
-import { duplicateDecision } from "./dedupe-comparison";
+import { duplicateDecision, duplicateDecisionV3 } from "./dedupe-comparison";
 import type { DedupeProfile } from "./dedupe-comparison";
 
-export { duplicateDecision, hammingDistance, tokenJaccard } from "./dedupe-comparison";
+export { duplicateDecision, duplicateDecisionV3, hammingDistance, tokenJaccard } from "./dedupe-comparison";
 export type { DedupeProfile, DuplicateDecision } from "./dedupe-comparison";
 
 export type DedupeInput = {
   canonicalUrl?: string | null;
   category?: string | null;
+  entityTags?: string[];
   id: string;
   publishedAt?: string | null;
   source?: string | null;
@@ -72,6 +73,12 @@ const STOPWORDS = new Set([
   "with",
 ]);
 
+const ACTION_TOKENS = new Set([
+  "announced", "approved", "banned", "broke", "cut", "defeated", "dismissed", "expanded", "failed", "fined",
+  "imposed", "introduced", "killed", "launched", "matched", "merged", "offered", "ordered", "pledged", "raised",
+  "released", "reported", "required", "resigned", "sanctioned", "signed", "struck", "sued", "threatened", "won",
+]);
+
 function normalizedText(value: string) {
   return value
     .toLowerCase()
@@ -87,6 +94,22 @@ export function dedupeTokens(value: string) {
     .split(/\s+/)
     .map((token) => token.replace(/^-+|-+$/g, ""))
     .filter((token) => token.length > 2 && !STOPWORDS.has(token));
+}
+
+function normalizedNumericTokens(value: string) {
+  return new Set(
+    normalizedText(value)
+      .match(/\b\d+(?:[.,]\d+)?(?:%|bn|b|m|million|billion)?\b/g)
+      ?.map((token) => token.replace(",", ".")) || [],
+  );
+}
+
+function actionTokens(value: string) {
+  return new Set(dedupeTokens(value).filter((token) => ACTION_TOKENS.has(token)));
+}
+
+function entityTokens(title: string, entityTags: string[] = []) {
+  return new Set([...dedupeTokens(title), ...entityTags.flatMap((tag) => dedupeTokens(tag))].filter((token) => token.length >= 5));
 }
 
 function stableUniqueTokens(tokens: string[]) {
@@ -135,15 +158,19 @@ export function buildDedupeProfile(input: DedupeInput): DedupeProfile {
   const titleTokens = new Set(dedupeTokens(input.title));
   const textTokens = new Set(dedupeTokens(`${input.title} ${input.summary || ""}`));
   const canonicalUrl = input.canonicalUrl || "";
+  const fullText = `${input.title} ${input.summary || ""}`;
 
   return {
     broadFeed: readerFeedForCategory(input.category || "general"),
     canonicalUrl,
+    actionTokens: actionTokens(fullText),
     fingerprint: titleFingerprint(input.title),
     id: input.id,
     publishedTimestamp: parsedTimestamp(input.publishedAt),
     simhash: simhash([...textTokens]),
     source: input.source || "",
+    numericTokens: normalizedNumericTokens(fullText),
+    entityTokens: entityTokens(input.title, input.entityTags),
     textTokens,
     title: input.title,
     titleTokens,

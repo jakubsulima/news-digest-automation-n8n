@@ -31,9 +31,17 @@ export type UpdateReaderNoteInput = {
 };
 
 export type ReaderNoteFilters = {
+  cursor?: string | null;
   kind?: ReaderNoteKind | null;
+  limit?: number;
   query?: string | null;
   status?: ReaderNoteStatus | null;
+};
+
+export type PaginatedReaderNotes = {
+  items: ReaderNote[];
+  nextCursor: string | null;
+  totalCount: number;
 };
 
 type ReaderNoteRow = Database["public"]["Tables"]["reader_notes"]["Row"];
@@ -144,6 +152,18 @@ export function noteMatchesQuery(note: ReaderNote, query: string) {
   ].join(" ")).includes(normalized);
 }
 
+function cursorParts(cursor: string | null | undefined) {
+  if (!cursor) return null;
+  const [updatedAt, id] = decodeURIComponent(cursor).split("|");
+  return updatedAt && id ? { id, updatedAt } : null;
+}
+
+function readerNotesSearchSchemaError(error: unknown) {
+  const candidate = error && typeof error === "object" ? error as { code?: string; message?: string } : {};
+  const message = candidate.message?.toLowerCase() || "";
+  return candidate.code === "42703" || candidate.code === "PGRST204" || message.includes("search_vector");
+}
+
 function readerNoteFromRow(row: ReaderNoteRow): ReaderNote {
   return {
     articleId: row.article_id,
@@ -237,20 +257,55 @@ export async function createReaderNote(userId: string, input: CreateReaderNoteIn
 
 export async function getReaderNotes(userId: string, filters: ReaderNoteFilters = {}) {
   const supabase = createSupabaseAdminClient();
+  const limit = Math.max(1, Math.min(100, filters.limit || 30));
+  const cursor = cursorParts(filters.cursor);
   let query = supabase
     .from("reader_notes")
-    .select("*")
+    .select("*", { count: "exact" })
     .eq("user_id", userId)
     .order("updated_at", { ascending: false })
     .order("id", { ascending: false })
-    .limit(500);
+    .limit(limit);
 
   if (filters.kind) query = query.eq("kind", filters.kind);
   if (filters.status) query = query.eq("status", filters.status);
-  const { data, error } = await query;
-  if (error) throw error;
-  const notes = (data || []).map(readerNoteFromRow);
-  return filters.query ? notes.filter((note) => noteMatchesQuery(note, filters.query!)) : notes;
+  if (cursor) {
+    query = query.or(`updated_at.lt.${cursor.updatedAt},and(updated_at.eq.${cursor.updatedAt},id.lt.${cursor.id})`);
+  }
+  if (filters.query) {
+    query = query.textSearch("search_vector", filters.query, { config: "simple", type: "websearch" });
+  }
+
+  let result = await query;
+  let usedSearchFallback = false;
+  if (result.error && filters.query && readerNotesSearchSchemaError(result.error)) {
+    usedSearchFallback = true;
+    let fallbackQuery = supabase
+      .from("reader_notes")
+      .select("*", { count: "exact" })
+      .eq("user_id", userId)
+      .order("updated_at", { ascending: false })
+      .order("id", { ascending: false })
+      .limit(limit);
+    if (filters.kind) fallbackQuery = fallbackQuery.eq("kind", filters.kind);
+    if (filters.status) fallbackQuery = fallbackQuery.eq("status", filters.status);
+    if (cursor) {
+      fallbackQuery = fallbackQuery.or(`updated_at.lt.${cursor.updatedAt},and(updated_at.eq.${cursor.updatedAt},id.lt.${cursor.id})`);
+    }
+    result = await fallbackQuery;
+  }
+  if (result.error) throw result.error;
+
+  const serverNotes = (result.data || []).map(readerNoteFromRow);
+  const items = filters.query && usedSearchFallback
+    ? serverNotes.filter((note) => noteMatchesQuery(note, filters.query!))
+    : serverNotes;
+  const last = items[items.length - 1];
+  return {
+    items,
+    nextCursor: items.length === limit && last ? encodeURIComponent(`${last.updatedAt}|${last.id}`) : null,
+    totalCount: result.count ?? items.length,
+  } satisfies PaginatedReaderNotes;
 }
 
 export async function getReaderNoteCounts(userId: string) {

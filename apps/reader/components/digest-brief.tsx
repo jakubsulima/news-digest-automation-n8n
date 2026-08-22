@@ -1,12 +1,13 @@
 "use client";
 
-import { ArrowRight, ChevronRight, Clock3, ExternalLink, ListTree, Newspaper } from "lucide-react";
+import { ArrowRight, ChevronRight, Clock3, ExternalLink, ListTree, Newspaper, ShieldCheck } from "lucide-react";
 import Link from "next/link";
 
 import { useLocalize, useReaderLocale } from "@/components/reader-locale-provider";
 import { buttonVariants } from "@/components/ui/button";
-import type { DigestBrief } from "@/lib/digest-brief";
+import type { DigestBrief, DigestBriefSupport } from "@/lib/digest-brief";
 import { localize, type ReaderLocale } from "@/lib/reader-locale";
+import { evidenceStatusDescription, evidenceStatusLabel } from "@/lib/evidence";
 
 type DigestBriefProps = {
   brief: DigestBrief;
@@ -104,6 +105,11 @@ export function DigestBriefCard({ brief }: DigestBriefProps) {
                 {section.paragraphs.map((paragraph, index) => (
                   <div key={`${section.title}-${index}`}>
                     <p className="break-words [overflow-wrap:anywhere]">{paragraph.text}</p>
+                    <EvidenceSupport support={paragraph.support ?? {
+                      fullTextSourceCount: 0,
+                      independentSourceCount: Math.max(1, paragraph.references.length),
+                      status: paragraph.references.length > 1 ? "corroborated_summary" : "limited",
+                    }} />
                     <ReferenceLinks references={paragraph.references} />
                   </div>
                 ))}
@@ -153,6 +159,26 @@ export function DigestBriefCard({ brief }: DigestBriefProps) {
         ) : null}
       </div>
     </section>
+  );
+}
+
+function EvidenceSupport({ support }: { support: DigestBriefSupport }) {
+  const l = useLocalize();
+  const label = evidenceStatusLabel(support.status);
+  const description = evidenceStatusDescription(support.status);
+  const sourcesLabel = support.independentSourceCount === 1 ? l("źródło", "source") : l("źródeł", "sources");
+
+  return (
+    <details className="mt-2 rounded-lg border bg-muted/15 text-xs leading-5">
+      <summary className="flex cursor-pointer list-none items-center gap-1.5 px-2.5 py-1.5 font-medium text-muted-foreground [&::-webkit-details-marker]:hidden">
+        <ShieldCheck className="size-3.5 text-primary" aria-hidden="true" />
+        {l(label[0], label[1])}
+        <span className="font-normal">· {support.independentSourceCount} {sourcesLabel}</span>
+      </summary>
+      <p className="border-t px-2.5 py-1.5 text-muted-foreground">
+        {l(description[0], description[1])} · {support.fullTextSourceCount} {l("z pełną treścią", "with full text")}.
+      </p>
+    </details>
   );
 }
 

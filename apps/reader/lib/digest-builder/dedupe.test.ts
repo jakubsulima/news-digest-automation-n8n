@@ -4,6 +4,7 @@ import {
   areLikelyDuplicateStories,
   buildDedupeProfile,
   duplicateDecision,
+  duplicateDecisionV3,
   storyKeyForProfiles,
   titleFingerprint,
 } from "./dedupe";
@@ -100,5 +101,24 @@ describe("story dedupe", () => {
 
     expect(duplicateDecision(olderStory, newerStory).duplicate).toBe(false);
     expect(storyKeyForProfiles([olderStory])).not.toBe(storyKeyForProfiles([newerStory]));
+  });
+
+  it("uses shared entities and actions for a guarded v3 match", () => {
+    const left = buildDedupeProfile({
+      category: "business",
+      id: "a",
+      publishedAt: "2026-06-20T08:00:00.000Z",
+      summary: "Canada imposed a 50% tariff on imports from the United States.",
+      title: "Canada and the United States announce 50% tariff response",
+    });
+    const right = buildDedupeProfile({
+      category: "business",
+      id: "b",
+      publishedAt: "2026-06-20T12:00:00.000Z",
+      summary: "The United States announced a 50 percent tariff on Canadian goods.",
+      title: "United States announces 50% tariff on Canadian goods",
+    });
+
+    expect(duplicateDecisionV3(left, right).duplicate).toBe(true);
   });
 });
