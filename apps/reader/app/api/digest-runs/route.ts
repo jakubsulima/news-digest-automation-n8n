@@ -1,6 +1,6 @@
 import { after, NextResponse } from "next/server";
 
-import { advanceDigestRun } from "@/lib/digest-stage-executor";
+import { advanceDigestRunUntilIdle } from "@/lib/digest-stage-executor";
 import { getDigestRunStatus, startOrGetActiveDigestRun } from "@/lib/digest-runs";
 import { getCurrentOperator } from "@/lib/operator";
 
@@ -39,7 +39,7 @@ export async function POST() {
 
   after(async () => {
     try {
-      await advanceDigestRun(run.id);
+      await advanceDigestRunUntilIdle(run.id);
     } catch (error) {
       logBackgroundAdvanceError(error);
     }
