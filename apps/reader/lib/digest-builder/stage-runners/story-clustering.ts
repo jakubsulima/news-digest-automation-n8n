@@ -2,7 +2,7 @@ import "server-only";
 
 import type { Database } from "../../database.types";
 import { createSupabaseAdminClient } from "../../supabase";
-import { buildDedupeProfile, duplicateDecision, storyKeyForProfiles, type DedupeProfile } from "../dedupe";
+import { buildDedupeProfile, duplicateDecision, duplicateDecisionV3, storyKeyForProfiles, type DedupeProfile } from "../dedupe";
 import { loadRunArticles, type RunArticle } from "../run-articles";
 import type { StageRunner } from "../types";
 import { chunk, chunkByEncodedLength, jsonNumber, jsonString, throwDatabaseError } from "../utils";
@@ -42,7 +42,8 @@ export type StorySourceVariant = {
 const MAX_DEDUPE_CANDIDATES_PER_ARTICLE = 250;
 const MAX_DEDUPE_KEY_TOKENS = 8;
 const HISTORICAL_MATCH_WINDOW_DAYS = 7;
-const STORY_CLUSTERING_ALGORITHM_VERSION = "story-clustering-v2";
+const STORY_CLUSTERING_POLICY = process.env.STORY_CLUSTERING_POLICY === "v3" ? "v3" : "shadow";
+const STORY_CLUSTERING_ALGORITHM_VERSION = STORY_CLUSTERING_POLICY === "v3" ? "story-clustering-v3" : "story-clustering-v2";
 
 function bestArticleForGroup(articles: ArticleRow[]) {
   return [...articles].sort((left, right) => {
@@ -189,7 +190,7 @@ function addProfileToCandidateBuckets(profile: DedupeProfile, articleIndex: numb
   }
 }
 
-function groupArticlesIntoStories(articles: ArticleRow[]) {
+function groupArticlesIntoStories(articles: ArticleRow[], policy: "shadow" | "v3" = STORY_CLUSTERING_POLICY) {
   const profiles = articles.map((article) =>
     buildDedupeProfile({
       canonicalUrl: article.canonical_url,
@@ -205,6 +206,8 @@ function groupArticlesIntoStories(articles: ArticleRow[]) {
   const groups: Array<{ articleIndexes: number[]; duplicateEdges: DuplicateEdge[] }> = [];
   const groupIndexByArticle = new Map<number, number>();
   let skippedDedupeCandidateCount = 0;
+  let shadowV3AdditionalMatches = 0;
+  let shadowV3Divergences = 0;
 
   for (const [rightIndex, profile] of profiles.entries()) {
     const { candidateIndexes, skippedCandidateCount } = candidateIndexesForProfile(profile, candidateBuckets);
@@ -218,9 +221,20 @@ function groupArticlesIntoStories(articles: ArticleRow[]) {
     const viableGroups = [...candidateGroupIndexes].flatMap((groupIndex) => {
       const group = groups[groupIndex];
       const decisions = group.articleIndexes.map((leftIndex) => ({
-        decision: duplicateDecision(profiles[leftIndex], profile),
+        decision: (policy === "v3" ? duplicateDecisionV3 : duplicateDecision)(profiles[leftIndex], profile),
         leftIndex,
       }));
+
+      if (policy === "shadow") {
+        for (const { leftIndex, decision } of decisions) {
+          const v2 = duplicateDecision(profiles[leftIndex], profile);
+          const v3 = duplicateDecisionV3(profiles[leftIndex], profile);
+          if (v2.duplicate !== v3.duplicate) {
+            shadowV3Divergences += 1;
+            if (v3.duplicate) shadowV3AdditionalMatches += 1;
+          }
+        }
+      }
 
       if (!decisions.every(({ decision }) => decision.duplicate)) {
         return [];
@@ -256,6 +270,8 @@ function groupArticlesIntoStories(articles: ArticleRow[]) {
 
   return {
     skippedDedupeCandidateCount,
+    shadowV3AdditionalMatches,
+    shadowV3Divergences,
     stories: groups.map(({ articleIndexes, duplicateEdges: edges }) => {
       const group = articleIndexes.map((index) => articles[index]);
       const groupProfiles = articleIndexes.map((index) => profiles[index]);
@@ -615,7 +631,7 @@ async function updateSourceStoryObservations(
 
 export const runStoryClusteringStage: StageRunner = async ({ digestRunId }) => {
   const articles = await loadRunArticles(digestRunId);
-  const { skippedDedupeCandidateCount, stories } = groupArticlesIntoStories(articles);
+  const { shadowV3AdditionalMatches, shadowV3Divergences, skippedDedupeCandidateCount, stories } = groupArticlesIntoStories(articles);
   const groupedStories = matchStoriesToHistory(stories, await loadRecentStoryClusters(new Date()));
   const storyKeys = groupedStories.map(({ storyKey }) => storyKey);
   const existingStories = await loadExistingStoryClusters(storyKeys);
@@ -729,6 +745,9 @@ export const runStoryClusteringStage: StageRunner = async ({ digestRunId }) => {
       duplicateEdgeCount: groupedStories.reduce((count, story) => count + story.duplicateEdges.length, 0),
       historicalMatchCount: groupedStories.filter((story) => story.historicalMatch).length,
       skippedDedupeCandidateCount,
+      storyClusteringPolicy: STORY_CLUSTERING_POLICY,
+      shadowV3AdditionalMatches,
+      shadowV3Divergences,
       storyCount: snapshots.length,
     },
   };

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { ChevronRight, ExternalLink, Info, MoreHorizontal } from "lucide-react";
+import { ChevronRight, ExternalLink, Info, MoreHorizontal, ShieldCheck } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -17,6 +17,7 @@ import type { FeedbackReason, FeedbackSentiment } from "@/lib/reader-feedback";
 import { localeTag, type ReaderLocale } from "@/lib/reader-locale";
 import { newsDetailHref } from "@/lib/news-navigation";
 import { cn } from "@/lib/utils";
+import { DEFAULT_EVIDENCE_DETAILS, evidenceStatusDescription, evidenceStatusLabel } from "@/lib/evidence";
 
 const SUMMARY_MAX_CHARS = 260;
 const DISPLAY_TIME_ZONE = "Europe/Warsaw";
@@ -123,6 +124,12 @@ export function NewsItemCard({
       || item.recommendedAction
       || item.changedFields.length,
   );
+  const evidence = item.evidence ?? DEFAULT_EVIDENCE_DETAILS;
+  const evidenceLabel = evidenceStatusLabel(evidence.status);
+  const evidenceDescription = evidenceStatusDescription(evidence.status);
+  const independentSourcesLabel = evidence.independentSourceCount === 1
+    ? l("niezależne źródło", "independent source")
+    : l("niezależnych źródeł", "independent sources");
 
   function toTimestamp(enabled: boolean, currentValue: string | null) {
     return enabled ? currentValue ?? new Date().toISOString() : null;
@@ -161,6 +168,10 @@ export function NewsItemCard({
                 <span>{item.sourceCount} {l("źródeł", "sources")}</span>
               </>
             ) : null}
+            <Badge variant={evidence.status === "limited" ? "outline" : "secondary"} className={cn("gap-1", evidence.status === "limited" && "border-amber-500/40 text-amber-700 dark:text-amber-300")}>
+              <ShieldCheck className="size-3" aria-hidden="true" />
+              {l(evidenceLabel[0], evidenceLabel[1])}
+            </Badge>
           </div>
           <a
             className={cn(buttonVariants({ variant: "ghost", size: "icon-lg" }), "shrink-0 text-primary md:w-auto md:bg-primary md:px-3 md:text-primary-foreground md:shadow-sm")}
@@ -236,6 +247,16 @@ export function NewsItemCard({
               ))}
             </div>
           ) : null}
+          <details className="rounded-lg border bg-muted/20">
+            <summary className="flex cursor-pointer list-none items-center gap-2 px-2.5 py-2 text-xs font-medium text-muted-foreground [&::-webkit-details-marker]:hidden">
+              <ShieldCheck className="size-3.5 text-primary" aria-hidden="true" />
+              {l("Jak to potwierdzono", "How this was confirmed")}
+            </summary>
+            <div className="grid gap-1 border-t px-2.5 py-2 text-xs leading-5 text-muted-foreground">
+              <p>{l(evidenceDescription[0], evidenceDescription[1])}</p>
+              <p>{evidence.independentSourceCount} {independentSourcesLabel} · {evidence.fullTextSourceCount} {l("z pełną treścią", "with full text")}</p>
+            </div>
+          </details>
         </div>
 
         <div className="flex min-w-0 flex-wrap items-center justify-between gap-2 border-t pt-2.5">

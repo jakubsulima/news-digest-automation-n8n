@@ -1,4 +1,4 @@
-import { ExternalLink, Info, SlidersHorizontal } from "lucide-react";
+import { ExternalLink, Info, ShieldCheck, SlidersHorizontal } from "lucide-react";
 import { notFound } from "next/navigation";
 
 import { PageHeader } from "@/components/page-header";
@@ -17,6 +17,7 @@ import { normalizeNewsListHref } from "@/lib/news-navigation";
 import { priorityLabel } from "@/lib/reader-feed-ranking";
 import { localeTag, localize, type ReaderLocale } from "@/lib/reader-locale";
 import { getReaderLocale } from "@/lib/reader-locale-server";
+import { DEFAULT_EVIDENCE_DETAILS, evidenceStatusDescription, evidenceStatusLabel } from "@/lib/evidence";
 
 export const dynamic = "force-dynamic";
 const DISPLAY_TIME_ZONE = "Europe/Warsaw";
@@ -69,6 +70,12 @@ export default async function NewsDetailPage({ params, searchParams }: NewsDetai
   const isRead = Boolean(item.readAt);
   const isSaved = Boolean(item.savedAt);
   const scoreComponents = Object.entries(item.scoreComponents);
+  const evidence = item.evidence ?? DEFAULT_EVIDENCE_DETAILS;
+  const evidenceLabel = evidenceStatusLabel(evidence.status);
+  const evidenceDescription = evidenceStatusDescription(evidence.status);
+  const independentSourcesLabel = evidence.independentSourceCount === 1
+    ? localize(locale, "niezależne źródło", "independent source")
+    : localize(locale, "niezależnych źródeł", "independent sources");
 
   return (
     <>
@@ -130,6 +137,9 @@ export default async function NewsDetailPage({ params, searchParams }: NewsDetai
             <span>{formatDate(item.publishedAt, locale)}</span>
             <Badge variant="outline">{localizedPriority(item.editorialScore, locale)}</Badge>
             {item.sourceCount > 1 ? <Badge variant="outline">{item.sourceCount} {localize(locale, "źródeł", "sources")}</Badge> : null}
+            <Badge variant={evidence.status === "limited" ? "outline" : "secondary"} className={evidence.status === "limited" ? "border-amber-500/40 text-amber-700 dark:text-amber-300" : ""}>
+              <ShieldCheck aria-hidden="true" /> {localize(locale, evidenceLabel[0], evidenceLabel[1])}
+            </Badge>
           </div>
 
           <CardTitle className="min-w-0 max-w-full break-words text-xl leading-tight [overflow-wrap:anywhere] sm:text-2xl">
@@ -139,6 +149,11 @@ export default async function NewsDetailPage({ params, searchParams }: NewsDetai
           </CardTitle>
         </CardHeader>
         <CardContent className="grid min-w-0 gap-5">
+          <section className="grid gap-1.5 rounded-lg border bg-muted/20 p-3 text-sm leading-6" aria-label={localize(locale, "Jak potwierdzono materiał", "How the material was confirmed")}>
+            <p className="flex items-center gap-2 font-semibold"><ShieldCheck className="size-4 text-primary" aria-hidden="true" />{localize(locale, "Jak to potwierdzono", "How this was confirmed")}</p>
+            <p className="text-muted-foreground">{localize(locale, evidenceDescription[0], evidenceDescription[1])}</p>
+            <p className="text-xs text-muted-foreground">{evidence.independentSourceCount} {independentSourcesLabel} · {evidence.fullTextSourceCount} {localize(locale, "z pełną treścią", "with full text")}</p>
+          </section>
           <SelectableNoteRegion articleId={item.cachedArticle?.articleId} newsItemId={item.id}>
             <NewsPreviewCard preview={item.preview} summary={item.summary} />
             {!item.preview && (item.whyInteresting || item.recommendedAction) ? (

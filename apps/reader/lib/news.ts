@@ -10,12 +10,20 @@ import {
   type FeedbackSentiment,
 } from "./reader-feedback";
 import { getReaderNoteCount, getReaderNoteCounts } from "./reader-notes";
+import { evidenceDetailsFromPayload, type EvidenceDetails } from "./evidence";
+import type { ReaderLocale } from "./reader-locale";
 
 export type NewsItemPreview = {
   clickIf: string;
   practicalBucket: string;
   whatHappened: string;
   whyItMatters: string;
+};
+
+export type LocalizedNewsItemContent = Pick<NewsItemPreview, "clickIf" | "whatHappened" | "whyItMatters"> & {
+  locale: ReaderLocale;
+  recommendedAction: string | null;
+  summary: string;
 };
 
 export type NewsSourceVariant = {
@@ -57,6 +65,7 @@ export type NewsItemWithState = {
   sourceVariants: NewsSourceVariant[];
   topicTags: string[];
   entityTags: string[];
+  evidence?: EvidenceDetails;
   updateHistory: StoryUpdate[];
   practicalBucket: string | null;
   preview: NewsItemPreview | null;
@@ -194,7 +203,13 @@ function newsItemWithState(
   const { noteCount = 0, updateHistory = [] } = options;
   const title = plainTextFromHtml(item.title);
   const rawPayload = jsonRecord(item.raw_payload);
-  const preview = previewFromPayload(item.raw_payload);
+  const sourceVariants = sourceVariantsFromJson(item.source_variants);
+  const evidence = evidenceDetailsFromPayload(
+    item.raw_payload,
+    item.source_count,
+    sourceVariants.map((variant) => variant.name),
+  );
+  const preview = evidence.status === "limited" ? null : previewFromPayload(item.raw_payload);
 
   return {
     id: item.id,
@@ -215,21 +230,22 @@ function newsItemWithState(
     lastMaterialChangeAt: item.last_material_change_at,
     changedFields: jsonStringList(item.changed_fields),
     sourceCount: item.source_count,
-    sourceVariants: sourceVariantsFromJson(item.source_variants),
+    sourceVariants,
     topicTags: jsonStringList(item.topic_tags),
     entityTags: jsonStringList(item.entity_tags),
     updateHistory,
     practicalBucket: preview?.practicalBucket ?? jsonString(rawPayload.practicalBucket),
     preview,
     publishedAt: item.published_at,
-    recommendedAction: jsonString(rawPayload.recommendedAction),
+    recommendedAction: evidence.status === "limited" ? null : jsonString(rawPayload.recommendedAction),
     readAt: state?.read_at ?? null,
     savedAt: state?.saved_at ?? null,
     archivedAt: state?.archived_at ?? null,
     scoreComponents: scoreComponentsFromPayload(item.raw_payload),
     feedback: feedback?.sentiment ?? null,
     feedbackReason: feedback?.reason ?? null,
-    whyInteresting: jsonString(rawPayload.whyInteresting),
+    whyInteresting: evidence.status === "limited" ? null : jsonString(rawPayload.whyInteresting),
+    evidence,
     noteCount,
   };
 }

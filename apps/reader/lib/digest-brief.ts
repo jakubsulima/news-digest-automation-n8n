@@ -3,6 +3,8 @@ import "server-only";
 import type { Json } from "./database.types";
 import { readingTimeMinutesForDigestBrief } from "./digest-brief-text";
 import { createSupabaseAdminClient } from "./supabase";
+import type { EvidenceStatus } from "./evidence";
+import type { ReaderLocale } from "./reader-locale";
 
 export type DigestBriefHighlight = {
   newsItemId: string;
@@ -18,10 +20,17 @@ export type DigestBriefReference = {
   title: string;
 };
 
+export type DigestBriefSupport = {
+  fullTextSourceCount: number;
+  independentSourceCount: number;
+  status: EvidenceStatus;
+};
+
 export type DigestBriefSection = {
   category: string;
   paragraphs: Array<{
     references: DigestBriefReference[];
+    support?: DigestBriefSupport;
     text: string;
   }>;
   title: string;
@@ -41,6 +50,10 @@ export type DigestBrief = {
   sections: DigestBriefSection[];
   summary: string;
   watchlist: DigestBriefWatchItem[];
+};
+
+export type LocalizedDigestBrief = DigestBrief & {
+  locale: ReaderLocale;
 };
 
 export type DigestBriefFallbackArticle = {
@@ -126,8 +139,20 @@ function parseParagraphs(section: Record<string, Json | undefined>): DigestBrief
     const paragraph = entry as Record<string, Json | undefined>;
     const text = typeof paragraph.text === "string" ? paragraph.text.trim() : "";
     const references = parseReferences(paragraph.references);
+    const supportValue = paragraph.support && typeof paragraph.support === "object" && !Array.isArray(paragraph.support)
+      ? paragraph.support as Record<string, Json | undefined>
+      : {};
+    const support: DigestBriefSupport = {
+      fullTextSourceCount: typeof supportValue.fullTextSourceCount === "number" ? Math.max(0, supportValue.fullTextSourceCount) : 0,
+      independentSourceCount: typeof supportValue.independentSourceCount === "number"
+        ? Math.max(1, supportValue.independentSourceCount)
+        : Math.max(1, references.length),
+      status: supportValue.status === "full_text" || supportValue.status === "corroborated_summary" || supportValue.status === "limited"
+        ? supportValue.status
+        : references.length >= 2 ? "corroborated_summary" : "limited",
+    };
 
-    return text ? [{ references, text }] : [];
+    return text ? [{ references, support, text }] : [];
   });
 }
 

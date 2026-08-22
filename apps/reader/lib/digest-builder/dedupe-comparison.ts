@@ -1,11 +1,14 @@
 export type DedupeProfile = {
   broadFeed: string;
   canonicalUrl: string;
+  actionTokens: Set<string>;
   fingerprint: string;
   id: string;
   publishedTimestamp: number | null;
   simhash: number;
   source: string;
+  numericTokens: Set<string>;
+  entityTokens: Set<string>;
   textTokens: Set<string>;
   title: string;
   titleTokens: Set<string>;
@@ -18,6 +21,7 @@ export type DuplicateDecision = {
 };
 
 const DUPLICATE_WINDOW_MS = 4 * 24 * 60 * 60 * 1000;
+const V3_DUPLICATE_WINDOW_MS = 72 * 60 * 60 * 1000;
 const SIMHASH_BITS = 32;
 
 export function tokenJaccard(left: Set<string>, right: Set<string>) {
@@ -49,6 +53,11 @@ export function hammingDistance(left: number, right: number) {
 function withinDuplicateWindow(left: DedupeProfile, right: DedupeProfile) {
   if (left.publishedTimestamp === null || right.publishedTimestamp === null) return true;
   return Math.abs(left.publishedTimestamp - right.publishedTimestamp) <= DUPLICATE_WINDOW_MS;
+}
+
+function withinV3DuplicateWindow(left: DedupeProfile, right: DedupeProfile) {
+  if (left.publishedTimestamp === null || right.publishedTimestamp === null) return true;
+  return Math.abs(left.publishedTimestamp - right.publishedTimestamp) <= V3_DUPLICATE_WINDOW_MS;
 }
 
 function sharedStrongAnchorCount(left: DedupeProfile, right: DedupeProfile) {
@@ -83,4 +92,36 @@ export function duplicateDecision(left: DedupeProfile, right: DedupeProfile): Du
   if (score >= 0.58 && (sameFeed || anchorCount >= 2)) return { duplicate: true, reason: "weighted_similarity", score };
   if (titleSimilarity >= 0.35 && textSimilarity >= 0.22 && anchorCount >= 2) return { duplicate: true, reason: "anchored_overlap", score };
   return { duplicate: false, reason: "below_threshold", score };
+}
+
+function sharedTokenCount(left: Set<string>, right: Set<string>) {
+  let count = 0;
+  for (const token of left) if (right.has(token)) count += 1;
+  return count;
+}
+
+/**
+ * The guarded v3 matcher keeps the complete-link requirement in the caller,
+ * but adds explicit anchors for numbers, entities, and the action being
+ * reported. v2 remains the compatibility rule and is always checked first.
+ */
+export function duplicateDecisionV3(left: DedupeProfile, right: DedupeProfile): DuplicateDecision {
+  const v2 = duplicateDecision(left, right);
+  if (v2.duplicate) return { ...v2, reason: `v2:${v2.reason}` };
+  if (!withinV3DuplicateWindow(left, right)) return { duplicate: false, reason: "outside_v3_time_window", score: 0 };
+
+  const sharedNumbers = sharedTokenCount(left.numericTokens, right.numericTokens);
+  const sharedEntities = sharedTokenCount(left.entityTokens, right.entityTokens);
+  const sharedActions = sharedTokenCount(left.actionTokens, right.actionTokens);
+  const textSimilarity = tokenJaccard(left.textTokens, right.textTokens);
+  const score = Math.min(1, (sharedNumbers * 0.25) + (sharedEntities * 0.2) + (sharedActions ? 0.2 : 0) + (textSimilarity * 0.35));
+
+  if (sharedNumbers >= 1 && sharedEntities >= 1 && textSimilarity >= 0.15) {
+    return { duplicate: true, reason: "v3:shared_entity_number_and_text", score };
+  }
+  if (sharedEntities >= 2 && sharedActions >= 1) {
+    return { duplicate: true, reason: "v3:shared_entities_and_action", score };
+  }
+
+  return { duplicate: false, reason: "v3:below_threshold", score };
 }

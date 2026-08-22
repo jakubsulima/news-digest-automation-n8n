@@ -6,6 +6,7 @@ import { getDigestRunById } from "../../digest-runs";
 import { getDigestSettingsForRun } from "../../digest-settings";
 import { digestBriefWithNvidia, fallbackDigestBrief } from "../../ai-summary";
 import { readingTimeMinutesForDigestBrief } from "../../digest-brief-text";
+import { evidenceDetailsFromSignals } from "../../evidence";
 import { createSupabaseAdminClient } from "../../supabase";
 import { cleanArticleSummary, plainTextFromHtml } from "../../text";
 import { SUPABASE_WRITE_BATCH_SIZE } from "../constants";
@@ -177,6 +178,20 @@ export const runReaderPublicationStage: StageRunner = async ({ digestRunId }) =>
     const metadata = jsonRecord(snapshot.metadata);
     const scoreComponents = metadata.scoreComponents;
     const sourceVariants = Array.isArray(metadata.sourceVariants) ? metadata.sourceVariants : [];
+    const contentModes = Array.isArray(metadata.contentModes)
+      ? metadata.contentModes.filter((value): value is string => typeof value === "string")
+      : [];
+    const evidence = evidenceDetailsFromSignals({
+      contentModes,
+      explicitStatus: jsonRecord(metadata.evidence || {}).status,
+      fullTextSourceCount: jsonNumber(jsonRecord(metadata.evidence || {}), "fullTextSourceCount"),
+      hasReadableVariant: metadata.hasReadableVariant === true,
+      sourceCount: Math.max(1, sourceVariants.length || snapshot.duplicate_count),
+      sourceNames: sourceVariants.flatMap((variant) => {
+        const source = jsonString(variant, "name");
+        return source ? [source] : [];
+      }),
+    });
     const changedFields = jsonStringArray(snapshot.changed_fields);
     const practicalBucket = jsonString(snapshot.metadata, "practicalBucket") || "ignore";
     const existingItem = existingByClusterId.get(snapshot.story_cluster_id);
@@ -203,6 +218,9 @@ export const runReaderPublicationStage: StageRunner = async ({ digestRunId }) =>
       published_at: jsonString(snapshot.metadata, "publishedAt") || null,
       raw_payload: {
         digestRunId,
+        contentModes,
+        evidence,
+        hasReadableVariant: evidence.fullTextSourceCount > 0,
         practicalBucket,
         recommendedAction: jsonString(snapshot.metadata, "recommendedAction"),
         score: {
@@ -255,17 +273,40 @@ export const runReaderPublicationStage: StageRunner = async ({ digestRunId }) =>
     sourceCount: row.source_count || 1,
     summary: row.summary,
     title: row.title,
-    whyInteresting: jsonString(row.raw_payload || {}, "whyInteresting") || null,
-  }));
-  const brief = settings.useAiSummaries
+      whyInteresting: jsonString(row.raw_payload || {}, "whyInteresting") || null,
+      evidenceStatus: row.raw_payload && typeof row.raw_payload === "object" && !Array.isArray(row.raw_payload)
+        ? (() => {
+            const evidence = (row.raw_payload as Record<string, Json | undefined>).evidence;
+            return evidence && typeof evidence === "object" && !Array.isArray(evidence) && typeof evidence.status === "string"
+              ? evidence.status
+              : "limited";
+          })()
+        : "limited",
+      fullTextSourceCount: row.raw_payload && typeof row.raw_payload === "object" && !Array.isArray(row.raw_payload)
+        ? (() => {
+            const evidence = (row.raw_payload as Record<string, Json | undefined>).evidence;
+            return evidence && typeof evidence === "object" && !Array.isArray(evidence) && typeof evidence.fullTextSourceCount === "number"
+              ? evidence.fullTextSourceCount
+              : 0;
+          })()
+        : 0,
+    }));
+  const synthesisArticles = briefingArticles.flatMap((article, index) =>
+    article.evidenceStatus === "limited" ? [] : [{ article, index }],
+  );
+  const briefInput = synthesisArticles.length ? synthesisArticles.map(({ article }) => article) : briefingArticles;
+  const brief = settings.useAiSummaries && synthesisArticles.length
     ? await digestBriefWithNvidia({
         interestProfile: {
           feedTargets: settings.feedTargets,
           preferredKeywords: settings.preferredKeywords,
         },
-        articles: briefingArticles,
+        articles: briefInput,
       })
-    : fallbackDigestBrief(briefingArticles);
+    : fallbackDigestBrief(briefInput);
+  const briefCoverageNote = synthesisArticles.length < briefingArticles.length
+    ? `${brief.coverageNote} ${briefingArticles.length - synthesisArticles.length} ${briefingArticles.length - synthesisArticles.length === 1 ? "materiał" : "materiały"} o ograniczonym pokryciu pominięto w syntezie.`
+    : brief.coverageNote;
   const publishedItems = rows.length
     ? await supabase
         .from("news_items")
@@ -282,7 +323,8 @@ export const runReaderPublicationStage: StageRunner = async ({ digestRunId }) =>
 
   const publishedItemsByClusterId = new Map((publishedItems.data || []).map((item) => [item.story_cluster_id, item]));
   const referenceForArticleIndex = (articleIndex: number) => {
-    const row = rows[articleIndex];
+    const originalIndex = synthesisArticles.length ? synthesisArticles[articleIndex]?.index ?? -1 : articleIndex;
+    const row = rows[originalIndex];
     const item = row?.story_cluster_id ? publishedItemsByClusterId.get(row.story_cluster_id) : null;
 
     return item
@@ -292,6 +334,27 @@ export const runReaderPublicationStage: StageRunner = async ({ digestRunId }) =>
           title: item.title,
         }
       : null;
+  };
+  const supportForArticleIndexes = (articleIndexes: number[]) => {
+    const articles = articleIndexes.flatMap((articleIndex) => {
+      const originalIndex = synthesisArticles.length ? synthesisArticles[articleIndex]?.index ?? -1 : articleIndex;
+      return originalIndex >= 0 && rows[originalIndex] ? [rows[originalIndex]] : [];
+    });
+    const evidences = articles.map((row) => {
+      const payload = row.raw_payload && typeof row.raw_payload === "object" && !Array.isArray(row.raw_payload)
+        ? row.raw_payload as Record<string, Json | undefined>
+        : {};
+      return payload.evidence && typeof payload.evidence === "object" && !Array.isArray(payload.evidence)
+        ? payload.evidence as Record<string, Json | undefined>
+        : {};
+    });
+    const hasFullText = evidences.some((evidence) => evidence.status === "full_text");
+    const hasCorroboration = evidences.some((evidence) => evidence.status === "corroborated_summary");
+    return {
+      fullTextSourceCount: evidences.reduce((count, evidence) => count + (typeof evidence.fullTextSourceCount === "number" ? evidence.fullTextSourceCount : 0), 0),
+      independentSourceCount: Math.max(1, ...articles.map((row) => row.source_count || 1)),
+      status: hasFullText ? "full_text" as const : hasCorroboration ? "corroborated_summary" as const : "limited" as const,
+    };
   };
   const highlights = brief.highlights.flatMap((highlight) => {
     const reference = referenceForArticleIndex(highlight.articleIndex);
@@ -313,7 +376,9 @@ export const runReaderPublicationStage: StageRunner = async ({ digestRunId }) =>
         return reference ? [reference] : [];
       });
 
-      return references.length ? [{ references, text: paragraph.text }] : [];
+      return references.length
+        ? [{ references, support: supportForArticleIndexes(paragraph.articleIndexes), text: paragraph.text }]
+        : [];
     });
 
     return paragraphs.length ? [{ category: section.category, paragraphs, title: section.title }] : [];
@@ -327,12 +392,12 @@ export const runReaderPublicationStage: StageRunner = async ({ digestRunId }) =>
     why: item.why,
   }));
   const digestSummary: DigestSummaryInsert = {
-    coverage_note: brief.coverageNote,
+    coverage_note: briefCoverageNote,
     digest_date: run.report_date,
     digest_run_id: digestRunId,
     highlights,
     reading_time_minutes: readingTimeMinutesForDigestBrief({
-      coverageNote: brief.coverageNote,
+      coverageNote: briefCoverageNote,
       sections,
       summary: brief.summary,
       watchlist,
