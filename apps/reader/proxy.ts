@@ -30,7 +30,18 @@ export async function proxy(request: NextRequest) {
     },
   });
 
-  await supabase.auth.getUser();
+  const { error } = await supabase.auth.getClaims();
+
+  if (error) {
+    console.warn(JSON.stringify({
+      level: "warning",
+      message: "Supabase session validation failed in proxy",
+      error: error.message,
+      path: request.nextUrl.pathname,
+    }));
+  }
+
+  response.headers.set("Cache-Control", "private, no-store");
 
   return response;
 }
