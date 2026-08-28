@@ -9,6 +9,7 @@ import type { ReaderLocale } from "./reader-locale";
 export type DigestBriefHighlight = {
   newsItemId: string;
   source: string;
+  sourceUrl: string | null;
   title: string;
   whatHappened: string;
   whyItMatters: string;
@@ -17,6 +18,7 @@ export type DigestBriefHighlight = {
 export type DigestBriefReference = {
   newsItemId: string;
   source: string;
+  sourceUrl: string | null;
   title: string;
 };
 
@@ -62,6 +64,7 @@ export type DigestBriefFallbackArticle = {
   id: string;
   preview: { whyItMatters: string } | null;
   source: string;
+  sourceUrl?: string;
   summary: string;
   title: string;
   whyInteresting: string | null;
@@ -99,12 +102,13 @@ function parseHighlights(value: Json): DigestBriefHighlight[] {
     const highlight = entry as Record<string, Json | undefined>;
     const newsItemId = typeof highlight.newsItemId === "string" ? highlight.newsItemId : null;
     const source = typeof highlight.source === "string" ? highlight.source : null;
+    const sourceUrl = typeof highlight.sourceUrl === "string" ? highlight.sourceUrl : null;
     const title = typeof highlight.title === "string" ? highlight.title : null;
     const whatHappened = typeof highlight.whatHappened === "string" ? highlight.whatHappened : null;
     const whyItMatters = typeof highlight.whyItMatters === "string" ? highlight.whyItMatters : null;
 
     return newsItemId && source && title && whyItMatters
-      ? [{ newsItemId, source, title, whatHappened: whatHappened || title, whyItMatters }]
+      ? [{ newsItemId, source, sourceUrl, title, whatHappened: whatHappened || title, whyItMatters }]
       : [];
   });
 }
@@ -119,11 +123,12 @@ function parseReferences(value: Json | undefined): DigestBriefReference[] {
     const reference = entry as Record<string, Json | undefined>;
     const newsItemId = typeof reference.newsItemId === "string" ? reference.newsItemId : null;
     const source = typeof reference.source === "string" ? reference.source : null;
+    const sourceUrl = typeof reference.sourceUrl === "string" ? reference.sourceUrl : null;
     const title = typeof reference.title === "string" ? reference.title : null;
 
     if (!newsItemId || !source || !title || seen.has(newsItemId)) return [];
     seen.add(newsItemId);
-    return [{ newsItemId, source, title }];
+    return [{ newsItemId, source, sourceUrl, title }];
   });
 }
 
@@ -221,13 +226,14 @@ export function fallbackDigestBriefFromNews(items: DigestBriefFallbackArticle[])
   const highlights = latestItems.slice(0, 5).map((item) => ({
     newsItemId: item.id,
     source: item.source,
+    sourceUrl: item.sourceUrl ?? null,
     title: item.title,
     whatHappened: compactToWordLimit(item.summary, 25),
     whyItMatters: fallbackWhyItMatters(item),
   }));
   const sections = Array.from(new Set(latestItems.map((item) => item.category))).slice(0, 5).map((category) => {
     const categoryItems = latestItems.filter((item) => item.category === category).slice(0, 6);
-    const references = categoryItems.map((item) => ({ newsItemId: item.id, source: item.source, title: item.title }));
+    const references = categoryItems.map((item) => ({ newsItemId: item.id, source: item.source, sourceUrl: item.sourceUrl ?? null, title: item.title }));
 
     return {
       category,
@@ -278,16 +284,52 @@ export async function getLatestDigestBrief(): Promise<DigestBrief | null> {
 
   const sections = parseSections(data.sections);
   const watchlist = parseWatchlist(data.watchlist);
+  const highlights = parseHighlights(data.highlights);
   const summary = data.summary;
   const coverageNote = data.coverage_note;
+  const newsItemIds = Array.from(new Set([
+    ...highlights.map((highlight) => highlight.newsItemId),
+    ...sections.flatMap((section) => section.paragraphs.flatMap((paragraph) => paragraph.references.map((reference) => reference.newsItemId))),
+    ...watchlist.flatMap((item) => item.references.map((reference) => reference.newsItemId)),
+  ]));
+  const sourceUrlByNewsItemId = new Map<string, string>();
+
+  if (newsItemIds.length) {
+    const { data: sourceRows, error: sourceError } = await supabase
+      .from("news_items")
+      .select("id, source_url")
+      .in("id", newsItemIds);
+
+    if (sourceError) throw sourceError;
+
+    for (const row of sourceRows) {
+      sourceUrlByNewsItemId.set(row.id, row.source_url);
+    }
+  }
+
+  const withSourceUrl = <T extends { newsItemId: string; sourceUrl: string | null }>(item: T): T => ({
+    ...item,
+    sourceUrl: sourceUrlByNewsItemId.get(item.newsItemId) ?? item.sourceUrl,
+  });
+  const linkedSections = sections.map((section) => ({
+    ...section,
+    paragraphs: section.paragraphs.map((paragraph) => ({
+      ...paragraph,
+      references: paragraph.references.map(withSourceUrl),
+    })),
+  }));
+  const linkedWatchlist = watchlist.map((item) => ({
+    ...item,
+    references: item.references.map(withSourceUrl),
+  }));
 
   return {
     coverageNote,
     digestDate: data.digest_date,
-    highlights: parseHighlights(data.highlights),
-    readingTimeMinutes: readingTimeMinutesForDigestBrief({ coverageNote, sections, summary, watchlist }),
-    sections,
+    highlights: highlights.map(withSourceUrl),
+    readingTimeMinutes: readingTimeMinutesForDigestBrief({ coverageNote, sections: linkedSections, summary, watchlist: linkedWatchlist }),
+    sections: linkedSections,
     summary,
-    watchlist,
+    watchlist: linkedWatchlist,
   };
 }

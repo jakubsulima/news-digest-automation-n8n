@@ -167,6 +167,7 @@ describe("fallbackDigestBriefFromNews", () => {
         id: "newest",
         preview: { whyItMatters: "This is the key development." },
         source: "Newest source",
+        sourceUrl: "https://example.com/newest",
         summary: "Newest summary",
         title: "Newest article",
         whyInteresting: null,
@@ -180,6 +181,7 @@ describe("fallbackDigestBriefFromNews", () => {
         {
           newsItemId: "newest",
           source: "Newest source",
+          sourceUrl: "https://example.com/newest",
           title: "Newest article",
           whatHappened: "Newest summary",
           whyItMatters: "This is the key development.",
@@ -190,7 +192,7 @@ describe("fallbackDigestBriefFromNews", () => {
           {
             category: "geopolitics",
             paragraphs: [{
-              references: [{ newsItemId: "newest", source: "Newest source", title: "Newest article" }],
+              references: [{ newsItemId: "newest", source: "Newest source", sourceUrl: "https://example.com/newest", title: "Newest article" }],
               text: "Newest summary",
             }],
             title: "Geopolityka",

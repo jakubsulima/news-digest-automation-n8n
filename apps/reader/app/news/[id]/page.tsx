@@ -86,19 +86,6 @@ export default async function NewsDetailPage({ params, searchParams }: NewsDetai
         description={localize(locale, "Uzasadnienie wyboru, notatki i zapisane informacje o newsie.", "Selection rationale, notes, and saved story information.")}
       />
 
-      <a
-        className={buttonVariants({ size: "lg", className: "h-auto min-h-12 w-full justify-between whitespace-normal px-4 py-3 text-left" })}
-        href={item.sourceUrl}
-        target="_blank"
-        rel="noreferrer"
-      >
-        <span className="min-w-0">
-          <span className="block font-semibold">{localize(locale, "Otwórz pełny news", "Open full story")}</span>
-          <span className="block truncate text-xs font-normal opacity-80">{item.source}</span>
-        </span>
-        <ExternalLink className="shrink-0" aria-hidden="true" />
-      </a>
-
       <section
         className="-mx-4 flex flex-wrap items-center gap-2 border-y bg-card/70 p-3 md:mx-0 md:rounded-xl md:border md:p-2 md:shadow-sm"
         aria-label={localize(locale, "Akcje wiadomości", "Story actions")}
@@ -147,6 +134,19 @@ export default async function NewsDetailPage({ params, searchParams }: NewsDetai
               {item.title}
             </a>
           </CardTitle>
+          <a
+            className={buttonVariants({
+              variant: "outline",
+              size: "default",
+              className: "mt-1 h-9 w-fit max-w-full justify-start border-primary/25 bg-primary/[0.04] px-3 text-primary shadow-none hover:border-primary/45 hover:bg-primary/[0.08]",
+            })}
+            href={item.sourceUrl}
+            target="_blank"
+            rel="noreferrer"
+          >
+            <span className="truncate">{localize(locale, `Czytaj w ${item.source}`, `Read on ${item.source}`)}</span>
+            <ExternalLink className="size-3.5" aria-hidden="true" />
+          </a>
         </CardHeader>
         <CardContent className="grid min-w-0 gap-5">
           <section className="grid gap-1.5 rounded-lg border bg-muted/20 p-3 text-sm leading-6" aria-label={localize(locale, "Jak potwierdzono materiał", "How the material was confirmed")}>
@@ -239,15 +239,6 @@ export default async function NewsDetailPage({ params, searchParams }: NewsDetai
             </section>
           ) : null}
 
-          <a
-            className={buttonVariants({ variant: "outline", size: "lg" })}
-            href={item.sourceUrl}
-            target="_blank"
-            rel="noreferrer"
-          >
-            <ExternalLink aria-hidden="true" />
-            {localize(locale, "Otwórz źródło", "Open source")}
-          </a>
         </CardContent>
       </Card>
     </main>
