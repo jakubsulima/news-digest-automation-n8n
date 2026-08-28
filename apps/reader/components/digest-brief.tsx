@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowRight, ChevronRight, Clock3, ExternalLink, ListTree, Newspaper, ShieldCheck } from "lucide-react";
+import { ArrowRight, Clock3, ExternalLink, ListTree, Newspaper, ShieldCheck } from "lucide-react";
 import Link from "next/link";
 
 import { useLocalize, useReaderLocale } from "@/components/reader-locale-provider";
@@ -39,8 +39,10 @@ function BriefHighlights({ highlights }: { highlights: DigestBrief["highlights"]
     <ol className="divide-y divide-border" aria-label={l("Najważniejsze newsy", "Top stories")}>
       {highlights.slice(0, 3).map((highlight) => (
         <li key={highlight.newsItemId}>
-          <Link
-            href={`/news/${highlight.newsItemId}`}
+          <a
+            href={highlight.sourceUrl ?? `/news/${highlight.newsItemId}`}
+            target={highlight.sourceUrl ? "_blank" : undefined}
+            rel={highlight.sourceUrl ? "noreferrer" : undefined}
             className="group grid grid-cols-[1fr_auto] content-center gap-3 px-4 py-3 outline-none transition-colors hover:bg-muted/30 focus-visible:bg-muted/45 focus-visible:ring-3 focus-visible:ring-inset focus-visible:ring-ring/40 md:px-5 md:py-4"
           >
             <div className="min-w-0">
@@ -61,8 +63,8 @@ function BriefHighlights({ highlights }: { highlights: DigestBrief["highlights"]
                 {highlight.source}
               </span>
             </div>
-            <ChevronRight className="self-center size-6 text-primary transition-transform group-hover:translate-x-0.5" strokeWidth={2} aria-hidden="true" />
-          </Link>
+            <ExternalLink className="self-center size-5 text-primary transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5" strokeWidth={2} aria-hidden="true" />
+          </a>
         </li>
       ))}
     </ol>
@@ -191,15 +193,17 @@ function ReferenceLinks({ references }: { references: DigestBrief["sections"][nu
     <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs leading-5 text-muted-foreground" aria-label={l("Źródła akapitu", "Paragraph sources")}>
       <span className="font-semibold text-foreground/60">{l("Źródła:", "Sources:")}</span>
       {references.map((reference) => (
-        <Link
+        <a
           key={reference.newsItemId}
-          href={`/news/${reference.newsItemId}`}
+          href={reference.sourceUrl ?? `/news/${reference.newsItemId}`}
+          target={reference.sourceUrl ? "_blank" : undefined}
+          rel={reference.sourceUrl ? "noreferrer" : undefined}
           title={reference.title}
           className="inline-flex max-w-full items-center gap-1 rounded-full border border-border/80 bg-background px-2 py-0.5 transition-colors hover:border-primary/50 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
         >
           <span className="max-w-[15rem] truncate">{reference.source}</span>
           <ExternalLink className="size-3 shrink-0" aria-hidden="true" />
-        </Link>
+        </a>
       ))}
     </div>
   );
