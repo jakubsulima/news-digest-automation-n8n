@@ -73,6 +73,8 @@ function BriefHighlights({ highlights }: { highlights: DigestBrief["highlights"]
 
 export function DigestBriefCard({ brief }: DigestBriefProps) {
   const l = useLocalize();
+  const summaryNewsItemIds = new Set(brief.summaryReferences.map((reference) => reference.newsItemId));
+  const additionalHighlights = brief.highlights.filter((highlight) => !summaryNewsItemIds.has(highlight.newsItemId));
 
   return (
     <section className="-mx-4 overflow-hidden bg-background md:mx-0 md:rounded-2xl md:border md:bg-card md:shadow-sm" aria-label={l("Podsumowanie dnia", "Daily summary")}>
@@ -93,7 +95,7 @@ export function DigestBriefCard({ brief }: DigestBriefProps) {
         <p className="mt-5 max-w-3xl text-base leading-7 text-foreground/90 md:mt-6 md:text-[1.05rem] md:leading-8">
           {brief.summary}
         </p>
-        <ReferenceLinks references={brief.summaryReferences} label={l("Źródła podsumowania", "Summary sources")} />
+        <SummaryReferenceLinks references={brief.summaryReferences} />
       </div>
 
       <div className="px-4 py-6 md:px-7 md:py-8">
@@ -143,12 +145,12 @@ export function DigestBriefCard({ brief }: DigestBriefProps) {
           </p>
         </div>
 
-        {brief.highlights.length ? (
+        {additionalHighlights.length ? (
           <section className="-mx-4 mt-8 border-t md:-mx-7 md:mt-10" aria-labelledby="brief-highlights-heading">
             <h2 id="brief-highlights-heading" className="px-4 pb-2 pt-5 text-lg font-semibold md:px-7 md:pt-6">
-              {l("Najważniejsze", "Top stories")}
+              {l("Pozostałe ważne", "More top stories")}
             </h2>
-            <BriefHighlights highlights={brief.highlights} />
+            <BriefHighlights highlights={additionalHighlights} />
             <div className="hidden border-t px-4 py-4 md:block md:px-7">
               <Link
                 href="/news"
@@ -182,6 +184,37 @@ function EvidenceSupport({ support }: { support: DigestBriefSupport }) {
         {l(description[0], description[1])} · {support.fullTextSourceCount} {l("z pełną treścią", "with full text")}.
       </p>
     </details>
+  );
+}
+
+function SummaryReferenceLinks({ references }: { references: DigestBrief["summaryReferences"] }) {
+  const l = useLocalize();
+
+  if (!references.length) return null;
+
+  return (
+    <div className="mt-4" aria-label={l("Źródła podsumowania", "Summary sources")}>
+      <p className="mb-2 text-xs font-semibold text-foreground/60">{l("Co potwierdzają źródła:", "What the sources confirm:")}</p>
+      <ul className="grid gap-2 sm:grid-cols-2">
+        {references.map((reference) => (
+          <li key={reference.newsItemId}>
+            <a
+              href={reference.sourceUrl ?? `/news/${reference.newsItemId}`}
+              target={reference.sourceUrl ? "_blank" : undefined}
+              rel={reference.sourceUrl ? "noreferrer" : undefined}
+              title={reference.title}
+              className="group flex h-full items-start gap-2 rounded-lg border border-border/80 bg-background px-3 py-2 text-xs leading-5 transition-colors hover:border-primary/50 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+            >
+              <ExternalLink className="mt-0.5 size-3.5 shrink-0 text-primary" aria-hidden="true" />
+              <span className="min-w-0">
+                <span className="block font-semibold text-primary">{reference.source}</span>
+                <span className="line-clamp-2 block text-foreground/75 group-hover:text-primary">{reference.whatHappened}</span>
+              </span>
+            </a>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 

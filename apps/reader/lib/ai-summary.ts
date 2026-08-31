@@ -471,6 +471,14 @@ export function parseDigestBriefJson(content: string, articleCount: number): Nvi
 
 export function validateDigestBriefQuality(brief: NvidiaDigestBrief) {
   const reasons: string[] = [];
+  const seenSectionArticleIndexes = new Set<number>();
+  const repeatedSectionArticleIndexes = new Set<number>();
+  for (const articleIndex of brief.sections.flatMap((section) =>
+    section.paragraphs.flatMap((paragraph) => paragraph.articleIndexes),
+  )) {
+    if (seenSectionArticleIndexes.has(articleIndex)) repeatedSectionArticleIndexes.add(articleIndex);
+    seenSectionArticleIndexes.add(articleIndex);
+  }
   const leadWords = wordCount(brief.summary);
   const sectionWordCounts = brief.sections.map((section) =>
     wordCount(section.paragraphs.map((paragraph) => paragraph.text).join(" ")),
@@ -514,6 +522,9 @@ export function validateDigestBriefQuality(brief: NvidiaDigestBrief) {
   }
   if (!brief.summaryArticleIndexes.length) {
     reasons.push("lead must reference at least one highlighted source");
+  }
+  if (repeatedSectionArticleIndexes.size) {
+    reasons.push("each source story must be described in only one section paragraph");
   }
   if (actualTotalWords < FULL_BRIEF_MIN_WORDS || actualTotalWords > FULL_BRIEF_MAX_WORDS) {
     reasons.push(`briefing must contain ${FULL_BRIEF_MIN_WORDS}-${FULL_BRIEF_MAX_WORDS} displayed words`);
@@ -581,11 +592,12 @@ Wymagania redakcyjne:
 - summaryArticleIndexes zawiera wszystkie i tylko te techniczne ID materiałów, które potwierdzają informacje w summary; każde z tych ID musi też wystąpić jako articleIndex w highlights, aby źródło było widoczne na głównej stronie;
 - highlights to 3–4 najważniejsze fakty; whatHappened odpowiada konkretnie „kto zrobił co”, a whyItMatters nazywa podmiot dotknięty zmianą i mechanizm wpływu; jeśli nie da się tego wyjaśnić konkretnie, opisz tylko bezpośrednie znaczenie faktu;
 - sections to 3–4 tematyczne sekcje po 90–140 słów; każda sekcja ma 1–3 samodzielne akapity, a każdy akapit ma własne articleIndexes wskazujące dokładnie wykorzystane materiały;
+- każdy techniczny ID materiału może wystąpić w articleIndexes tylko jednego akapitu w całym sections; jeśli news pasuje do kilku kategorii, wybierz jedną najlepiej opisującą jego główny temat i nie opisuj go ponownie w innej sekcji;
 - każdy akapit buduj w kolejności: jedno zdanie z głównym faktem, 1–3 zdania niezbędnego kontekstu, opcjonalnie jedno zdanie o możliwym wpływie lub niewiadomej;
 - używaj krótkich tytułów mówiących wprost, czego dotyczy sekcja; unikaj abstrakcyjnych tytułów typu „Zmieniający się krajobraz”, „Nowa dynamika” lub „Rosnące wyzwania”;
 - większość tekstu mają stanowić sprawdzalne fakty; pomijaj opinię, jeśli materiały nie dają podstaw do opisania konkretnego wpływu;
 - używaj nazw osób, firm, instytucji i zdarzeń zamiast odwołań typu „pierwszy artykuł”, „artykuł 0”, „materiał nr 2”, „powyższe źródło” czy „articleIndex”; żaden techniczny indeks nie może trafić do summary, whatHappened, whyItMatters, title, text, signal, why ani coverageNote;
-- nie powtarzaj tej samej informacji w leadzie, highlights i sekcjach, chyba że krótka wzmianka jest konieczna do zrozumienia szerszego związku;
+- nie powtarzaj tej samej informacji w leadzie, highlights i sekcjach; lead i highlights mają być krótkim wskazaniem faktu, a sekcja może ten fakt rozwinąć wyłącznie nowym kontekstem, liczbami, konsekwencją lub kolejnym krokiem zamiast parafrazować wcześniejsze zdanie;
 - łączna długość tekstu faktycznie wyświetlanego (summary, akapity sekcji, watchlist i coverageNote) ma wynosić 450–650 słów; nie wydłużaj tekstu przez powtórzenia lub ogólniki;
 - watchlist to 1–4 konkretne, wynikające z materiałów sygnały, decyzje lub terminy do obserwowania wraz z rzeczowym powodem; nie wymyślaj dat ani scenariuszy;
 - coverageNote to uczciwe zdanie o ograniczeniu materiału;
