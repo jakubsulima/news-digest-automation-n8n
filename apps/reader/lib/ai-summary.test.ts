@@ -201,7 +201,7 @@ describe("fallbackDigestBriefFromNews", () => {
           },
       ],
       summary: "Najnowszy digest obejmuje jedną wiadomość. Poniżej znajdziesz przekrojowy obraz sytuacji w dostępnych materiałach.",
-      summaryReferences: [{ newsItemId: "newest", source: "Newest source", sourceUrl: "https://example.com/newest", title: "Newest article" }],
+      summaryReferences: [{ newsItemId: "newest", source: "Newest source", sourceUrl: "https://example.com/newest", title: "Newest article", whatHappened: "Newest summary" }],
       watchlist: [],
     });
   });
@@ -238,16 +238,36 @@ describe("validateDigestBriefQuality", () => {
       highlights: [{ articleIndex: 0, whatHappened: "Fakt", whyItMatters: "Znaczenie" }],
       sections: Array.from({ length: 4 }, (_, index) => ({
         category: `category-${index}`,
-        paragraphs: [{ articleIndexes: [0], text: words(`sekcja${index}-`, 110) }],
+        paragraphs: [{ articleIndexes: [index], text: words(`sekcja${index}-`, 110) }],
         title: `Sekcja ${index}`,
       })),
       summary: words("lead", 75),
       watchlist: [{ articleIndexes: [0], signal: words("sygnal", 8), why: words("powod", 12) }],
-    }), 1);
+    }), 4);
 
     expect(brief).not.toBeNull();
     expect(brief?.readingTimeMinutes).toBe(4);
     expect(validateDigestBriefQuality(brief!).valid).toBe(true);
+  });
+
+  it("rejects describing the same source story in multiple section paragraphs", () => {
+    const brief = fallbackDigestBrief(
+      Array.from({ length: 4 }, (_, index) => ({
+        category: `category-${index}`,
+        importanceScore: 90,
+        publishedAt: null,
+        source: `Source ${index}`,
+        sourceCount: 1,
+        summary: `Materiał ${index}`,
+        title: `Article ${index}`,
+        whyInteresting: null,
+      })),
+    );
+    brief.sections[1]!.paragraphs[0]!.articleIndexes = [0];
+
+    expect(validateDigestBriefQuality(brief).reasons).toContain(
+      "each source story must be described in only one section paragraph",
+    );
   });
 
   it("rejects reader-facing content written predominantly in English", () => {
@@ -257,12 +277,12 @@ describe("validateDigestBriefQuality", () => {
       highlights: [{ articleIndex: 0, whatHappened: "The company changed its policy.", whyItMatters: "This may affect customers." }],
       sections: Array.from({ length: 4 }, (_, index) => ({
         category: `category-${index}`,
-        paragraphs: [{ articleIndexes: [0], text: repeated("the", 95) }],
+        paragraphs: [{ articleIndexes: [index], text: repeated("the", 95) }],
         title: `The section ${index}`,
       })),
       summary: repeated("the", 70),
       watchlist: [{ articleIndexes: [0], signal: repeated("the", 8), why: repeated("the", 12) }],
-    }), 1);
+    }), 4);
 
     expect(brief).not.toBeNull();
     expect(validateDigestBriefQuality(brief!).reasons).toContain("all reader-facing text must be written in Polish");

@@ -23,6 +23,10 @@ export type DigestBriefReference = {
   title: string;
 };
 
+export type DigestBriefSummaryReference = DigestBriefReference & {
+  whatHappened: string;
+};
+
 export type DigestBriefSupport = {
   fullTextSourceCount: number;
   independentSourceCount: number;
@@ -52,7 +56,7 @@ export type DigestBrief = {
   readingTimeMinutes: number;
   sections: DigestBriefSection[];
   summary: string;
-  summaryReferences: DigestBriefReference[];
+  summaryReferences: DigestBriefSummaryReference[];
   watchlist: DigestBriefWatchItem[];
 };
 
@@ -262,7 +266,7 @@ export function fallbackDigestBriefFromNews(items: DigestBriefFallbackArticle[])
     }),
     sections,
     summary: `Najnowszy digest obejmuje ${subject}. Poniżej znajdziesz przekrojowy obraz sytuacji w dostępnych materiałach.`,
-    summaryReferences: highlights.map(({ newsItemId, source, sourceUrl, title }) => ({ newsItemId, source, sourceUrl, title })),
+    summaryReferences: highlights.map(({ newsItemId, source, sourceUrl, title, whatHappened }) => ({ newsItemId, source, sourceUrl, title, whatHappened })),
     watchlist: [],
   };
 }
@@ -330,7 +334,7 @@ export async function getLatestDigestBrief(): Promise<DigestBrief | null> {
   const linkedHighlights = highlights.map(withSourceUrl);
   const explicitlyLinkedSummaryHighlights = linkedHighlights.filter((highlight) => highlight.supportsSummary);
   const summaryReferences = (explicitlyLinkedSummaryHighlights.length ? explicitlyLinkedSummaryHighlights : linkedHighlights)
-    .map(({ newsItemId, source, sourceUrl, title }) => ({ newsItemId, source, sourceUrl, title }));
+    .map(({ newsItemId, source, sourceUrl, title, whatHappened }) => ({ newsItemId, source, sourceUrl, title, whatHappened }));
 
   return {
     coverageNote,
