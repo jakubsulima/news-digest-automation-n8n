@@ -70,6 +70,7 @@ describe("parseDigestBriefJson", () => {
         },
       ],
       summary: "Najważniejsze procesy są ze sobą powiązane.",
+      summaryArticleIndexes: [0],
       watchlist: [
         {
           articleIndexes: [1],
@@ -182,6 +183,7 @@ describe("fallbackDigestBriefFromNews", () => {
           newsItemId: "newest",
           source: "Newest source",
           sourceUrl: "https://example.com/newest",
+          supportsSummary: true,
           title: "Newest article",
           whatHappened: "Newest summary",
           whyItMatters: "This is the key development.",
@@ -199,6 +201,7 @@ describe("fallbackDigestBriefFromNews", () => {
           },
       ],
       summary: "Najnowszy digest obejmuje jedną wiadomość. Poniżej znajdziesz przekrojowy obraz sytuacji w dostępnych materiałach.",
+      summaryReferences: [{ newsItemId: "newest", source: "Newest source", sourceUrl: "https://example.com/newest", title: "Newest article" }],
       watchlist: [],
     });
   });

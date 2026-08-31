@@ -76,6 +76,7 @@ export type NvidiaDigestBrief = {
   readingTimeMinutes: number;
   sections: NvidiaDigestBriefSection[];
   summary: string;
+  summaryArticleIndexes: number[];
   watchlist: NvidiaDigestBriefWatchItem[];
 };
 
@@ -349,6 +350,7 @@ export function fallbackDigestBrief(articles: DigestBriefArticle[]): NvidiaDiges
     }),
     sections,
     summary: `Dzisiejszy digest obejmuje ${subject}. Poniżej znajdziesz przekrojowy obraz sytuacji w dostępnych materiałach.`,
+    summaryArticleIndexes: highlights.map((highlight) => highlight.articleIndex),
     watchlist: [],
   };
 }
@@ -407,6 +409,16 @@ export function parseDigestBriefJson(content: string, articleCount: number): Nvi
       })
       .filter((highlight): highlight is NvidiaDigestBriefHighlight => Boolean(highlight))
       .slice(0, 4);
+    // Older model responses predate explicit lead attribution. Treat their
+    // highlights as the lead's sources so a parseable legacy brief remains
+    // usable and never renders an unsourced lead.
+    const requestedSummaryArticleIndexes = Array.isArray(brief.summaryArticleIndexes)
+      ? boundedArticleIndexes(brief.summaryArticleIndexes, articleCount, 4)
+      : highlights.map((highlight) => highlight.articleIndex);
+    const highlightArticleIndexes = new Set(highlights.map((highlight) => highlight.articleIndex));
+    const summaryArticleIndexes = requestedSummaryArticleIndexes.filter((articleIndex) =>
+      highlightArticleIndexes.has(articleIndex),
+    );
 
     const sections = brief.sections
       .map((value) => {
@@ -449,8 +461,8 @@ export function parseDigestBriefJson(content: string, articleCount: number): Nvi
       watchlist,
     });
 
-    return highlights.length && sections.length
-      ? { coverageNote, highlights, readingTimeMinutes, sections, summary, watchlist }
+    return highlights.length && summaryArticleIndexes.length && sections.length
+      ? { coverageNote, highlights, readingTimeMinutes, sections, summary, summaryArticleIndexes, watchlist }
       : null;
   } catch {
     return null;
@@ -499,6 +511,9 @@ export function validateDigestBriefQuality(brief: NvidiaDigestBrief) {
   }
   if (!brief.watchlist.length) {
     reasons.push("briefing must contain at least one concrete watchlist signal");
+  }
+  if (!brief.summaryArticleIndexes.length) {
+    reasons.push("lead must reference at least one highlighted source");
   }
   if (actualTotalWords < FULL_BRIEF_MIN_WORDS || actualTotalWords > FULL_BRIEF_MAX_WORDS) {
     reasons.push(`briefing must contain ${FULL_BRIEF_MIN_WORDS}-${FULL_BRIEF_MAX_WORDS} displayed words`);
@@ -558,11 +573,12 @@ Nie podawaj w tekście łącznej liczby newsów ani nie opisuj rozmiaru digestu.
 
 Zwróć wyłącznie poprawny JSON, bez markdownu.`;
   const briefShape =
-    '{"summary":"lead 60-90 słów","highlights":[{"articleIndex":0,"whatHappened":"","whyItMatters":""}],"sections":[{"category":"","title":"","paragraphs":[{"text":"","articleIndexes":[0]}]}],"watchlist":[{"signal":"","why":"","articleIndexes":[0]}],"coverageNote":""}';
+    '{"summary":"lead 60-90 słów","summaryArticleIndexes":[0],"highlights":[{"articleIndex":0,"whatHappened":"","whyItMatters":""}],"sections":[{"category":"","title":"","paragraphs":[{"text":"","articleIndexes":[0]}]}],"watchlist":[{"signal":"","why":"","articleIndexes":[0]}],"coverageNote":""}';
   const requirements = `
 Wymagania redakcyjne:
 - wszystkie wartości tekstowe w JSON-ie, poza nazwami własnymi, zapisz po polsku;
-- summary to lead o długości 60–90 słów: podaj 2–4 najważniejsze fakty dnia i tylko jedną rzeczywiście udokumentowaną zależność; czytelnik ma od razu wiedzieć, kto zrobił co;
+- summary to lead o długości 60–90 słów: podaj 2–4 najważniejsze fakty dnia i tylko jedną rzeczywiście udokumentowaną zależność; czytelnik ma od razu wiedzieć, kto zrobił co; każdy fakt lub zależność w summary musi wynikać z materiałów wskazanych w summaryArticleIndexes;
+- summaryArticleIndexes zawiera wszystkie i tylko te techniczne ID materiałów, które potwierdzają informacje w summary; każde z tych ID musi też wystąpić jako articleIndex w highlights, aby źródło było widoczne na głównej stronie;
 - highlights to 3–4 najważniejsze fakty; whatHappened odpowiada konkretnie „kto zrobił co”, a whyItMatters nazywa podmiot dotknięty zmianą i mechanizm wpływu; jeśli nie da się tego wyjaśnić konkretnie, opisz tylko bezpośrednie znaczenie faktu;
 - sections to 3–4 tematyczne sekcje po 90–140 słów; każda sekcja ma 1–3 samodzielne akapity, a każdy akapit ma własne articleIndexes wskazujące dokładnie wykorzystane materiały;
 - każdy akapit buduj w kolejności: jedno zdanie z głównym faktem, 1–3 zdania niezbędnego kontekstu, opcjonalnie jedno zdanie o możliwym wpływie lub niewiadomej;
