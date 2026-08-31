@@ -11,6 +11,7 @@ export type DigestBriefHighlight = {
   source: string;
   sourceUrl: string | null;
   title: string;
+  supportsSummary: boolean;
   whatHappened: string;
   whyItMatters: string;
 };
@@ -51,6 +52,7 @@ export type DigestBrief = {
   readingTimeMinutes: number;
   sections: DigestBriefSection[];
   summary: string;
+  summaryReferences: DigestBriefReference[];
   watchlist: DigestBriefWatchItem[];
 };
 
@@ -104,11 +106,12 @@ function parseHighlights(value: Json): DigestBriefHighlight[] {
     const source = typeof highlight.source === "string" ? highlight.source : null;
     const sourceUrl = typeof highlight.sourceUrl === "string" ? highlight.sourceUrl : null;
     const title = typeof highlight.title === "string" ? highlight.title : null;
+    const supportsSummary = highlight.supportsSummary === true;
     const whatHappened = typeof highlight.whatHappened === "string" ? highlight.whatHappened : null;
     const whyItMatters = typeof highlight.whyItMatters === "string" ? highlight.whyItMatters : null;
 
     return newsItemId && source && title && whyItMatters
-      ? [{ newsItemId, source, sourceUrl, title, whatHappened: whatHappened || title, whyItMatters }]
+      ? [{ newsItemId, source, sourceUrl, supportsSummary, title, whatHappened: whatHappened || title, whyItMatters }]
       : [];
   });
 }
@@ -227,6 +230,7 @@ export function fallbackDigestBriefFromNews(items: DigestBriefFallbackArticle[])
     newsItemId: item.id,
     source: item.source,
     sourceUrl: item.sourceUrl ?? null,
+    supportsSummary: true,
     title: item.title,
     whatHappened: compactToWordLimit(item.summary, 25),
     whyItMatters: fallbackWhyItMatters(item),
@@ -258,6 +262,7 @@ export function fallbackDigestBriefFromNews(items: DigestBriefFallbackArticle[])
     }),
     sections,
     summary: `Najnowszy digest obejmuje ${subject}. Poniżej znajdziesz przekrojowy obraz sytuacji w dostępnych materiałach.`,
+    summaryReferences: highlights.map(({ newsItemId, source, sourceUrl, title }) => ({ newsItemId, source, sourceUrl, title })),
     watchlist: [],
   };
 }
@@ -322,14 +327,19 @@ export async function getLatestDigestBrief(): Promise<DigestBrief | null> {
     ...item,
     references: item.references.map(withSourceUrl),
   }));
+  const linkedHighlights = highlights.map(withSourceUrl);
+  const explicitlyLinkedSummaryHighlights = linkedHighlights.filter((highlight) => highlight.supportsSummary);
+  const summaryReferences = (explicitlyLinkedSummaryHighlights.length ? explicitlyLinkedSummaryHighlights : linkedHighlights)
+    .map(({ newsItemId, source, sourceUrl, title }) => ({ newsItemId, source, sourceUrl, title }));
 
   return {
     coverageNote,
     digestDate: data.digest_date,
-    highlights: highlights.map(withSourceUrl),
+    highlights: linkedHighlights,
     readingTimeMinutes: readingTimeMinutesForDigestBrief({ coverageNote, sections: linkedSections, summary, watchlist: linkedWatchlist }),
     sections: linkedSections,
     summary,
+    summaryReferences,
     watchlist: linkedWatchlist,
   };
 }

@@ -363,6 +363,7 @@ export const runReaderPublicationStage: StageRunner = async ({ digestRunId }) =>
       ? [
           {
             ...reference,
+            supportsSummary: brief.summaryArticleIndexes.includes(highlight.articleIndex),
             whatHappened: highlight.whatHappened,
             whyItMatters: highlight.whyItMatters,
           },

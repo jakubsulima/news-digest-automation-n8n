@@ -93,6 +93,7 @@ export function DigestBriefCard({ brief }: DigestBriefProps) {
         <p className="mt-5 max-w-3xl text-base leading-7 text-foreground/90 md:mt-6 md:text-[1.05rem] md:leading-8">
           {brief.summary}
         </p>
+        <ReferenceLinks references={brief.summaryReferences} label={l("Źródła podsumowania", "Summary sources")} />
       </div>
 
       <div className="px-4 py-6 md:px-7 md:py-8">
@@ -184,13 +185,19 @@ function EvidenceSupport({ support }: { support: DigestBriefSupport }) {
   );
 }
 
-function ReferenceLinks({ references }: { references: DigestBrief["sections"][number]["paragraphs"][number]["references"] }) {
+function ReferenceLinks({
+  references,
+  label,
+}: {
+  references: DigestBrief["sections"][number]["paragraphs"][number]["references"];
+  label?: string;
+}) {
   const l = useLocalize();
 
   if (!references.length) return null;
 
   return (
-    <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs leading-5 text-muted-foreground" aria-label={l("Źródła akapitu", "Paragraph sources")}>
+    <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs leading-5 text-muted-foreground" aria-label={label ?? l("Źródła akapitu", "Paragraph sources")}>
       <span className="font-semibold text-foreground/60">{l("Źródła:", "Sources:")}</span>
       {references.map((reference) => (
         <a
