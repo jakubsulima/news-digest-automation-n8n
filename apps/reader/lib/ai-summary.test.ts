@@ -325,6 +325,10 @@ describe("digestBriefWithNvidia", () => {
     });
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
+    for (const [, init] of fetchMock.mock.calls) {
+      const request = JSON.parse(String(init?.body));
+      expect(request.response_format).toEqual({ type: "json_object" });
+    }
     expect(result.coverageNote).toBe("Brak danych.");
     vi.unstubAllGlobals();
     vi.unstubAllEnvs();
