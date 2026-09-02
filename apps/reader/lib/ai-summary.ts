@@ -87,7 +87,7 @@ export type DigestBriefInterestProfile = {
 };
 
 const DEFAULT_NVIDIA_API_URL = "https://integrate.api.nvidia.com/v1/chat/completions";
-const DEFAULT_NVIDIA_MODEL = "nvidia/nemotron-3-nano-30b-a3b";
+const DEFAULT_NVIDIA_MODEL = "nvidia/nemotron-3.5-lightning-30b-a3b";
 
 const missingApiKeyWarnings = new Set<NvidiaChatPurpose>();
 
@@ -636,6 +636,7 @@ Materiały:
 ${sourceMaterial}`,
           },
         ],
+        response_format: { type: "json_object" },
         temperature: 0.1,
         top_p: 0.7,
       },
@@ -654,6 +655,13 @@ ${sourceMaterial}`,
     if (firstBrief && firstQuality?.valid) {
       return firstBrief;
     }
+
+    console.warn(NVIDIA_LOG_PREFIX, "response_rejected", {
+      phase: "initial",
+      purpose: "daily-brief",
+      reason: firstBrief ? "quality" : "json_schema",
+      reasons: firstQuality?.reasons,
+    });
 
     const correctionTimeoutMs = Math.min(
       DAILY_BRIEF_CORRECTION_TIMEOUT_MS,
@@ -677,6 +685,7 @@ ${sourceMaterial}`,
             ),
           },
         ],
+        response_format: { type: "json_object" },
         temperature: 0.1,
         top_p: 0.7,
       },
@@ -688,6 +697,15 @@ ${sourceMaterial}`,
 
     if (correctedBrief && correctedQuality?.valid) {
       return correctedBrief;
+    }
+
+    if (correctionContent) {
+      console.warn(NVIDIA_LOG_PREFIX, "response_rejected", {
+        phase: "correction",
+        purpose: "daily-brief",
+        reason: correctedBrief ? "quality" : "json_schema",
+        reasons: correctedQuality?.reasons,
+      });
     }
 
     // The correction prompt explicitly targets clarity and language. Prefer its
