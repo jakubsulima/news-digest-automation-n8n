@@ -271,4 +271,43 @@ describe("advanceDigestRun", () => {
     expect(state.runStageForRun).toHaveBeenNthCalledWith(1, claimedSourceFetch, "run-1");
     expect(state.runStageForRun).toHaveBeenNthCalledWith(2, claimedArticleNormalization, "run-1");
   });
+
+  it("pauses before reader publication after advancing an earlier stage", async () => {
+    const editorialScoring = stage({ stage_name: "editorial_scoring" });
+    const claimedEditorialScoring = stage({
+      ...editorialScoring,
+      attempt_count: 1,
+      started_at: "2026-06-19T10:00:00.000Z",
+      status: "running",
+    });
+    const completedEditorialScoring = stage({
+      ...claimedEditorialScoring,
+      finished_at: "2026-06-19T10:00:01.000Z",
+      status: "succeeded",
+    });
+    const readerPublication = stage({ id: "stage-2", stage_name: "reader_publication" });
+    const claimedReaderPublication = stage({
+      ...readerPublication,
+      attempt_count: 1,
+      started_at: "2026-06-19T10:00:01.000Z",
+      status: "running",
+    });
+
+    state.getDigestRunById
+      .mockResolvedValueOnce(run({ stages: [editorialScoring], status: "running" }))
+      .mockResolvedValueOnce(run({ stages: [completedEditorialScoring, readerPublication], status: "running" }))
+      .mockResolvedValueOnce(run({ stages: [completedEditorialScoring, readerPublication], status: "succeeded" }));
+    state.maybeSingleResults = [
+      { data: claimedEditorialScoring, error: null },
+      { data: claimedReaderPublication, error: null },
+    ];
+    const executor = await import("./digest-stage-executor");
+
+    await expect(executor.advanceDigestRunUntilIdle("run-1")).resolves.toMatchObject({
+      advancedStage: "editorial_scoring",
+      status: "running",
+    });
+    expect(state.runStageForRun).toHaveBeenCalledOnce();
+    expect(state.runStageForRun).toHaveBeenCalledWith(claimedEditorialScoring, "run-1");
+  });
 });

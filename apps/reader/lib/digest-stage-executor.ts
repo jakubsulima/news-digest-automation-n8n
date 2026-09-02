@@ -267,6 +267,13 @@ export async function advanceDigestRunUntilIdle(
     if (!result.advancedStage) {
       return result;
     }
+
+    // Reader publication can spend the full AI budget generating and correcting
+    // a digest. Start it in a fresh background invocation instead of consuming
+    // the remainder of one that already ran the preceding pipeline stages.
+    if (result.advancedStage === "editorial_scoring") {
+      return result;
+    }
   }
 
   return {
