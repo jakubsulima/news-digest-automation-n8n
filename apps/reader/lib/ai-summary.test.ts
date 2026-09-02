@@ -409,4 +409,49 @@ describe("digestBriefWithNvidia", () => {
     expect(resolvedBeforeTimeout).toBe(false);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
+
+  it("allows 40 seconds to correct an invalid initial response", async () => {
+    vi.useFakeTimers();
+    vi.stubEnv("NVIDIA_API_KEY", "test-key");
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        json: async () => ({ choices: [{ message: { content: "invalid JSON" } }] }),
+        ok: true,
+        status: 200,
+      })
+      .mockImplementationOnce((_input: unknown, init?: RequestInit) => new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(init.signal?.reason || new Error("aborted")), { once: true });
+      }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const digestPromise = digestBriefWithNvidia({
+      articles: [{
+        category: "business",
+        importanceScore: 90,
+        publishedAt: null,
+        source: "Source",
+        sourceCount: 1,
+        summary: "Material",
+        title: "Tytuł",
+        whyInteresting: null,
+      }],
+      interestProfile: { feedTargets: {}, preferredKeywords: [] },
+    });
+    let resolved = false;
+    void digestPromise.then(() => {
+      resolved = true;
+    });
+
+    await vi.advanceTimersByTimeAsync(39_999);
+    const resolvedBeforeTimeout = resolved;
+    await vi.advanceTimersByTimeAsync(1);
+    await digestPromise;
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+
+    expect(resolvedBeforeTimeout).toBe(false);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
 });

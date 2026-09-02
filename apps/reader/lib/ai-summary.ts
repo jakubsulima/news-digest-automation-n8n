@@ -16,6 +16,7 @@ type NvidiaChatPurpose = "article-preview" | "summary-shortening" | "daily-brief
 const NVIDIA_LOG_PREFIX = "[nvidia-ai]";
 const NVIDIA_REQUEST_TIMEOUT_MS = 20_000;
 const DAILY_BRIEF_INITIAL_TIMEOUT_MS = 60_000;
+const DAILY_BRIEF_CORRECTION_TIMEOUT_MS = 40_000;
 const DAILY_BRIEF_TOTAL_TIMEOUT_MS = 100_000;
 const DAILY_BRIEF_MIN_CORRECTION_TIMEOUT_MS = 1_000;
 const FULL_BRIEF_MIN_WORDS = 450;
@@ -655,7 +656,7 @@ ${sourceMaterial}`,
     }
 
     const correctionTimeoutMs = Math.min(
-      NVIDIA_REQUEST_TIMEOUT_MS,
+      DAILY_BRIEF_CORRECTION_TIMEOUT_MS,
       DAILY_BRIEF_TOTAL_TIMEOUT_MS - (Date.now() - aiStartedAt),
     );
 
