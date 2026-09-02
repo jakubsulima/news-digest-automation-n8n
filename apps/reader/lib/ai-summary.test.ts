@@ -372,7 +372,7 @@ describe("digestBriefWithNvidia", () => {
     vi.unstubAllEnvs();
   });
 
-  it("caps the combined duration of the initial and correction requests", async () => {
+  it("waits 60 seconds for the initial response without correcting a timeout", async () => {
     vi.useFakeTimers();
     vi.stubEnv("NVIDIA_API_KEY", "test-key");
     const fetchMock = vi.fn((_input: unknown, init?: RequestInit) => new Promise((_resolve, reject) => {
@@ -393,18 +393,20 @@ describe("digestBriefWithNvidia", () => {
       }],
       interestProfile: { feedTargets: {}, preferredKeywords: [] },
     });
-    const outcomePromise = Promise.race([
-      digestPromise.then(() => "resolved"),
-      new Promise<string>((resolve) => setTimeout(() => resolve("deadline"), 31_000)),
-    ]);
+    let resolved = false;
+    void digestPromise.then(() => {
+      resolved = true;
+    });
 
-    await vi.advanceTimersByTimeAsync(31_000);
-    const outcome = await outcomePromise;
+    await vi.advanceTimersByTimeAsync(59_999);
+    const resolvedBeforeTimeout = resolved;
+    await vi.advanceTimersByTimeAsync(1);
+    await digestPromise;
     vi.useRealTimers();
     vi.unstubAllGlobals();
     vi.unstubAllEnvs();
 
-    expect(outcome).toBe("resolved");
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(resolvedBeforeTimeout).toBe(false);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
