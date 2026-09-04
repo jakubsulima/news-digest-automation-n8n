@@ -209,7 +209,7 @@ describe("fallbackDigestBriefFromNews", () => {
 });
 
 describe("validateDigestBriefQuality", () => {
-  it("requires a concise lead, thematic sections, watch signals, and the 250-400 word range", () => {
+  it("requires a detailed lead, thematic sections, watch signals, and the 350-550 word range", () => {
     const brief = fallbackDigestBrief(
       Array.from({ length: 4 }, (_, index) => ({
         category: `category-${index}`,
@@ -227,27 +227,27 @@ describe("validateDigestBriefQuality", () => {
 
     expect(quality.valid).toBe(false);
     expect(quality.reasons).toEqual(expect.arrayContaining([
-      "lead must contain 40-60 words",
+      "lead must contain 60-80 words",
       "briefing must contain at least one concrete watchlist signal",
     ]));
   });
 
-  it("accepts a focused 250-400 word briefing", () => {
+  it("accepts a focused 350-550 word briefing", () => {
     const words = (prefix: string, count: number) => Array.from({ length: count }, (_, index) => `${prefix}${index + 1}`).join(" ");
     const brief = parseDigestBriefJson(JSON.stringify({
       coverageNote: words("ograniczenie", 12),
       highlights: [{ articleIndex: 0, whatHappened: "Fakt", whyItMatters: "Znaczenie" }],
       sections: Array.from({ length: 3 }, (_, index) => ({
         category: `category-${index}`,
-        paragraphs: [{ articleIndexes: [index], text: words(`sekcja${index}-`, 60) }],
+        paragraphs: [{ articleIndexes: [index], text: words(`sekcja${index}-`, 100) }],
         title: `Sekcja ${index}`,
       })),
-      summary: words("lead", 50),
+      summary: words("lead", 70),
       watchlist: [{ articleIndexes: [0], signal: words("sygnal", 8), why: words("powod", 12) }],
     }), 4);
 
     expect(brief).not.toBeNull();
-    expect(brief?.readingTimeMinutes).toBe(2);
+    expect(brief?.readingTimeMinutes).toBe(3);
     expect(validateDigestBriefQuality(brief!).valid).toBe(true);
   });
 
@@ -400,6 +400,61 @@ describe("digestBriefWithNvidia", () => {
     expect(request.response_format).toBeUndefined();
     expect(request.temperature).toBe(1);
     expect(request.top_p).toBe(0.95);
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+  });
+
+  it("expands a terse DiffusionGemma briefing with small parallel requests", async () => {
+    vi.stubEnv("NVIDIA_API_KEY", "test-key");
+    vi.stubEnv("NVIDIA_MODEL", "google/diffusiongemma-26b-a4b-it");
+    const words = (prefix: string, count: number) =>
+      Array.from({ length: count }, (_, index) => `${prefix}${index + 1}`).join(" ");
+    const terseBrief = JSON.stringify({
+      coverageNote: words("ograniczenie", 10),
+      highlights: [{ articleIndex: 0, whatHappened: "Fakt", whyItMatters: "Znaczenie" }],
+      sections: Array.from({ length: 3 }, (_, index) => ({
+        category: `category-${index}`,
+        paragraphs: [{ articleIndexes: [index], text: words(`krotka${index}-`, 35) }],
+        title: `Sekcja ${index}`,
+      })),
+      summary: words("lead", 45),
+      summaryArticleIndexes: [0],
+      watchlist: [{ articleIndexes: [0], signal: words("sygnal", 8), why: words("powod", 12) }],
+    });
+    const fetchMock = vi.fn(async (_input: unknown, init?: RequestInit) => {
+      const request = JSON.parse(String(init?.body));
+      const prompt = String(request.messages?.at(-1)?.content || "");
+      const content = prompt.includes("Rozwiń lead")
+        ? words("l", 70)
+        : prompt.includes("Rozwiń sekcję")
+          ? words("s", 100)
+          : terseBrief;
+      return {
+        json: async () => ({ choices: [{ message: { content } }] }),
+        ok: true,
+        status: 200,
+      };
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await generateDigestBriefWithNvidia({
+      articles: Array.from({ length: 3 }, (_, index) => ({
+        category: `category-${index}`,
+        importanceScore: 90,
+        publishedAt: null,
+        source: `Source ${index}`,
+        sourceCount: 1,
+        summary: `Materiał ${index}`,
+        title: `Tytuł ${index}`,
+        whyInteresting: null,
+      })),
+      attempt: 1,
+      interestProfile: { feedTargets: {}, preferredKeywords: [] },
+    });
+
+    expect(result.status).toBe("generated");
+    expect(validateDigestBriefQuality(result.brief).actualTotalWords).toBeGreaterThanOrEqual(350);
+    expect(fetchMock).toHaveBeenCalledTimes(5);
     vi.unstubAllGlobals();
     vi.unstubAllEnvs();
   });

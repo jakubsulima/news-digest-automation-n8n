@@ -19,12 +19,12 @@ const DAILY_BRIEF_INITIAL_TIMEOUT_MS = 60_000;
 const DAILY_BRIEF_CORRECTION_TIMEOUT_MS = 40_000;
 const DAILY_BRIEF_TOTAL_TIMEOUT_MS = 100_000;
 const DAILY_BRIEF_MIN_CORRECTION_TIMEOUT_MS = 1_000;
-const FULL_BRIEF_MIN_WORDS = 250;
-const FULL_BRIEF_MAX_WORDS = 400;
-const LEAD_MIN_WORDS = 40;
-const LEAD_MAX_WORDS = 60;
-const SECTION_MIN_WORDS = 50;
-const SECTION_MAX_WORDS = 75;
+const FULL_BRIEF_MIN_WORDS = 350;
+const FULL_BRIEF_MAX_WORDS = 550;
+const LEAD_MIN_WORDS = 60;
+const LEAD_MAX_WORDS = 80;
+const SECTION_MIN_WORDS = 90;
+const SECTION_MAX_WORDS = 120;
 const DAILY_BRIEF_MAX_SOURCE_ARTICLES = 10;
 const DAILY_BRIEF_SOURCE_SUMMARY_MAX_CHARS = 350;
 const DAILY_BRIEF_MAX_TOKENS = 1_200;
@@ -579,6 +579,66 @@ export function validateDigestBriefQuality(brief: NvidiaDigestBrief) {
   };
 }
 
+async function expandTerseDiffusionGemmaBrief({
+  brief,
+  model,
+  sourceMaterial,
+}: {
+  brief: NvidiaDigestBrief;
+  model: string;
+  sourceMaterial: string;
+}) {
+  const systemPrompt = "Rozwijasz fragment polskiego briefingu newsowego. Używaj wyłącznie faktów z przekazanych materiałów. Podawaj konkretne podmioty, działania, liczby, kontekst i następne kroki. Nie dodawaj nagłówka, markdownu, JSON-u, komentarza ani informacji o długości tekstu.";
+  const expansionRequest = (prompt: string, maxTokens: number) => requestNvidiaChat({
+    body: {
+      ...dailyBriefGenerationParameters(model),
+      max_tokens: maxTokens,
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: `${prompt}\n\nMateriały źródłowe:\n${sourceMaterial}` },
+      ],
+    },
+    model,
+    purpose: "daily-brief",
+    timeoutMs: DAILY_BRIEF_CORRECTION_TIMEOUT_MS,
+  });
+  const [expandedSummary, ...expandedSections] = await Promise.all([
+    expansionRequest(
+      `Rozwiń lead do 65–80 słów. Zachowaj jego fakty i wskaż 3–4 najważniejsze wydarzenia bez powtórzeń.\n\nObecny lead:\n${brief.summary}`,
+      240,
+    ),
+    ...brief.sections.map((section) => expansionRequest(
+      `Rozwiń sekcję „${section.title}” do 100–120 słów. Wyjaśnij znaczenie faktów konkretnym mechanizmem i dodaj istotny kontekst obecny w źródłach.\n\nObecna sekcja:\n${section.paragraphs.map((paragraph) => paragraph.text).join(" ")}`,
+      360,
+    )),
+  ]);
+  const summary = boundedString(expandedSummary, 1_000, LEAD_MAX_WORDS) || brief.summary;
+  const sections = brief.sections.map((section, index) => {
+    const expandedText = boundedString(expandedSections[index], 1_600, SECTION_MAX_WORDS);
+    if (!expandedText) return section;
+
+    return {
+      ...section,
+      paragraphs: [{
+        articleIndexes: Array.from(new Set(section.paragraphs.flatMap((paragraph) => paragraph.articleIndexes))),
+        text: expandedText,
+      }],
+    };
+  });
+
+  return {
+    ...brief,
+    readingTimeMinutes: readingTimeMinutesForDigestBrief({
+      coverageNote: brief.coverageNote,
+      sections,
+      summary,
+      watchlist: brief.watchlist,
+    }),
+    sections,
+    summary,
+  };
+}
+
 export async function digestBriefWithNvidia({
   articles,
   interestProfile,
@@ -639,7 +699,7 @@ Wymagania redakcyjne:
 - większość tekstu mają stanowić sprawdzalne fakty; pomijaj opinię, jeśli materiały nie dają podstaw do opisania konkretnego wpływu;
 - używaj nazw osób, firm, instytucji i zdarzeń zamiast odwołań typu „pierwszy artykuł”, „artykuł 0”, „materiał nr 2”, „powyższe źródło” czy „articleIndex”; żaden techniczny indeks nie może trafić do summary, whatHappened, whyItMatters, title, text, signal, why ani coverageNote;
 - nie powtarzaj tej samej informacji w leadzie, highlights i sekcjach; lead i highlights mają być krótkim wskazaniem faktu, a sekcja może ten fakt rozwinąć wyłącznie nowym kontekstem, liczbami, konsekwencją lub kolejnym krokiem zamiast parafrazować wcześniejsze zdanie;
-- łączna długość tekstu faktycznie wyświetlanego (summary, akapity sekcji, watchlist i coverageNote) ma wynosić 250–400 słów; nie wydłużaj tekstu przez powtórzenia lub ogólniki;
+- ten JSON jest zwięzłym draftem; łączna długość tekstu faktycznie wyświetlanego ma wynosić 250–350 słów, ponieważ lead i sekcje zostaną rozwinięte w następnym kroku;
 - watchlist to 1–4 konkretne, wynikające z materiałów sygnały, decyzje lub terminy do obserwowania wraz z rzeczowym powodem; nie wymyślaj dat ani scenariuszy;
 - coverageNote to uczciwe zdanie o ograniczeniu materiału;
 - articleIndex i articleIndexes są niewidocznymi metadanymi źródeł: wpisuj w nich wyłącznie techniczne ID od 0 do ${promptArticles.length - 1} i nigdy nie przywołuj ich w tekście;
@@ -691,8 +751,19 @@ ${sourceMaterial}`,
       return fallback;
     }
 
-    if (firstBrief && (firstQuality?.valid || isDiffusionGemmaModel(model))) {
+    if (firstBrief && firstQuality?.valid) {
       return firstBrief;
+    }
+
+    if (firstBrief && firstQuality && isDiffusionGemmaModel(model)) {
+      const expandedBrief = await expandTerseDiffusionGemmaBrief({
+        brief: firstBrief,
+        model,
+        sourceMaterial,
+      });
+      if (validateDigestBriefQuality(expandedBrief).actualTotalWords > firstQuality.actualTotalWords) {
+        return expandedBrief;
+      }
     }
 
     console.warn(NVIDIA_LOG_PREFIX, "response_rejected", {
@@ -735,6 +806,17 @@ ${sourceMaterial}`,
 
     if (correctedBrief && correctedQuality?.valid) {
       return correctedBrief;
+    }
+
+    if (correctedBrief && correctedQuality && isDiffusionGemmaModel(model)) {
+      const expandedBrief = await expandTerseDiffusionGemmaBrief({
+        brief: correctedBrief,
+        model,
+        sourceMaterial,
+      });
+      if (validateDigestBriefQuality(expandedBrief).actualTotalWords > correctedQuality.actualTotalWords) {
+        return expandedBrief;
+      }
     }
 
     if (correctionContent) {
