@@ -209,7 +209,7 @@ describe("fallbackDigestBriefFromNews", () => {
 });
 
 describe("validateDigestBriefQuality", () => {
-  it("requires a full lead, thematic sections, watch signals, and the 450-650 word range", () => {
+  it("requires a concise lead, thematic sections, watch signals, and the 250-400 word range", () => {
     const brief = fallbackDigestBrief(
       Array.from({ length: 4 }, (_, index) => ({
         category: `category-${index}`,
@@ -227,27 +227,27 @@ describe("validateDigestBriefQuality", () => {
 
     expect(quality.valid).toBe(false);
     expect(quality.reasons).toEqual(expect.arrayContaining([
-      "lead must contain 60-90 words",
+      "lead must contain 40-60 words",
       "briefing must contain at least one concrete watchlist signal",
     ]));
   });
 
-  it("accepts a focused 450-650 word briefing", () => {
+  it("accepts a focused 250-400 word briefing", () => {
     const words = (prefix: string, count: number) => Array.from({ length: count }, (_, index) => `${prefix}${index + 1}`).join(" ");
     const brief = parseDigestBriefJson(JSON.stringify({
       coverageNote: words("ograniczenie", 12),
       highlights: [{ articleIndex: 0, whatHappened: "Fakt", whyItMatters: "Znaczenie" }],
-      sections: Array.from({ length: 4 }, (_, index) => ({
+      sections: Array.from({ length: 3 }, (_, index) => ({
         category: `category-${index}`,
-        paragraphs: [{ articleIndexes: [index], text: words(`sekcja${index}-`, 110) }],
+        paragraphs: [{ articleIndexes: [index], text: words(`sekcja${index}-`, 60) }],
         title: `Sekcja ${index}`,
       })),
-      summary: words("lead", 75),
+      summary: words("lead", 50),
       watchlist: [{ articleIndexes: [0], signal: words("sygnal", 8), why: words("powod", 12) }],
     }), 4);
 
     expect(brief).not.toBeNull();
-    expect(brief?.readingTimeMinutes).toBe(4);
+    expect(brief?.readingTimeMinutes).toBe(2);
     expect(validateDigestBriefQuality(brief!).valid).toBe(true);
   });
 
@@ -294,6 +294,7 @@ describe("digestBriefWithNvidia", () => {
   it("reports a retryable failure instead of finalizing a fallback when the model times out", async () => {
     vi.useFakeTimers();
     vi.stubEnv("NVIDIA_API_KEY", "test-key");
+    vi.stubEnv("NVIDIA_MODEL", "nvidia/nemotron-3.5-lightning-30b-a3b");
     const fetchMock = vi.fn((_input: unknown, init?: RequestInit) => new Promise((_resolve, reject) => {
       init?.signal?.addEventListener("abort", () => reject(init.signal?.reason || new Error("aborted")), { once: true });
     }));
@@ -313,12 +314,11 @@ describe("digestBriefWithNvidia", () => {
       attempt: 1,
       interestProfile: { feedTargets: {}, preferredKeywords: [] },
     });
-
     await vi.advanceTimersByTimeAsync(60_000);
     const result = await generationPromise;
 
     expect(result).toMatchObject({
-      model: "nvidia/nemotron-3.5-lightning-30b-a3b",
+      model: "google/diffusiongemma-26b-a4b-it",
       status: "retryable_failure",
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -329,6 +329,7 @@ describe("digestBriefWithNvidia", () => {
 
   it("uses the active fallback model on the second durable attempt", async () => {
     vi.stubEnv("NVIDIA_API_KEY", "test-key");
+    vi.stubEnv("NVIDIA_FALLBACK_MODEL", "openai/gpt-oss-20b");
     const responseContent = JSON.stringify({
       coverageNote: "Brak danych.",
       highlights: [{ articleIndex: 0, whatHappened: "Fakt", whyItMatters: "Znaczenie" }],
@@ -363,8 +364,42 @@ describe("digestBriefWithNvidia", () => {
     });
     const request = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
 
-    expect(result.model).toBe("openai/gpt-oss-20b");
-    expect(request.model).toBe("openai/gpt-oss-20b");
+    expect(result.model).toBe("nvidia/nemotron-3.5-lightning-30b-a3b");
+    expect(result.status).toBe("generated");
+    expect(request.model).toBe("nvidia/nemotron-3.5-lightning-30b-a3b");
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+  });
+
+  it("uses DiffusionGemma-compatible sampling without an unsupported JSON response format", async () => {
+    vi.stubEnv("NVIDIA_API_KEY", "test-key");
+    vi.stubEnv("NVIDIA_FALLBACK_MODEL", "google/diffusiongemma-26b-a4b-it");
+    const fetchMock = vi.fn(async (_input: unknown, _init?: RequestInit) => ({
+      json: async () => ({ choices: [{ message: { content: "{}" } }] }),
+      ok: true,
+      status: 200,
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await generateDigestBriefWithNvidia({
+      articles: [{
+        category: "business",
+        importanceScore: 90,
+        publishedAt: null,
+        source: "Source",
+        sourceCount: 1,
+        summary: "Material",
+        title: "Tytuł",
+        whyInteresting: null,
+      }],
+      attempt: 2,
+      interestProfile: { feedTargets: {}, preferredKeywords: [] },
+    });
+    const request = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+
+    expect(request.response_format).toBeUndefined();
+    expect(request.temperature).toBe(1);
+    expect(request.top_p).toBe(0.95);
     vi.unstubAllGlobals();
     vi.unstubAllEnvs();
   });
@@ -401,6 +436,7 @@ describe("digestBriefWithNvidia", () => {
         whyInteresting: null,
       }],
       interestProfile: { feedTargets: {}, preferredKeywords: [] },
+      model: "nvidia/nemotron-3.5-lightning-30b-a3b",
     });
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
@@ -413,14 +449,14 @@ describe("digestBriefWithNvidia", () => {
     vi.unstubAllEnvs();
   });
 
-  it("bounds the daily briefing request to sixteen compact source articles", async () => {
+  it("keeps the daily briefing request small enough for the free inference endpoint", async () => {
     vi.stubEnv("NVIDIA_API_KEY", "test-key");
     const responseContent = JSON.stringify({
       coverageNote: "Brak danych.",
-      highlights: [{ articleIndex: 15, whatHappened: "Fakt", whyItMatters: "Znaczenie" }],
+      highlights: [{ articleIndex: 9, whatHappened: "Fakt", whyItMatters: "Znaczenie" }],
       sections: [{
         category: "business",
-        paragraphs: [{ articleIndexes: [15], text: "Krótka sekcja." }],
+        paragraphs: [{ articleIndexes: [9], text: "Krótka sekcja." }],
         title: "Gospodarka",
       }],
       summary: "Krótki lead.",
@@ -448,12 +484,12 @@ describe("digestBriefWithNvidia", () => {
     });
     const firstRequest = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
 
-    expect(firstRequest.messages[1].content).toContain("Techniczny ID źródła (tylko do pól articleIndex/articleIndexes): 15");
-    expect(firstRequest.messages[1].content).not.toContain("Techniczny ID źródła (tylko do pól articleIndex/articleIndexes): 16");
-    expect(firstRequest.messages[1].content).not.toContain("x".repeat(601));
-    expect(firstRequest.max_tokens).toBe(1_600);
+    expect(firstRequest.messages[1].content).toContain("Techniczny ID źródła (tylko do pól articleIndex/articleIndexes): 9");
+    expect(firstRequest.messages[1].content).not.toContain("Techniczny ID źródła (tylko do pól articleIndex/articleIndexes): 10");
+    expect(firstRequest.messages[1].content).not.toContain("x".repeat(351));
+    expect(firstRequest.max_tokens).toBe(1_200);
     expect(firstRequest.messages[0].content).toContain("Nie podawaj w tekście łącznej liczby newsów");
-    expect(result.highlights[0]?.articleIndex).toBe(15);
+    expect(result.highlights[0]?.articleIndex).toBe(9);
     vi.unstubAllGlobals();
     vi.unstubAllEnvs();
   });

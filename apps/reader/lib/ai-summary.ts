@@ -19,15 +19,15 @@ const DAILY_BRIEF_INITIAL_TIMEOUT_MS = 60_000;
 const DAILY_BRIEF_CORRECTION_TIMEOUT_MS = 40_000;
 const DAILY_BRIEF_TOTAL_TIMEOUT_MS = 100_000;
 const DAILY_BRIEF_MIN_CORRECTION_TIMEOUT_MS = 1_000;
-const FULL_BRIEF_MIN_WORDS = 450;
-const FULL_BRIEF_MAX_WORDS = 650;
-const LEAD_MIN_WORDS = 60;
-const LEAD_MAX_WORDS = 90;
-const SECTION_MIN_WORDS = 90;
-const SECTION_MAX_WORDS = 140;
-const DAILY_BRIEF_MAX_SOURCE_ARTICLES = 16;
-const DAILY_BRIEF_SOURCE_SUMMARY_MAX_CHARS = 600;
-const DAILY_BRIEF_MAX_TOKENS = 1_600;
+const FULL_BRIEF_MIN_WORDS = 250;
+const FULL_BRIEF_MAX_WORDS = 400;
+const LEAD_MIN_WORDS = 40;
+const LEAD_MAX_WORDS = 60;
+const SECTION_MIN_WORDS = 50;
+const SECTION_MAX_WORDS = 75;
+const DAILY_BRIEF_MAX_SOURCE_ARTICLES = 10;
+const DAILY_BRIEF_SOURCE_SUMMARY_MAX_CHARS = 350;
+const DAILY_BRIEF_MAX_TOKENS = 1_200;
 
 export type NvidiaArticlePreview = {
   clickIf: string;
@@ -90,8 +90,10 @@ export type DigestBriefInterestProfile = {
 };
 
 const DEFAULT_NVIDIA_API_URL = "https://integrate.api.nvidia.com/v1/chat/completions";
-const DEFAULT_NVIDIA_MODEL = "nvidia/nemotron-3.5-lightning-30b-a3b";
-const DEFAULT_NVIDIA_FALLBACK_MODEL = "openai/gpt-oss-20b";
+const DEFAULT_NVIDIA_MODEL = "google/diffusiongemma-26b-a4b-it";
+const DEFAULT_NVIDIA_FALLBACK_MODEL = "nvidia/nemotron-3.5-lightning-30b-a3b";
+const LEGACY_NVIDIA_PRIMARY_MODELS = new Set(["nvidia/nemotron-3.5-lightning-30b-a3b"]);
+const RETIRED_NVIDIA_FALLBACK_MODELS = new Set(["openai/gpt-oss-20b"]);
 
 const missingApiKeyWarnings = new Set<NvidiaChatPurpose>();
 
@@ -100,11 +102,36 @@ function nvidiaApiUrl() {
 }
 
 function nvidiaModel() {
-  return process.env.NVIDIA_MODEL || DEFAULT_NVIDIA_MODEL;
+  const configuredModel = process.env.NVIDIA_MODEL;
+  return !configuredModel || LEGACY_NVIDIA_PRIMARY_MODELS.has(configuredModel)
+    ? DEFAULT_NVIDIA_MODEL
+    : configuredModel;
 }
 
 function nvidiaFallbackModel() {
-  return process.env.NVIDIA_FALLBACK_MODEL || DEFAULT_NVIDIA_FALLBACK_MODEL;
+  const configuredModel = process.env.NVIDIA_FALLBACK_MODEL;
+  return !configuredModel || RETIRED_NVIDIA_FALLBACK_MODELS.has(configuredModel)
+    ? DEFAULT_NVIDIA_FALLBACK_MODEL
+    : configuredModel;
+}
+
+function isDiffusionGemmaModel(model: string) {
+  return model === "google/diffusiongemma-26b-a4b-it";
+}
+
+function dailyBriefGenerationParameters(model: string) {
+  if (isDiffusionGemmaModel(model)) {
+    return {
+      temperature: 1,
+      top_p: 0.95,
+    };
+  }
+
+  return {
+    response_format: { type: "json_object" },
+    temperature: 0.1,
+    top_p: 0.7,
+  };
 }
 
 function logMissingApiKey(purpose: NvidiaChatPurpose) {
@@ -555,7 +582,7 @@ export function validateDigestBriefQuality(brief: NvidiaDigestBrief) {
 export async function digestBriefWithNvidia({
   articles,
   interestProfile,
-  model,
+  model = nvidiaModel(),
 }: {
   articles: DigestBriefArticle[];
   interestProfile: DigestBriefInterestProfile;
@@ -598,21 +625,21 @@ Nie podawaj w tekście łącznej liczby newsów ani nie opisuj rozmiaru digestu.
 
 Zwróć wyłącznie poprawny JSON, bez markdownu.`;
   const briefShape =
-    '{"summary":"lead 60-90 słów","summaryArticleIndexes":[0],"highlights":[{"articleIndex":0,"whatHappened":"","whyItMatters":""}],"sections":[{"category":"","title":"","paragraphs":[{"text":"","articleIndexes":[0]}]}],"watchlist":[{"signal":"","why":"","articleIndexes":[0]}],"coverageNote":""}';
+    '{"summary":"lead 40-60 słów","summaryArticleIndexes":[0],"highlights":[{"articleIndex":0,"whatHappened":"","whyItMatters":""}],"sections":[{"category":"","title":"","paragraphs":[{"text":"","articleIndexes":[0]}]}],"watchlist":[{"signal":"","why":"","articleIndexes":[0]}],"coverageNote":""}';
   const requirements = `
 Wymagania redakcyjne:
 - wszystkie wartości tekstowe w JSON-ie, poza nazwami własnymi, zapisz po polsku;
-- summary to lead o długości 60–90 słów: podaj 2–4 najważniejsze fakty dnia i tylko jedną rzeczywiście udokumentowaną zależność; czytelnik ma od razu wiedzieć, kto zrobił co; każdy fakt lub zależność w summary musi wynikać z materiałów wskazanych w summaryArticleIndexes;
+- summary to lead o długości 40–60 słów: podaj 2–3 najważniejsze fakty dnia i najwyżej jedną rzeczywiście udokumentowaną zależność; czytelnik ma od razu wiedzieć, kto zrobił co; każdy fakt lub zależność w summary musi wynikać z materiałów wskazanych w summaryArticleIndexes;
 - summaryArticleIndexes zawiera wszystkie i tylko te techniczne ID materiałów, które potwierdzają informacje w summary; każde z tych ID musi też wystąpić jako articleIndex w highlights, aby źródło było widoczne na głównej stronie;
 - highlights to 3–4 najważniejsze fakty; whatHappened odpowiada konkretnie „kto zrobił co”, a whyItMatters nazywa podmiot dotknięty zmianą i mechanizm wpływu; jeśli nie da się tego wyjaśnić konkretnie, opisz tylko bezpośrednie znaczenie faktu;
-- sections to 3–4 tematyczne sekcje po 90–140 słów; każda sekcja ma 1–3 samodzielne akapity, a każdy akapit ma własne articleIndexes wskazujące dokładnie wykorzystane materiały;
+- sections to 3–4 tematyczne sekcje po 50–75 słów; każda sekcja ma 1–2 samodzielne akapity, a każdy akapit ma własne articleIndexes wskazujące dokładnie wykorzystane materiały;
 - każdy techniczny ID materiału może wystąpić w articleIndexes tylko jednego akapitu w całym sections; jeśli news pasuje do kilku kategorii, wybierz jedną najlepiej opisującą jego główny temat i nie opisuj go ponownie w innej sekcji;
 - każdy akapit buduj w kolejności: jedno zdanie z głównym faktem, 1–3 zdania niezbędnego kontekstu, opcjonalnie jedno zdanie o możliwym wpływie lub niewiadomej;
 - używaj krótkich tytułów mówiących wprost, czego dotyczy sekcja; unikaj abstrakcyjnych tytułów typu „Zmieniający się krajobraz”, „Nowa dynamika” lub „Rosnące wyzwania”;
 - większość tekstu mają stanowić sprawdzalne fakty; pomijaj opinię, jeśli materiały nie dają podstaw do opisania konkretnego wpływu;
 - używaj nazw osób, firm, instytucji i zdarzeń zamiast odwołań typu „pierwszy artykuł”, „artykuł 0”, „materiał nr 2”, „powyższe źródło” czy „articleIndex”; żaden techniczny indeks nie może trafić do summary, whatHappened, whyItMatters, title, text, signal, why ani coverageNote;
 - nie powtarzaj tej samej informacji w leadzie, highlights i sekcjach; lead i highlights mają być krótkim wskazaniem faktu, a sekcja może ten fakt rozwinąć wyłącznie nowym kontekstem, liczbami, konsekwencją lub kolejnym krokiem zamiast parafrazować wcześniejsze zdanie;
-- łączna długość tekstu faktycznie wyświetlanego (summary, akapity sekcji, watchlist i coverageNote) ma wynosić 450–650 słów; nie wydłużaj tekstu przez powtórzenia lub ogólniki;
+- łączna długość tekstu faktycznie wyświetlanego (summary, akapity sekcji, watchlist i coverageNote) ma wynosić 250–400 słów; nie wydłużaj tekstu przez powtórzenia lub ogólniki;
 - watchlist to 1–4 konkretne, wynikające z materiałów sygnały, decyzje lub terminy do obserwowania wraz z rzeczowym powodem; nie wymyślaj dat ani scenariuszy;
 - coverageNote to uczciwe zdanie o ograniczeniu materiału;
 - articleIndex i articleIndexes są niewidocznymi metadanymi źródeł: wpisuj w nich wyłącznie techniczne ID od 0 do ${promptArticles.length - 1} i nigdy nie przywołuj ich w tekście;
@@ -635,6 +662,7 @@ ${sourceMaterial}`;
   try {
     const content = await requestNvidiaChat({
       body: {
+        ...dailyBriefGenerationParameters(model),
         max_tokens: DAILY_BRIEF_MAX_TOKENS,
         messages: [
           {
@@ -649,9 +677,6 @@ Materiały:
 ${sourceMaterial}`,
           },
         ],
-        response_format: { type: "json_object" },
-        temperature: 0.1,
-        top_p: 0.7,
       },
       model,
       purpose: "daily-brief",
@@ -666,7 +691,7 @@ ${sourceMaterial}`,
       return fallback;
     }
 
-    if (firstBrief && firstQuality?.valid) {
+    if (firstBrief && (firstQuality?.valid || isDiffusionGemmaModel(model))) {
       return firstBrief;
     }
 
@@ -688,6 +713,7 @@ ${sourceMaterial}`,
 
     const correctionContent = await requestNvidiaChat({
       body: {
+        ...dailyBriefGenerationParameters(model),
         max_tokens: DAILY_BRIEF_MAX_TOKENS,
         messages: [
           { role: "system", content: systemPrompt },
@@ -699,9 +725,6 @@ ${sourceMaterial}`,
             ),
           },
         ],
-        response_format: { type: "json_object" },
-        temperature: 0.1,
-        top_p: 0.7,
       },
       model,
       purpose: "daily-brief",
