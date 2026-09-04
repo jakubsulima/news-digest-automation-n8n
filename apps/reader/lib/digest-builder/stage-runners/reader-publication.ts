@@ -4,7 +4,11 @@ import type { Database, Json } from "../../database.types";
 import { isDigestBriefSchemaError } from "../../digest-brief";
 import { getDigestRunById } from "../../digest-runs";
 import { getDigestSettingsForRun } from "../../digest-settings";
-import { digestBriefWithNvidia, fallbackDigestBrief } from "../../ai-summary";
+import {
+  fallbackDigestBrief,
+  generateDigestBriefWithNvidia,
+  type DigestBriefGenerationResult,
+} from "../../ai-summary";
 import { readingTimeMinutesForDigestBrief } from "../../digest-brief-text";
 import { evidenceDetailsFromSignals } from "../../evidence";
 import { createSupabaseAdminClient } from "../../supabase";
@@ -15,6 +19,16 @@ import { chunk, compactText, jsonNumber, jsonString, jsonStringArray } from "../
 
 type NewsItemInsert = Database["public"]["Tables"]["news_items"]["Insert"];
 type DigestSummaryInsert = Database["public"]["Tables"]["digest_summaries"]["Insert"];
+
+const MAX_AI_BRIEF_ATTEMPTS = 3;
+
+export function shouldRetryAiBriefGeneration(
+  status: DigestBriefGenerationResult["status"],
+  attempt: number,
+) {
+  return status === "retryable_failure" && attempt < MAX_AI_BRIEF_ATTEMPTS;
+}
+
 type StorySnapshotRow = Database["public"]["Tables"]["story_snapshots"]["Row"];
 
 function jsonRecord(value: Json): Record<string, Json | undefined> {
@@ -135,7 +149,7 @@ async function cleanupExpiredReaderData() {
   return { deletedEventCount: deletedEventCount || 0, deletedNewsItemCount: deletableIds.length };
 }
 
-export const runReaderPublicationStage: StageRunner = async ({ digestRunId }) => {
+export const runReaderPublicationStage: StageRunner = async ({ digestRunId, stage }) => {
   const run = await getDigestRunById(digestRunId);
   const settings = await getDigestSettingsForRun(digestRunId);
 
@@ -295,15 +309,36 @@ export const runReaderPublicationStage: StageRunner = async ({ digestRunId }) =>
     article.evidenceStatus === "limited" ? [] : [{ article, index }],
   );
   const briefInput = synthesisArticles.length ? synthesisArticles.map(({ article }) => article) : briefingArticles;
-  const brief = settings.useAiSummaries && synthesisArticles.length
-    ? await digestBriefWithNvidia({
+  const aiGeneration = settings.useAiSummaries && synthesisArticles.length
+    ? await generateDigestBriefWithNvidia({
+        attempt: stage.attempt_count,
         interestProfile: {
           feedTargets: settings.feedTargets,
           preferredKeywords: settings.preferredKeywords,
         },
         articles: briefInput,
       })
-    : fallbackDigestBrief(briefInput);
+    : null;
+
+  if (aiGeneration && shouldRetryAiBriefGeneration(aiGeneration.status, stage.attempt_count)) {
+    return {
+      complete: false,
+      message: `AI briefing attempt ${stage.attempt_count}/${MAX_AI_BRIEF_ATTEMPTS} failed; reader publication will retry.`,
+      metrics: {
+        aiBriefAttempt: stage.attempt_count,
+        aiBriefModel: aiGeneration.model,
+        aiBriefStatus: aiGeneration.status,
+        publishedCount: rows.length,
+        settings: {
+          publishTopN: settings.publishTopN,
+          summaryMaxChars: settings.summaryMaxChars,
+          useAiSummaries: settings.useAiSummaries,
+        },
+      },
+    };
+  }
+
+  const brief = aiGeneration?.brief ?? fallbackDigestBrief(briefInput);
   const briefCoverageNote = synthesisArticles.length < briefingArticles.length
     ? `${brief.coverageNote} ${briefingArticles.length - synthesisArticles.length} ${briefingArticles.length - synthesisArticles.length === 1 ? "materiał" : "materiały"} o ograniczonym pokryciu pominięto w syntezie.`
     : brief.coverageNote;
@@ -425,6 +460,9 @@ export const runReaderPublicationStage: StageRunner = async ({ digestRunId }) =>
       deletedStaleCount: cleanup.deletedNewsItemCount,
       digestBriefHighlightCount: highlights.length,
       digestBriefSectionCount: sections.length,
+      aiBriefAttempt: aiGeneration ? stage.attempt_count : null,
+      aiBriefModel: aiGeneration?.model ?? null,
+      aiBriefStatus: aiGeneration?.status ?? "disabled_or_unsupported",
       publishedCount: rows.length,
       settings: {
         publishTopN: settings.publishTopN,

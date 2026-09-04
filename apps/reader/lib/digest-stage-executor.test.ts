@@ -310,4 +310,28 @@ describe("advanceDigestRun", () => {
     expect(state.runStageForRun).toHaveBeenCalledOnce();
     expect(state.runStageForRun).toHaveBeenCalledWith(claimedEditorialScoring, "run-1");
   });
+
+  it("yields after a retryable reader publication attempt", async () => {
+    const readerPublication = stage({ stage_name: "reader_publication" });
+    const claimedReaderPublication = stage({
+      ...readerPublication,
+      attempt_count: 1,
+      started_at: "2026-06-19T10:00:00.000Z",
+      status: "running",
+    });
+    state.getDigestRunById.mockResolvedValueOnce(run({ stages: [readerPublication], status: "running" }));
+    state.maybeSingleResults = [{ data: claimedReaderPublication, error: null }];
+    state.runStageForRun.mockResolvedValueOnce({
+      complete: false,
+      message: "AI briefing will retry.",
+    });
+    const executor = await import("./digest-stage-executor");
+
+    await expect(executor.advanceDigestRunUntilIdle("run-1")).resolves.toMatchObject({
+      advancedStage: "reader_publication",
+      message: "AI briefing will retry.",
+      status: "running",
+    });
+    expect(state.runStageForRun).toHaveBeenCalledOnce();
+  });
 });

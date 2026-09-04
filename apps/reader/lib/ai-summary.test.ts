@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   fallbackDigestBrief,
+  generateDigestBriefWithNvidia,
   digestBriefWithNvidia,
   parseArticlePreviewJson,
   parseDigestBriefJson,
@@ -290,6 +291,84 @@ describe("validateDigestBriefQuality", () => {
 });
 
 describe("digestBriefWithNvidia", () => {
+  it("reports a retryable failure instead of finalizing a fallback when the model times out", async () => {
+    vi.useFakeTimers();
+    vi.stubEnv("NVIDIA_API_KEY", "test-key");
+    const fetchMock = vi.fn((_input: unknown, init?: RequestInit) => new Promise((_resolve, reject) => {
+      init?.signal?.addEventListener("abort", () => reject(init.signal?.reason || new Error("aborted")), { once: true });
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const generationPromise = generateDigestBriefWithNvidia({
+      articles: [{
+        category: "business",
+        importanceScore: 90,
+        publishedAt: null,
+        source: "Source",
+        sourceCount: 1,
+        summary: "Material",
+        title: "Tytuł",
+        whyInteresting: null,
+      }],
+      attempt: 1,
+      interestProfile: { feedTargets: {}, preferredKeywords: [] },
+    });
+
+    await vi.advanceTimersByTimeAsync(60_000);
+    const result = await generationPromise;
+
+    expect(result).toMatchObject({
+      model: "nvidia/nemotron-3.5-lightning-30b-a3b",
+      status: "retryable_failure",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+  });
+
+  it("uses the active fallback model on the second durable attempt", async () => {
+    vi.stubEnv("NVIDIA_API_KEY", "test-key");
+    const responseContent = JSON.stringify({
+      coverageNote: "Brak danych.",
+      highlights: [{ articleIndex: 0, whatHappened: "Fakt", whyItMatters: "Znaczenie" }],
+      sections: [{
+        category: "business",
+        paragraphs: [{ articleIndexes: [0], text: "Krótka sekcja." }],
+        title: "Gospodarka",
+      }],
+      summary: "Krótki lead.",
+      watchlist: [],
+    });
+    const fetchMock = vi.fn(async (_input: unknown, _init?: RequestInit) => ({
+      json: async () => ({ choices: [{ message: { content: responseContent } }] }),
+      ok: true,
+      status: 200,
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await generateDigestBriefWithNvidia({
+      articles: [{
+        category: "business",
+        importanceScore: 90,
+        publishedAt: null,
+        source: "Source",
+        sourceCount: 1,
+        summary: "Material",
+        title: "Tytuł",
+        whyInteresting: null,
+      }],
+      attempt: 2,
+      interestProfile: { feedTargets: {}, preferredKeywords: [] },
+    });
+    const request = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+
+    expect(result.model).toBe("openai/gpt-oss-20b");
+    expect(request.model).toBe("openai/gpt-oss-20b");
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+  });
+
   it("makes exactly one correction request after an incomplete first response", async () => {
     vi.stubEnv("NVIDIA_API_KEY", "test-key");
     const responseContent = JSON.stringify({
@@ -334,14 +413,14 @@ describe("digestBriefWithNvidia", () => {
     vi.unstubAllEnvs();
   });
 
-  it("includes selected articles beyond the former fixed limit of 30", async () => {
+  it("bounds the daily briefing request to sixteen compact source articles", async () => {
     vi.stubEnv("NVIDIA_API_KEY", "test-key");
     const responseContent = JSON.stringify({
       coverageNote: "Brak danych.",
-      highlights: [{ articleIndex: 30, whatHappened: "Fakt", whyItMatters: "Znaczenie" }],
+      highlights: [{ articleIndex: 15, whatHappened: "Fakt", whyItMatters: "Znaczenie" }],
       sections: [{
         category: "business",
-        paragraphs: [{ articleIndexes: [30], text: "Krótka sekcja." }],
+        paragraphs: [{ articleIndexes: [15], text: "Krótka sekcja." }],
         title: "Gospodarka",
       }],
       summary: "Krótki lead.",
@@ -355,13 +434,13 @@ describe("digestBriefWithNvidia", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const result = await digestBriefWithNvidia({
-      articles: Array.from({ length: 31 }, (_, index) => ({
+      articles: Array.from({ length: 20 }, (_, index) => ({
         category: "business",
         importanceScore: 90,
         publishedAt: null,
         source: `Source ${index}`,
         sourceCount: 1,
-        summary: `Material ${index}`,
+        summary: `Material ${index} ${"x".repeat(900)}`,
         title: `Tytuł ${index}`,
         whyInteresting: null,
       })),
@@ -369,9 +448,12 @@ describe("digestBriefWithNvidia", () => {
     });
     const firstRequest = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
 
-    expect(firstRequest.messages[1].content).toContain("Techniczny ID źródła (tylko do pól articleIndex/articleIndexes): 30");
+    expect(firstRequest.messages[1].content).toContain("Techniczny ID źródła (tylko do pól articleIndex/articleIndexes): 15");
+    expect(firstRequest.messages[1].content).not.toContain("Techniczny ID źródła (tylko do pól articleIndex/articleIndexes): 16");
+    expect(firstRequest.messages[1].content).not.toContain("x".repeat(601));
+    expect(firstRequest.max_tokens).toBe(1_600);
     expect(firstRequest.messages[0].content).toContain("Nie podawaj w tekście łącznej liczby newsów");
-    expect(result.highlights[0]?.articleIndex).toBe(30);
+    expect(result.highlights[0]?.articleIndex).toBe(15);
     vi.unstubAllGlobals();
     vi.unstubAllEnvs();
   });

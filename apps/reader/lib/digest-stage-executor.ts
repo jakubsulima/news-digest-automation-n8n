@@ -269,9 +269,9 @@ export async function advanceDigestRunUntilIdle(
     }
 
     // Reader publication can spend the full AI budget generating and correcting
-    // a digest. Start it in a fresh background invocation instead of consuming
-    // the remainder of one that already ran the preceding pipeline stages.
-    if (result.advancedStage === "editorial_scoring") {
+    // a digest. Start it in a fresh invocation and yield after each attempt so a
+    // queued retry never consumes the same serverless function budget.
+    if (result.advancedStage === "editorial_scoring" || result.advancedStage === "reader_publication") {
       return result;
     }
   }

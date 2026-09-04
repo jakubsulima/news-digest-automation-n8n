@@ -81,7 +81,8 @@ NEXT_PUBLIC_APP_URL=http://127.0.0.1:3000
 DIGEST_RUN_RETENTION_LIMIT=100
 NVIDIA_API_KEY=
 NVIDIA_API_URL=https://integrate.api.nvidia.com/v1/chat/completions
-NVIDIA_MODEL=nvidia/nemotron-3-nano-30b-a3b
+NVIDIA_MODEL=nvidia/nemotron-3.5-lightning-30b-a3b
+NVIDIA_FALLBACK_MODEL=openai/gpt-oss-20b
 ```
 
 Notes:
@@ -90,7 +91,7 @@ Notes:
 - `ALLOWED_READER_EMAILS` is a comma-separated login allowlist.
 - Set `NEXT_PUBLIC_APP_URL` to the production Vercel URL after deployment.
 - `DIGEST_RUN_RETENTION_LIMIT` is optional. Queued and running runs are never pruned.
-- `NVIDIA_API_KEY`, `NVIDIA_API_URL`, and `NVIDIA_MODEL` enable the optional AI summaries and daily briefing. The API URL and model shown above are the defaults.
+- `NVIDIA_API_KEY`, `NVIDIA_API_URL`, and `NVIDIA_MODEL` enable the optional AI summaries and daily briefing. `NVIDIA_FALLBACK_MODEL` is used on the second of up to three durable publication attempts. The values shown above are the defaults.
 
 ## Supabase Setup
 
