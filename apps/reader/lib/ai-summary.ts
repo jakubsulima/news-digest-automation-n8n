@@ -25,6 +25,9 @@ const LEAD_MIN_WORDS = 60;
 const LEAD_MAX_WORDS = 90;
 const SECTION_MIN_WORDS = 90;
 const SECTION_MAX_WORDS = 140;
+const DAILY_BRIEF_MAX_SOURCE_ARTICLES = 16;
+const DAILY_BRIEF_SOURCE_SUMMARY_MAX_CHARS = 600;
+const DAILY_BRIEF_MAX_TOKENS = 1_600;
 
 export type NvidiaArticlePreview = {
   clickIf: string;
@@ -88,6 +91,7 @@ export type DigestBriefInterestProfile = {
 
 const DEFAULT_NVIDIA_API_URL = "https://integrate.api.nvidia.com/v1/chat/completions";
 const DEFAULT_NVIDIA_MODEL = "nvidia/nemotron-3.5-lightning-30b-a3b";
+const DEFAULT_NVIDIA_FALLBACK_MODEL = "openai/gpt-oss-20b";
 
 const missingApiKeyWarnings = new Set<NvidiaChatPurpose>();
 
@@ -96,7 +100,11 @@ function nvidiaApiUrl() {
 }
 
 function nvidiaModel() {
-  return process.env.NVIDIA_MODEL || process.env.NVIDIA_NIM_MODEL || DEFAULT_NVIDIA_MODEL;
+  return process.env.NVIDIA_MODEL || DEFAULT_NVIDIA_MODEL;
+}
+
+function nvidiaFallbackModel() {
+  return process.env.NVIDIA_FALLBACK_MODEL || DEFAULT_NVIDIA_FALLBACK_MODEL;
 }
 
 function logMissingApiKey(purpose: NvidiaChatPurpose) {
@@ -110,10 +118,12 @@ function logMissingApiKey(purpose: NvidiaChatPurpose) {
 
 async function requestNvidiaChat({
   body,
+  model: requestedModel,
   purpose,
   timeoutMs = NVIDIA_REQUEST_TIMEOUT_MS,
 }: {
   body: Record<string, unknown>;
+  model?: string;
   purpose: NvidiaChatPurpose;
   timeoutMs?: number;
 }) {
@@ -124,7 +134,7 @@ async function requestNvidiaChat({
     return null;
   }
 
-  const model = nvidiaModel();
+  const model = requestedModel || nvidiaModel();
   const startedAt = Date.now();
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
@@ -545,9 +555,11 @@ export function validateDigestBriefQuality(brief: NvidiaDigestBrief) {
 export async function digestBriefWithNvidia({
   articles,
   interestProfile,
+  model,
 }: {
   articles: DigestBriefArticle[];
   interestProfile: DigestBriefInterestProfile;
+  model?: string;
 }): Promise<NvidiaDigestBrief> {
   const fallback = fallbackDigestBrief(articles);
 
@@ -556,11 +568,12 @@ export async function digestBriefWithNvidia({
   }
 
   const aiStartedAt = Date.now();
+  const promptArticles = articles.slice(0, DAILY_BRIEF_MAX_SOURCE_ARTICLES);
 
-  const sourceMaterial = articles
+  const sourceMaterial = promptArticles
     .map(
       (article, index) =>
-        `Techniczny ID źródła (tylko do pól articleIndex/articleIndexes): ${index}\nKategoria: ${article.category}\nWażność: ${article.importanceScore}/100\nTytuł: ${article.title}\nŹródło: ${article.source} (${article.sourceCount} ${article.sourceCount === 1 ? "źródło" : "źródła"})\nPublikacja: ${article.publishedAt || "brak daty"}\nDlaczego wybrane: ${article.whyInteresting || "brak osobnej adnotacji"}\nTreść: ${article.summary.slice(0, 900)}`,
+        `Techniczny ID źródła (tylko do pól articleIndex/articleIndexes): ${index}\nKategoria: ${article.category}\nWażność: ${article.importanceScore}/100\nTytuł: ${article.title}\nŹródło: ${article.source} (${article.sourceCount} ${article.sourceCount === 1 ? "źródło" : "źródła"})\nPublikacja: ${article.publishedAt || "brak daty"}\nDlaczego wybrane: ${article.whyInteresting || "brak osobnej adnotacji"}\nTreść: ${article.summary.slice(0, DAILY_BRIEF_SOURCE_SUMMARY_MAX_CHARS)}`,
     )
     .join("\n\n");
   const interests = Object.entries(interestProfile.feedTargets)
@@ -602,7 +615,7 @@ Wymagania redakcyjne:
 - łączna długość tekstu faktycznie wyświetlanego (summary, akapity sekcji, watchlist i coverageNote) ma wynosić 450–650 słów; nie wydłużaj tekstu przez powtórzenia lub ogólniki;
 - watchlist to 1–4 konkretne, wynikające z materiałów sygnały, decyzje lub terminy do obserwowania wraz z rzeczowym powodem; nie wymyślaj dat ani scenariuszy;
 - coverageNote to uczciwe zdanie o ograniczeniu materiału;
-- articleIndex i articleIndexes są niewidocznymi metadanymi źródeł: wpisuj w nich wyłącznie techniczne ID od 0 do ${articles.length - 1} i nigdy nie przywołuj ich w tekście;
+- articleIndex i articleIndexes są niewidocznymi metadanymi źródeł: wpisuj w nich wyłącznie techniczne ID od 0 do ${promptArticles.length - 1} i nigdy nie przywołuj ich w tekście;
 - readingTimeMinutes pomiń — czas zostanie obliczony z faktycznie wyświetlanego tekstu.
 
 Zwróć dokładnie ten kształt JSON:
@@ -622,7 +635,7 @@ ${sourceMaterial}`;
   try {
     const content = await requestNvidiaChat({
       body: {
-        max_tokens: 2_400,
+        max_tokens: DAILY_BRIEF_MAX_TOKENS,
         messages: [
           {
             role: "system",
@@ -640,11 +653,12 @@ ${sourceMaterial}`,
         temperature: 0.1,
         top_p: 0.7,
       },
+      model,
       purpose: "daily-brief",
       timeoutMs: DAILY_BRIEF_INITIAL_TIMEOUT_MS,
     });
 
-    const articleCount = articles.length;
+    const articleCount = promptArticles.length;
     const firstBrief = content ? parseDigestBriefJson(content, articleCount) : null;
     const firstQuality = firstBrief ? validateDigestBriefQuality(firstBrief) : null;
 
@@ -674,7 +688,7 @@ ${sourceMaterial}`,
 
     const correctionContent = await requestNvidiaChat({
       body: {
-        max_tokens: 2_400,
+        max_tokens: DAILY_BRIEF_MAX_TOKENS,
         messages: [
           { role: "system", content: systemPrompt },
           {
@@ -689,6 +703,7 @@ ${sourceMaterial}`,
         temperature: 0.1,
         top_p: 0.7,
       },
+      model,
       purpose: "daily-brief",
       timeoutMs: correctionTimeoutMs,
     });
@@ -714,6 +729,38 @@ ${sourceMaterial}`,
   } catch {
     return fallback;
   }
+}
+
+export type DigestBriefGenerationResult = {
+  brief: NvidiaDigestBrief;
+  model: string;
+  status: "generated" | "retryable_failure" | "unavailable";
+};
+
+export async function generateDigestBriefWithNvidia({
+  articles,
+  attempt,
+  interestProfile,
+}: {
+  articles: DigestBriefArticle[];
+  attempt: number;
+  interestProfile: DigestBriefInterestProfile;
+}): Promise<DigestBriefGenerationResult> {
+  const fallback = fallbackDigestBrief(articles);
+  const model = attempt % 2 === 0 ? nvidiaFallbackModel() : nvidiaModel();
+
+  if (!hasNvidiaSummaryConfig()) {
+    return { brief: fallback, model, status: "unavailable" };
+  }
+
+  const brief = await digestBriefWithNvidia({ articles, interestProfile, model });
+  const usedFallback = brief.coverageNote === fallback.coverageNote && brief.summary === fallback.summary;
+
+  return {
+    brief,
+    model,
+    status: usedFallback ? "retryable_failure" : "generated",
+  };
 }
 
 export function parseArticlePreviewJson(content: string): NvidiaArticlePreview | null {
