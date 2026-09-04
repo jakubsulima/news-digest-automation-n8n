@@ -81,8 +81,8 @@ NEXT_PUBLIC_APP_URL=http://127.0.0.1:3000
 DIGEST_RUN_RETENTION_LIMIT=100
 NVIDIA_API_KEY=
 NVIDIA_API_URL=https://integrate.api.nvidia.com/v1/chat/completions
-NVIDIA_MODEL=nvidia/nemotron-3.5-lightning-30b-a3b
-NVIDIA_FALLBACK_MODEL=openai/gpt-oss-20b
+NVIDIA_MODEL=google/diffusiongemma-26b-a4b-it
+NVIDIA_FALLBACK_MODEL=nvidia/nemotron-3.5-lightning-30b-a3b
 ```
 
 Notes:
