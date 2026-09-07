@@ -16,9 +16,6 @@ type NvidiaChatPurpose = "article-preview" | "summary-shortening" | "daily-brief
 const NVIDIA_LOG_PREFIX = "[nvidia-ai]";
 const NVIDIA_REQUEST_TIMEOUT_MS = 20_000;
 const DAILY_BRIEF_INITIAL_TIMEOUT_MS = 60_000;
-const DAILY_BRIEF_CORRECTION_TIMEOUT_MS = 40_000;
-const DAILY_BRIEF_TOTAL_TIMEOUT_MS = 100_000;
-const DAILY_BRIEF_MIN_CORRECTION_TIMEOUT_MS = 1_000;
 const FULL_BRIEF_MIN_WORDS = 350;
 const FULL_BRIEF_MAX_WORDS = 550;
 const LEAD_MIN_WORDS = 60;
@@ -27,7 +24,7 @@ const SECTION_MIN_WORDS = 90;
 const SECTION_MAX_WORDS = 120;
 const DAILY_BRIEF_MAX_SOURCE_ARTICLES = 10;
 const DAILY_BRIEF_SOURCE_SUMMARY_MAX_CHARS = 350;
-const DAILY_BRIEF_MAX_TOKENS = 1_200;
+const DAILY_BRIEF_MAX_TOKENS = 2_400;
 
 export type NvidiaArticlePreview = {
   clickIf: string;
@@ -508,7 +505,8 @@ export function parseDigestBriefJson(content: string, articleCount: number): Nvi
 }
 
 export function validateDigestBriefQuality(brief: NvidiaDigestBrief) {
-  const reasons: string[] = [];
+  const hardErrors: string[] = [];
+  const warnings: string[] = [];
   const seenSectionArticleIndexes = new Set<number>();
   const repeatedSectionArticleIndexes = new Set<number>();
   for (const articleIndex of brief.sections.flatMap((section) =>
@@ -547,95 +545,34 @@ export function validateDigestBriefQuality(brief: NvidiaDigestBrief) {
   const englishMarkerCount = readerFacingText.match(/\b(?:and|are|could|for|from|has|have|into|may|the|this|that|was|were|while|with|would)\b/giu)?.length || 0;
 
   if (leadWords < LEAD_MIN_WORDS || leadWords > LEAD_MAX_WORDS) {
-    reasons.push(`lead must contain ${LEAD_MIN_WORDS}-${LEAD_MAX_WORDS} words`);
+    warnings.push(`lead should contain ${LEAD_MIN_WORDS}-${LEAD_MAX_WORDS} words`);
   }
   if (brief.sections.length < 3 || brief.sections.length > 4) {
-    reasons.push("briefing must contain 3-4 thematic sections");
+    warnings.push("briefing should contain 3-4 thematic sections when the input supports it");
   }
   if (sectionWordCounts.some((count) => count < SECTION_MIN_WORDS || count > SECTION_MAX_WORDS)) {
-    reasons.push(`each section must contain ${SECTION_MIN_WORDS}-${SECTION_MAX_WORDS} words`);
-  }
-  if (!brief.watchlist.length) {
-    reasons.push("briefing must contain at least one concrete watchlist signal");
+    warnings.push(`each full-input section should contain ${SECTION_MIN_WORDS}-${SECTION_MAX_WORDS} words`);
   }
   if (!brief.summaryArticleIndexes.length) {
-    reasons.push("lead must reference at least one highlighted source");
+    hardErrors.push("lead must reference at least one highlighted source");
   }
   if (repeatedSectionArticleIndexes.size) {
-    reasons.push("each source story must be described in only one section paragraph");
+    hardErrors.push("each source story must be described in only one section paragraph");
   }
   if (actualTotalWords < FULL_BRIEF_MIN_WORDS || actualTotalWords > FULL_BRIEF_MAX_WORDS) {
-    reasons.push(`briefing must contain ${FULL_BRIEF_MIN_WORDS}-${FULL_BRIEF_MAX_WORDS} displayed words`);
+    warnings.push(`full briefing should contain ${FULL_BRIEF_MIN_WORDS}-${FULL_BRIEF_MAX_WORDS} displayed words`);
   }
   if (englishMarkerCount >= 6 && englishMarkerCount > polishMarkerCount * 2) {
-    reasons.push("all reader-facing text must be written in Polish");
+    hardErrors.push("reader-facing text is predominantly not Polish");
   }
 
   return {
     actualTotalWords,
     readingTimeMinutes: totalWords,
-    valid: reasons.length === 0,
-    reasons,
-  };
-}
-
-async function expandTerseDiffusionGemmaBrief({
-  brief,
-  model,
-  sourceMaterial,
-}: {
-  brief: NvidiaDigestBrief;
-  model: string;
-  sourceMaterial: string;
-}) {
-  const systemPrompt = "Rozwijasz fragment polskiego briefingu newsowego. Używaj wyłącznie faktów z przekazanych materiałów. Podawaj konkretne podmioty, działania, liczby, kontekst i następne kroki. Nie dodawaj nagłówka, markdownu, JSON-u, komentarza ani informacji o długości tekstu.";
-  const expansionRequest = (prompt: string, maxTokens: number) => requestNvidiaChat({
-    body: {
-      ...dailyBriefGenerationParameters(model),
-      max_tokens: maxTokens,
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: `${prompt}\n\nMateriały źródłowe:\n${sourceMaterial}` },
-      ],
-    },
-    model,
-    purpose: "daily-brief",
-    timeoutMs: DAILY_BRIEF_CORRECTION_TIMEOUT_MS,
-  });
-  const [expandedSummary, ...expandedSections] = await Promise.all([
-    expansionRequest(
-      `Rozwiń lead do 65–80 słów. Zachowaj jego fakty i wskaż 3–4 najważniejsze wydarzenia bez powtórzeń.\n\nObecny lead:\n${brief.summary}`,
-      240,
-    ),
-    ...brief.sections.map((section) => expansionRequest(
-      `Rozwiń sekcję „${section.title}” do 100–120 słów. Wyjaśnij znaczenie faktów konkretnym mechanizmem i dodaj istotny kontekst obecny w źródłach.\n\nObecna sekcja:\n${section.paragraphs.map((paragraph) => paragraph.text).join(" ")}`,
-      360,
-    )),
-  ]);
-  const summary = boundedString(expandedSummary, 1_000, LEAD_MAX_WORDS) || brief.summary;
-  const sections = brief.sections.map((section, index) => {
-    const expandedText = boundedString(expandedSections[index], 1_600, SECTION_MAX_WORDS);
-    if (!expandedText) return section;
-
-    return {
-      ...section,
-      paragraphs: [{
-        articleIndexes: Array.from(new Set(section.paragraphs.flatMap((paragraph) => paragraph.articleIndexes))),
-        text: expandedText,
-      }],
-    };
-  });
-
-  return {
-    ...brief,
-    readingTimeMinutes: readingTimeMinutesForDigestBrief({
-      coverageNote: brief.coverageNote,
-      sections,
-      summary,
-      watchlist: brief.watchlist,
-    }),
-    sections,
-    summary,
+    valid: hardErrors.length === 0,
+    hardErrors,
+    warnings,
+    reasons: [...hardErrors, ...warnings],
   };
 }
 
@@ -643,10 +580,12 @@ export async function digestBriefWithNvidia({
   articles,
   interestProfile,
   model = nvidiaModel(),
+  timeoutMs = DAILY_BRIEF_INITIAL_TIMEOUT_MS,
 }: {
   articles: DigestBriefArticle[];
   interestProfile: DigestBriefInterestProfile;
   model?: string;
+  timeoutMs?: number;
 }): Promise<NvidiaDigestBrief> {
   const fallback = fallbackDigestBrief(articles);
 
@@ -654,7 +593,6 @@ export async function digestBriefWithNvidia({
     return fallback;
   }
 
-  const aiStartedAt = Date.now();
   const promptArticles = articles.slice(0, DAILY_BRIEF_MAX_SOURCE_ARTICLES);
 
   const sourceMaterial = promptArticles
@@ -685,40 +623,28 @@ Nie podawaj w tekście łącznej liczby newsów ani nie opisuj rozmiaru digestu.
 
 Zwróć wyłącznie poprawny JSON, bez markdownu.`;
   const briefShape =
-    '{"summary":"lead 40-60 słów","summaryArticleIndexes":[0],"highlights":[{"articleIndex":0,"whatHappened":"","whyItMatters":""}],"sections":[{"category":"","title":"","paragraphs":[{"text":"","articleIndexes":[0]}]}],"watchlist":[{"signal":"","why":"","articleIndexes":[0]}],"coverageNote":""}';
+    '{"summary":"lead","summaryArticleIndexes":[0],"highlights":[{"articleIndex":0,"whatHappened":"","whyItMatters":""}],"sections":[{"category":"","title":"","paragraphs":[{"text":"","articleIndexes":[0]}]}],"watchlist":[],"coverageNote":""}';
   const requirements = `
 Wymagania redakcyjne:
 - wszystkie wartości tekstowe w JSON-ie, poza nazwami własnymi, zapisz po polsku;
-- summary to lead o długości 40–60 słów: podaj 2–3 najważniejsze fakty dnia i najwyżej jedną rzeczywiście udokumentowaną zależność; czytelnik ma od razu wiedzieć, kto zrobił co; każdy fakt lub zależność w summary musi wynikać z materiałów wskazanych w summaryArticleIndexes;
+- summary to lead o długości 60–80 słów dla co najmniej 3 historii, a przy 1–2 historiach krótszy: podaj najważniejsze fakty i najwyżej jedną rzeczywiście udokumentowaną zależność;
 - summaryArticleIndexes zawiera wszystkie i tylko te techniczne ID materiałów, które potwierdzają informacje w summary; każde z tych ID musi też wystąpić jako articleIndex w highlights, aby źródło było widoczne na głównej stronie;
 - highlights to 3–4 najważniejsze fakty; whatHappened odpowiada konkretnie „kto zrobił co”, a whyItMatters nazywa podmiot dotknięty zmianą i mechanizm wpływu; jeśli nie da się tego wyjaśnić konkretnie, opisz tylko bezpośrednie znaczenie faktu;
-- sections to 3–4 tematyczne sekcje po 50–75 słów; każda sekcja ma 1–2 samodzielne akapity, a każdy akapit ma własne articleIndexes wskazujące dokładnie wykorzystane materiały;
+- sections to 3–4 tematyczne sekcje po 90–120 słów dla co najmniej 3 opisanych historii; przy 1–2 historiach utwórz 1–2 krótsze sekcje;
 - każdy techniczny ID materiału może wystąpić w articleIndexes tylko jednego akapitu w całym sections; jeśli news pasuje do kilku kategorii, wybierz jedną najlepiej opisującą jego główny temat i nie opisuj go ponownie w innej sekcji;
 - każdy akapit buduj w kolejności: jedno zdanie z głównym faktem, 1–3 zdania niezbędnego kontekstu, opcjonalnie jedno zdanie o możliwym wpływie lub niewiadomej;
 - używaj krótkich tytułów mówiących wprost, czego dotyczy sekcja; unikaj abstrakcyjnych tytułów typu „Zmieniający się krajobraz”, „Nowa dynamika” lub „Rosnące wyzwania”;
 - większość tekstu mają stanowić sprawdzalne fakty; pomijaj opinię, jeśli materiały nie dają podstaw do opisania konkretnego wpływu;
 - używaj nazw osób, firm, instytucji i zdarzeń zamiast odwołań typu „pierwszy artykuł”, „artykuł 0”, „materiał nr 2”, „powyższe źródło” czy „articleIndex”; żaden techniczny indeks nie może trafić do summary, whatHappened, whyItMatters, title, text, signal, why ani coverageNote;
 - nie powtarzaj tej samej informacji w leadzie, highlights i sekcjach; lead i highlights mają być krótkim wskazaniem faktu, a sekcja może ten fakt rozwinąć wyłącznie nowym kontekstem, liczbami, konsekwencją lub kolejnym krokiem zamiast parafrazować wcześniejsze zdanie;
-- ten JSON jest zwięzłym draftem; łączna długość tekstu faktycznie wyświetlanego ma wynosić 250–350 słów, ponieważ lead i sekcje zostaną rozwinięte w następnym kroku;
-- watchlist to 1–4 konkretne, wynikające z materiałów sygnały, decyzje lub terminy do obserwowania wraz z rzeczowym powodem; nie wymyślaj dat ani scenariuszy;
+- dla co najmniej 3 wystarczająco opisanych historii łączna długość tekstu widocznego ma wynosić 350–550 słów; nie dopisuj faktów ani dat tylko dla osiągnięcia długości;
+- watchlist to 0–4 konkretne, wynikające z materiałów sygnały, decyzje lub terminy; pozostaw pustą, jeżeli źródła nie dają popartego sygnału;
 - coverageNote to uczciwe zdanie o ograniczeniu materiału;
 - articleIndex i articleIndexes są niewidocznymi metadanymi źródeł: wpisuj w nich wyłącznie techniczne ID od 0 do ${promptArticles.length - 1} i nigdy nie przywołuj ich w tekście;
 - readingTimeMinutes pomiń — czas zostanie obliczony z faktycznie wyświetlanego tekstu.
 
 Zwróć dokładnie ten kształt JSON:
 ${briefShape}`;
-  const correctionPrompt = (initialOutput: string | null, reasons: string[]) => `Przepisz poniższy briefing tak, aby każdy akapit był zrozumiały bez znajomości artykułów źródłowych. Wszystkie pola tekstowe napisz po polsku. Nazwij wprost podmioty i działania, wyjaśnij nieoczywiste terminy, rozdziel niepowiązane newsy oraz usuń ogólniki, niejasne zaimki i sztuczne zależności. Zachowaj obiektywne fakty, a interpretację ogranicz do krótkich, warunkowych wniosków z konkretnym mechanizmem wpływu. Usuń techniczne indeksy z treści; pozostaw je tylko w articleIndex i articleIndexes. Nie dodawaj nowych faktów tylko po to, by tekst był dłuższy. Zwróć wyłącznie cały poprawny JSON, bez komentarza.
-
-Problemy do naprawy: ${reasons.join("; ") || "odpowiedź nie była poprawnym JSON-em"}.
-
-${requirements}
-
-Pierwsza odpowiedź:
-${initialOutput || "brak poprawnej odpowiedzi"}
-
-Materiały:
-${sourceMaterial}`;
-
   try {
     const content = await requestNvidiaChat({
       body: {
@@ -740,7 +666,7 @@ ${sourceMaterial}`,
       },
       model,
       purpose: "daily-brief",
-      timeoutMs: DAILY_BRIEF_INITIAL_TIMEOUT_MS,
+      timeoutMs,
     });
 
     const articleCount = promptArticles.length;
@@ -751,21 +677,12 @@ ${sourceMaterial}`,
       return fallback;
     }
 
-    if (firstBrief && firstQuality?.valid) {
+    if (firstBrief) {
+      if (!firstQuality?.valid) console.warn(NVIDIA_LOG_PREFIX, "response_quality_warning", {
+        phase: "initial", purpose: "daily-brief", reasons: firstQuality?.reasons,
+      });
       return firstBrief;
     }
-
-    if (firstBrief && firstQuality && isDiffusionGemmaModel(model)) {
-      const expandedBrief = await expandTerseDiffusionGemmaBrief({
-        brief: firstBrief,
-        model,
-        sourceMaterial,
-      });
-      if (validateDigestBriefQuality(expandedBrief).actualTotalWords > firstQuality.actualTotalWords) {
-        return expandedBrief;
-      }
-    }
-
     console.warn(NVIDIA_LOG_PREFIX, "response_rejected", {
       phase: "initial",
       purpose: "daily-brief",
@@ -773,64 +690,7 @@ ${sourceMaterial}`,
       reasons: firstQuality?.reasons,
     });
 
-    const correctionTimeoutMs = Math.min(
-      DAILY_BRIEF_CORRECTION_TIMEOUT_MS,
-      DAILY_BRIEF_TOTAL_TIMEOUT_MS - (Date.now() - aiStartedAt),
-    );
-
-    if (correctionTimeoutMs < DAILY_BRIEF_MIN_CORRECTION_TIMEOUT_MS) {
-      return firstBrief || fallback;
-    }
-
-    const correctionContent = await requestNvidiaChat({
-      body: {
-        ...dailyBriefGenerationParameters(model),
-        max_tokens: DAILY_BRIEF_MAX_TOKENS,
-        messages: [
-          { role: "system", content: systemPrompt },
-          {
-            role: "user",
-            content: correctionPrompt(
-              content,
-              firstQuality?.reasons || ["odpowiedź nie była poprawnym JSON-em"],
-            ),
-          },
-        ],
-      },
-      model,
-      purpose: "daily-brief",
-      timeoutMs: correctionTimeoutMs,
-    });
-    const correctedBrief = correctionContent ? parseDigestBriefJson(correctionContent, articleCount) : null;
-    const correctedQuality = correctedBrief ? validateDigestBriefQuality(correctedBrief) : null;
-
-    if (correctedBrief && correctedQuality?.valid) {
-      return correctedBrief;
-    }
-
-    if (correctedBrief && correctedQuality && isDiffusionGemmaModel(model)) {
-      const expandedBrief = await expandTerseDiffusionGemmaBrief({
-        brief: correctedBrief,
-        model,
-        sourceMaterial,
-      });
-      if (validateDigestBriefQuality(expandedBrief).actualTotalWords > correctedQuality.actualTotalWords) {
-        return expandedBrief;
-      }
-    }
-
-    if (correctionContent) {
-      console.warn(NVIDIA_LOG_PREFIX, "response_rejected", {
-        phase: "correction",
-        purpose: "daily-brief",
-        reason: correctedBrief ? "quality" : "json_schema",
-        reasons: correctedQuality?.reasons,
-      });
-    }
-
-    // The correction prompt explicitly targets clarity and language. Prefer its
-    // parseable result even when it still misses a secondary length constraint.
-    return correctedBrief || firstBrief || fallback;
+    return fallback;
   } catch {
     return fallback;
   }
@@ -839,30 +699,34 @@ ${sourceMaterial}`,
 export type DigestBriefGenerationResult = {
   brief: NvidiaDigestBrief;
   model: string;
-  status: "generated" | "retryable_failure" | "unavailable";
+  status: "generated" | "retryable_failure" | "configuration_error";
+  errorCode: string | null;
 };
 
 export async function generateDigestBriefWithNvidia({
   articles,
   attempt,
   interestProfile,
+  timeoutMs,
 }: {
   articles: DigestBriefArticle[];
   attempt: number;
   interestProfile: DigestBriefInterestProfile;
+  timeoutMs?: number;
 }): Promise<DigestBriefGenerationResult> {
   const fallback = fallbackDigestBrief(articles);
   const model = attempt % 2 === 0 ? nvidiaFallbackModel() : nvidiaModel();
 
   if (!hasNvidiaSummaryConfig()) {
-    return { brief: fallback, model, status: "unavailable" };
+    return { brief: fallback, errorCode: "configuration_error", model, status: "configuration_error" };
   }
 
-  const brief = await digestBriefWithNvidia({ articles, interestProfile, model });
+  const brief = await digestBriefWithNvidia({ articles, interestProfile, model, timeoutMs });
   const usedFallback = brief.coverageNote === fallback.coverageNote && brief.summary === fallback.summary;
 
   return {
     brief,
+    errorCode: usedFallback ? "invalid_output_or_upstream_error" : null,
     model,
     status: usedFallback ? "retryable_failure" : "generated",
   };

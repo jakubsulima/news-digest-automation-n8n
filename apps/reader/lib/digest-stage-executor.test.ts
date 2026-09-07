@@ -15,6 +15,7 @@ const state = vi.hoisted(() => ({
 }));
 
 vi.mock("./digest-runs", () => ({
+  digestPipelineVersion: (metadata: Record<string, unknown>) => metadata.pipelineVersion === 2 ? 2 : 1,
   getDigestRunById: state.getDigestRunById,
   pruneCompletedDigestRuns: state.pruneCompletedDigestRuns,
   sortDigestStages: (stages: PipelineStageRun[]) => stages,

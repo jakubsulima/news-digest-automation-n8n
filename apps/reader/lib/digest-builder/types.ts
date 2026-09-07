@@ -7,9 +7,12 @@ export type StageResult = {
   complete?: boolean;
   message?: string;
   metrics?: Json;
+  nextAttemptAt?: string;
+  aiBrief?: { brief: Json; kind: "ai" | "fallback"; reason: string | null };
 };
 
 export type StageRunner = (context: {
   digestRunId: string;
   stage: PipelineStageRun;
+  deadlineMs: number;
 }) => Promise<StageResult>;

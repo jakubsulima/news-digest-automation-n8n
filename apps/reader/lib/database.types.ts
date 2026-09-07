@@ -259,6 +259,11 @@ export type Database = {
           reading_time_minutes: number;
           created_at: string;
           updated_at: string;
+          generation_kind: "ai" | "fallback" | "legacy";
+          generation_reason: string | null;
+          model: string | null;
+          prompt_version: string | null;
+          input_hash: string | null;
         };
         Insert: {
           id?: string;
@@ -272,6 +277,11 @@ export type Database = {
           reading_time_minutes?: number;
           created_at?: string;
           updated_at?: string;
+          generation_kind?: "ai" | "fallback" | "legacy";
+          generation_reason?: string | null;
+          model?: string | null;
+          prompt_version?: string | null;
+          input_hash?: string | null;
         };
         Update: {
           id?: string;
@@ -285,7 +295,18 @@ export type Database = {
           reading_time_minutes?: number;
           created_at?: string;
           updated_at?: string;
+          generation_kind?: "ai" | "fallback" | "legacy";
+          generation_reason?: string | null;
+          model?: string | null;
+          prompt_version?: string | null;
+          input_hash?: string | null;
         };
+        Relationships: [];
+      };
+      digest_brief_jobs: {
+        Row: { digest_run_id: string; input_payload: Json; input_hash: string; prompt_version: string; status: "pending" | "generating" | "retry_wait" | "generated" | "fallback" | "skipped" | "failed" | "cancelled"; reason: string | null; generation_attempt_count: number; retry_cycle: number; candidate_payload: Json | null; model: string | null; last_error_code: string | null; infrastructure_attempt_count: number; created_at: string; updated_at: string; completed_at: string | null };
+        Insert: { digest_run_id: string; input_payload: Json; input_hash: string; prompt_version: string; status: "pending" | "generating" | "retry_wait" | "generated" | "fallback" | "skipped" | "failed" | "cancelled"; reason?: string | null; generation_attempt_count?: number; retry_cycle?: number; candidate_payload?: Json | null; model?: string | null; last_error_code?: string | null; infrastructure_attempt_count?: number; created_at?: string; updated_at?: string; completed_at?: string | null };
+        Update: Partial<Database["public"]["Tables"]["digest_brief_jobs"]["Insert"]>;
         Relationships: [];
       };
       news_items: {
@@ -380,6 +401,7 @@ export type Database = {
             | "enrichment"
             | "editorial_scoring"
             | "reader_publication"
+            | "ai_brief"
             | "finalization";
           status: "queued" | "running" | "succeeded" | "failed" | "skipped";
           attempt_count: number;
@@ -389,6 +411,9 @@ export type Database = {
           metrics: Json;
           created_at: string;
           updated_at: string;
+          next_attempt_at: string | null;
+          lease_token: string | null;
+          lease_expires_at: string | null;
         };
         Insert: {
           id?: string;
@@ -400,6 +425,7 @@ export type Database = {
             | "enrichment"
             | "editorial_scoring"
             | "reader_publication"
+            | "ai_brief"
             | "finalization";
           status: "queued" | "running" | "succeeded" | "failed" | "skipped";
           attempt_count?: number;
@@ -409,6 +435,9 @@ export type Database = {
           metrics?: Json;
           created_at?: string;
           updated_at?: string;
+          next_attempt_at?: string | null;
+          lease_token?: string | null;
+          lease_expires_at?: string | null;
         };
         Update: {
           id?: string;
@@ -420,6 +449,7 @@ export type Database = {
             | "enrichment"
             | "editorial_scoring"
             | "reader_publication"
+            | "ai_brief"
             | "finalization";
           status?: "queued" | "running" | "succeeded" | "failed" | "skipped";
           attempt_count?: number;
@@ -429,6 +459,9 @@ export type Database = {
           metrics?: Json;
           created_at?: string;
           updated_at?: string;
+          next_attempt_at?: string | null;
+          lease_token?: string | null;
+          lease_expires_at?: string | null;
         };
         Relationships: [];
       };

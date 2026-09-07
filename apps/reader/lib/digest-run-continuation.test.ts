@@ -10,6 +10,7 @@ describe("scheduleDigestRunContinuation", () => {
 
   it("starts an authenticated invocation on the same deployment", async () => {
     vi.stubEnv("CRON_SECRET", "test-cron-secret");
+    vi.stubEnv("NEXT_PUBLIC_APP_URL", "https://digest.example.com");
     const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 202 }));
     vi.stubGlobal("fetch", fetchMock);
 

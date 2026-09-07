@@ -25,6 +25,7 @@ type DigestRun = {
   report_date: string;
   status: RunStatus;
   stages: DigestStage[];
+  briefJob?: { status: string; reason: string | null; completed_at: string | null } | null;
 };
 
 type DigestRunPanelProps = {
@@ -45,6 +46,7 @@ const STAGE_COPY: Record<string, { labels: readonly [string, string]; verbs: rea
   enrichment: { labels: ["Analiza", "Analysis"], verbs: ["Czytam najważniejsze materiały", "Reading the most important stories"] },
   editorial_scoring: { labels: ["Ocena", "Scoring"], verbs: ["Układam najważniejsze newsy", "Ranking the most important stories"] },
   reader_publication: { labels: ["Publikacja", "Publishing"], verbs: ["Przygotowuję Twój feed", "Preparing your feed"] },
+  ai_brief: { labels: ["Podsumowanie AI", "AI briefing"], verbs: ["Wiadomości gotowe — trwa podsumowanie", "Stories ready — generating briefing"] },
   finalization: { labels: ["Gotowe", "Done"], verbs: ["Kończę aktualizację", "Finishing the update"] },
 };
 const ACTIVE_STATUS_REFRESH_MS = 4_000;
@@ -270,6 +272,7 @@ export function DigestRunPanel({ initialRun, retrySlot, storyCount }: DigestRunP
             <span className="text-muted-foreground">{digestReady ? l("aktualny", "up to date") : l("gotowy", "ready")}</span>
           </p>
         </div>
+        {retrySlot}
         <Button type="button" size="lg" className="h-10 px-3.5" onClick={startRun} disabled={isStarting}>
           {isStarting ? <Loader2 className="animate-spin" aria-hidden="true" /> : <Download aria-hidden="true" />}
           {l("Pobierz newsy", "Fetch news")}

@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
-import { retryFailedDigestRun } from "./digest-runs";
+import { retryDigestBrief, retryFailedDigestRun } from "./digest-runs";
 import {
   digestSettingsFromFormData,
   isDigestSettingsSchemaError,
@@ -41,6 +41,12 @@ function sourceSettingsRedirect(status: string, formData: FormData) {
 export async function retryDigestRun(digestRunId: string) {
   await requireCurrentOperator();
   await retryFailedDigestRun(digestRunId);
+  revalidatePath("/");
+}
+
+export async function retryAiDigestBrief(digestRunId: string) {
+  await requireCurrentOperator();
+  await retryDigestBrief(digestRunId);
   revalidatePath("/");
 }
 
