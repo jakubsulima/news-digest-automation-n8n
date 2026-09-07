@@ -3,7 +3,7 @@ import "server-only";
 import { runStageForRun } from "./digest-builder/stage-registry";
 import type { DigestRun, PipelineStageRun } from "./digest-builder/types";
 import { errorMessage } from "./digest-builder/utils";
-import { getDigestRunById, pruneCompletedDigestRuns, sortDigestStages } from "./digest-runs";
+import { digestPipelineVersion, getDigestRunById, pruneCompletedDigestRuns, sortDigestStages } from "./digest-runs";
 import { createSupabaseAdminClient } from "./supabase";
 
 const RUNNING_STAGE_STALE_MS = 150_000;
@@ -20,6 +20,39 @@ type AdvanceDigestRunResult = {
   advancedStage: PipelineStageRun["stage_name"] | null;
   message: string;
 };
+
+async function advanceV2(run: Awaited<ReturnType<typeof getDigestRunById>> & {}) : Promise<AdvanceDigestRunResult> {
+  if (!run) throw new Error("Digest run not found.");
+  const supabase = createSupabaseAdminClient();
+  const rpc = supabase.rpc.bind(supabase) as unknown as (name: string, args: Record<string, unknown>) => Promise<{ data: PipelineStageRun | boolean | null; error: { message: string } | null }>;
+  const claim = await rpc("claim_next_digest_stage", { p_lease_seconds: 150, p_run_id: run.id });
+  if (claim.error) throw claim.error;
+  const stage = claim.data && typeof claim.data === "object" ? claim.data as PipelineStageRun : null;
+  if (!stage) return { runId: run.id, status: "running", advancedStage: null, message: "No v2 stage is ready." };
+  const leaseToken = stage.lease_token;
+  if (!leaseToken) throw new Error("Claim returned no lease token.");
+  try {
+    const result = await runStageForRun(stage, run.id, Date.now() + 100_000);
+    if (result.aiBrief) {
+      const commit = await rpc("commit_digest_brief", { p_kind: result.aiBrief.kind, p_lease_token: leaseToken, p_reason: result.aiBrief.reason, p_run_id: run.id, p_summary: result.aiBrief.brief });
+      if (commit.error || commit.data !== true) throw commit.error || new Error("AI result commit lost its lease.");
+    } else {
+      const finish = await rpc("finish_digest_stage", { p_error: null, p_lease_token: leaseToken, p_metrics: result.metrics ?? {}, p_next_attempt_at: result.nextAttemptAt ?? null, p_stage_id: stage.id, p_status: result.complete === false ? "queued" : "succeeded" });
+      if (finish.error || finish.data !== true) throw finish.error || new Error("Stage completion lost its lease.");
+    }
+    if (stage.stage_name === "finalization") {
+      const { error } = await supabase.from("digest_runs").update({ error_message: null, finished_at: new Date().toISOString(), status: "succeeded" }).eq("id", run.id).eq("status", "running");
+      if (error) throw error;
+      return { runId: run.id, status: "succeeded", advancedStage: stage.stage_name, message: "Run finalized." };
+    }
+    return { runId: run.id, status: "running", advancedStage: stage.stage_name, message: result.message || `${stage.stage_name} succeeded.` };
+  } catch (error) {
+    const message = `${stage.stage_name}: ${errorMessage(error)}`;
+    await rpc("finish_digest_stage", { p_error: message, p_lease_token: leaseToken, p_metrics: {}, p_next_attempt_at: null, p_stage_id: stage.id, p_status: "failed" });
+    await supabase.from("digest_runs").update({ error_message: message, finished_at: new Date().toISOString(), status: "failed" }).eq("id", run.id).eq("status", "running");
+    return { runId: run.id, status: "failed", advancedStage: stage.stage_name, message };
+  }
+}
 
 function runningStageIsStale(stage: PipelineStageRun, nowMs = Date.now()) {
   if (!stage.started_at) {
@@ -52,6 +85,8 @@ export async function advanceDigestRun(digestRunId: string): Promise<AdvanceDige
       message: `Run is already ${run.status}.`,
     };
   }
+
+  if (digestPipelineVersion(run.metadata) === 2) return advanceV2(run);
 
   const supabase = createSupabaseAdminClient();
   const runningStage = sortDigestStages(run.stages).find((stage) => stage.status === "running") || null;
@@ -277,7 +312,7 @@ export async function advanceDigestRunUntilIdle(
     // Reader publication can spend the full AI budget generating and correcting
     // a digest. Start it in a fresh invocation and yield after each attempt so a
     // queued retry never consumes the same serverless function budget.
-    if (result.advancedStage === "editorial_scoring" || result.advancedStage === "reader_publication") {
+    if (result.advancedStage === "editorial_scoring" || result.advancedStage === "reader_publication" || result.advancedStage === "ai_brief") {
       await scheduleContinuation?.();
       return result;
     }

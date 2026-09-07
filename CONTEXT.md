@@ -49,6 +49,12 @@ Explicit or behavioral evidence about a topic, entity, source, repetition, or qu
 **Reader Note**
 Private, durable knowledge captured by the Operator from a Reader Item or Article and centered on its Story Cluster.
 
+**Brief Job**
+Frozen, hashed input and durable retry state for one v2 AI briefing.
+
+**Stage Lease**
+A time-bounded ownership token that fences every worker write.
+
 ## Relationships
 
 - Hosted Production does not depend on local workflow automation.
@@ -61,3 +67,4 @@ Private, durable knowledge captured by the Operator from a Reader Item or Articl
 - An Exposure is recorded from actual Reader visibility, not from inclusion in a feed response.
 - A Source Portfolio is frozen before a run fetches sources and is reused when that run retries.
 - A Reader Note keeps source snapshots, survives Reader Item retention, and does not train Preference Signals.
+- Pipeline v2 publishes Reader Items before a separately leased Brief Job; a database watchdog, not the browser, recovers abandoned work.

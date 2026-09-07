@@ -7,7 +7,7 @@ import type { SourceDiscoveryDependencies } from "../../source-discovery/types";
 import { plainTextFromHtml } from "../../text";
 import { keywordHitCount } from "../../keyword-matching";
 import { analyzeReadableContent } from "../../readable-content";
-import { loadRunArticles, type RunArticle } from "../run-articles";
+import { loadRunArticles, loadRunArticlesByIds, type RunArticle } from "../run-articles";
 import {
   ARTICLE_FETCH_TIMEOUT_MS,
   ENRICH_TOP_N,
@@ -108,8 +108,10 @@ export async function fetchArticleEnrichment(
 }
 
 export const runEnrichmentStage: StageRunner = async ({ digestRunId, stage }) => {
-  const articles = await loadRunArticles(digestRunId);
   const existingCandidateIds = jsonStringArray(stage.metrics, "candidateArticleIds");
+  const articles = existingCandidateIds.length
+    ? await loadRunArticlesByIds(existingCandidateIds.filter((id) => !jsonStringArray(stage.metrics, "processedArticleIds").includes(id)).slice(0, ENRICHMENT_BATCH_SIZE))
+    : await loadRunArticles(digestRunId);
   const candidateArticleIds = existingCandidateIds.length
     ? existingCandidateIds
     : chooseEnrichmentCandidates(articles).map((article) => article.id);

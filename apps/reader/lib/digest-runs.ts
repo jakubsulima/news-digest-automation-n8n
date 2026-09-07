@@ -14,7 +14,7 @@ const COMPLETED_RUN_STATUSES = ["succeeded", "failed", "cancelled"] as const;
 const DEFAULT_DIGEST_RUN_RETENTION_LIMIT = 100;
 const DIGEST_RUN_PRUNE_BATCH_SIZE = 500;
 
-const DIGEST_STAGE_NAMES: PipelineStageRunRow["stage_name"][] = [
+const V1_DIGEST_STAGE_NAMES: PipelineStageRunRow["stage_name"][] = [
   "source_fetch",
   "article_normalization",
   "story_clustering",
@@ -23,13 +23,25 @@ const DIGEST_STAGE_NAMES: PipelineStageRunRow["stage_name"][] = [
   "reader_publication",
   "finalization",
 ];
+const V2_DIGEST_STAGE_NAMES: PipelineStageRunRow["stage_name"][] = [
+  "source_fetch", "article_normalization", "story_clustering", "enrichment", "editorial_scoring", "reader_publication", "ai_brief", "finalization",
+];
+
+export function digestPipelineVersion(metadata: Database["public"]["Tables"]["digest_runs"]["Row"]["metadata"]): 1 | 2 {
+  return metadata && typeof metadata === "object" && !Array.isArray(metadata) && metadata.pipelineVersion === 2 ? 2 : 1;
+}
+
+export function digestStageNames(version: 1 | 2) {
+  return version === 2 ? V2_DIGEST_STAGE_NAMES : V1_DIGEST_STAGE_NAMES;
+}
 
 type DigestRunOverview = DigestRunRow & {
   stages: PipelineStageRunRow[];
+  briefJob: Pick<Database["public"]["Tables"]["digest_brief_jobs"]["Row"], "status" | "reason" | "completed_at"> | null;
 };
 
 function stageRowsForRun(digestRunId: string): PipelineStageRunInsert[] {
-  return DIGEST_STAGE_NAMES.map((stageName) => ({
+  return V1_DIGEST_STAGE_NAMES.map((stageName) => ({
     digest_run_id: digestRunId,
     stage_name: stageName,
     status: "queued",
@@ -48,15 +60,16 @@ function getDigestRunRetentionLimit() {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_DIGEST_RUN_RETENTION_LIMIT;
 }
 
-export function sortDigestStages(stages: PipelineStageRunRow[]) {
-  const stageOrder = new Map(DIGEST_STAGE_NAMES.map((stageName, index) => [stageName, index]));
+export function sortDigestStages(stages: PipelineStageRunRow[], version: 1 | 2 = 1) {
+  const stageOrder = new Map(digestStageNames(version).map((stageName, index) => [stageName, index]));
+  for (const stage of stages) if (!stageOrder.has(stage.stage_name)) throw new Error(`Unsupported stage ${stage.stage_name} for pipeline v${version}.`);
 
   return [...stages].sort((left, right) => {
-    return (stageOrder.get(left.stage_name) ?? 0) - (stageOrder.get(right.stage_name) ?? 0);
+    return stageOrder.get(left.stage_name)! - stageOrder.get(right.stage_name)!;
   });
 }
 
-async function getStagesForRun(digestRunId: string) {
+async function getStagesForRun(digestRunId: string, version: 1 | 2) {
   const supabase = createSupabaseAdminClient();
   const { data, error } = await supabase
     .from("pipeline_stage_runs")
@@ -68,7 +81,7 @@ async function getStagesForRun(digestRunId: string) {
     throw error;
   }
 
-  return sortDigestStages(data || []);
+  return sortDigestStages(data || [], version);
 }
 
 async function hydrateRun(run: DigestRunRow | null): Promise<DigestRunOverview | null> {
@@ -76,10 +89,23 @@ async function hydrateRun(run: DigestRunRow | null): Promise<DigestRunOverview |
     return null;
   }
 
+  const supabase = createSupabaseAdminClient();
+  const { data: briefJob, error } = await supabase.from("digest_brief_jobs").select("status,reason,completed_at").eq("digest_run_id", run.id).maybeSingle();
+  if (error && !["42P01", "PGRST205"].includes(error.code || "")) throw error;
   return {
     ...run,
-    stages: await getStagesForRun(run.id),
+    briefJob: briefJob || null,
+    stages: await getStagesForRun(run.id, digestPipelineVersion(run.metadata)),
   };
+}
+
+export async function retryDigestBrief(digestRunId: string) {
+  const supabase = createSupabaseAdminClient();
+  const rpc = supabase.rpc.bind(supabase) as unknown as (name: string, args: Record<string, unknown>) => Promise<{ data: boolean | null; error: { message: string } | null }>;
+  const { data, error } = await rpc("retry_digest_brief", { p_run_id: digestRunId });
+  if (error) throw error;
+  if (!data) throw new Error("This briefing is not eligible for AI retry.");
+  return getDigestRunById(digestRunId);
 }
 
 export async function getActiveDigestRun(): Promise<DigestRunOverview | null> {
@@ -143,8 +169,9 @@ export async function retryFailedDigestRun(digestRunId: string): Promise<DigestR
     return run;
   }
 
-  const failedStageIndex = DIGEST_STAGE_NAMES.indexOf(failedStage.stage_name);
-  const retryStageNames = DIGEST_STAGE_NAMES.slice(failedStageIndex);
+  const stageNames = digestStageNames(digestPipelineVersion(run.metadata));
+  const failedStageIndex = stageNames.indexOf(failedStage.stage_name);
+  const retryStageNames = stageNames.slice(failedStageIndex);
   const supabase = createSupabaseAdminClient();
   const { error: runError } = await supabase
     .from("digest_runs")
@@ -265,13 +292,22 @@ export async function startOrGetActiveDigestRun(userId: string): Promise<DigestR
   await pruneCompletedDigestRuns();
 
   const supabase = createSupabaseAdminClient();
+  const enableV2 = process.env.DIGEST_PIPELINE_V2_ENABLED === "true";
+  const rpc = supabase.rpc.bind(supabase) as unknown as (name: string, args: Record<string, unknown>) => Promise<{ data: DigestRunRow | null; error: { code?: string; message: string } | null }>;
+  const created = await rpc("create_or_get_digest_run_v2", { p_enable_v2: enableV2, p_report_date: getWarsawDate(), p_user_id: userId });
+  if (!created.error && created.data) {
+    const hydrated = await hydrateRun(created.data);
+    if (!hydrated) throw new Error("Digest run was created but could not be loaded.");
+    return hydrated;
+  }
+  if (enableV2) throw created.error || new Error("Could not atomically create v2 digest run.");
   const run: DigestRunInsert = {
     report_date: getWarsawDate(),
     trigger_type: "manual",
     status: "queued",
     started_by_user_id: userId,
     metadata: {
-      version: 1,
+      pipelineVersion: 1,
     },
   };
 

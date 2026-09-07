@@ -83,15 +83,11 @@ type SupabaseError = {
 
 export function isDigestBriefSchemaError(error: unknown) {
   const supabaseError = error && typeof error === "object" ? (error as SupabaseError) : {};
-  const message = supabaseError.message?.toLowerCase() || "";
-
   return (
     supabaseError.code === "42P01" ||
     supabaseError.code === "42703" ||
     supabaseError.code === "PGRST204" ||
-    supabaseError.code === "PGRST205" ||
-    message.includes("digest_summaries") ||
-    message.includes("schema cache")
+    supabaseError.code === "PGRST205"
   );
 }
 

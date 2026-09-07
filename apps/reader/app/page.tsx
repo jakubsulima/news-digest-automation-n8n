@@ -4,7 +4,7 @@ import { AppNavbar } from "@/components/app-navbar";
 import { Button } from "@/components/ui/button";
 import { DigestRunPanel } from "@/components/digest-run-panel";
 import { DigestBriefCard } from "@/components/digest-brief";
-import { retryDigestRun } from "@/lib/actions";
+import { retryAiDigestBrief, retryDigestRun } from "@/lib/actions";
 import { requireCurrentReader } from "@/lib/auth";
 import { getDigestRunStatus } from "@/lib/digest-runs";
 import { fallbackDigestBriefFromNews, getLatestDigestBrief } from "@/lib/digest-brief";
@@ -64,6 +64,13 @@ export default async function HomePage() {
                 <Button type="submit" size="lg" title={localize(locale, "Ponów nieudany etap", "Retry failed stage")}>
                   <RotateCcw aria-hidden="true" />
                   {localize(locale, "Ponów etap", "Retry stage")}
+                </Button>
+              </form>
+            ) : digestRun?.status === "succeeded" && ["fallback", "skipped", "failed"].includes(digestRun.briefJob?.status || "") ? (
+              <form action={retryAiDigestBrief.bind(null, digestRun.id)}>
+                <Button type="submit" size="lg" title={localize(locale, "Ponów tylko podsumowanie AI", "Retry only the AI briefing")}>
+                  <RotateCcw aria-hidden="true" />
+                  {localize(locale, "Ponów AI", "Retry AI")}
                 </Button>
               </form>
             ) : null

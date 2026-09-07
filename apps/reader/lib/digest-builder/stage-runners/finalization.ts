@@ -1,11 +1,26 @@
 import "server-only";
 
 import { createSupabaseAdminClient } from "../../supabase";
+import { digestPipelineVersion, getDigestRunById } from "../../digest-runs";
 import type { StageRunner } from "../types";
 import { throwDatabaseError } from "../utils";
 
 export const runFinalizationStage: StageRunner = async ({ digestRunId }) => {
   const supabase = createSupabaseAdminClient();
+  const run = await getDigestRunById(digestRunId);
+  if (!run) throw new Error("Digest run not found.");
+  if (digestPipelineVersion(run.metadata) === 2) {
+    const [{ data: job, error: jobError }, { data: summary, error: summaryError }] = await Promise.all([
+      supabase.from("digest_brief_jobs").select("status,input_hash").eq("digest_run_id", digestRunId).maybeSingle(),
+      supabase.from("digest_summaries").select("input_hash,generation_kind").eq("digest_run_id", digestRunId).maybeSingle(),
+    ]);
+    if (jobError) throw jobError;
+    if (summaryError) throw summaryError;
+    if (!job || !summary || !["generated", "fallback", "skipped"].includes(job.status) || summary.input_hash !== job.input_hash) {
+      throw new Error("Digest cannot finalize without a terminal briefing matching its frozen input.");
+    }
+    return { metrics: { briefingKind: summary.generation_kind, cleanupDeferred: true } };
+  }
   const { count: sourceItemCount, error: sourceError } = await supabase
     .from("source_items")
     .select("id", { count: "exact", head: true })

@@ -1,15 +1,10 @@
 import "server-only";
 
 import type { Database, Json } from "../../database.types";
-import { isDigestBriefSchemaError } from "../../digest-brief";
 import { getDigestRunById } from "../../digest-runs";
 import { getDigestSettingsForRun } from "../../digest-settings";
-import {
-  fallbackDigestBrief,
-  generateDigestBriefWithNvidia,
-  type DigestBriefGenerationResult,
-} from "../../ai-summary";
-import { readingTimeMinutesForDigestBrief } from "../../digest-brief-text";
+import { fallbackDigestBrief } from "../../ai-summary";
+import { buildBriefInput, materializeBrief } from "../../digest-brief-job";
 import { evidenceDetailsFromSignals } from "../../evidence";
 import { createSupabaseAdminClient } from "../../supabase";
 import { cleanArticleSummary, plainTextFromHtml } from "../../text";
@@ -17,17 +12,12 @@ import { SUPABASE_WRITE_BATCH_SIZE } from "../constants";
 import type { StageRunner } from "../types";
 import { chunk, compactText, jsonNumber, jsonString, jsonStringArray } from "../utils";
 
-type NewsItemInsert = Database["public"]["Tables"]["news_items"]["Insert"];
-type DigestSummaryInsert = Database["public"]["Tables"]["digest_summaries"]["Insert"];
-
-const MAX_AI_BRIEF_ATTEMPTS = 3;
-
-export function shouldRetryAiBriefGeneration(
-  status: DigestBriefGenerationResult["status"],
-  attempt: number,
-) {
-  return status === "retryable_failure" && attempt < MAX_AI_BRIEF_ATTEMPTS;
+/** @deprecated v1 compatibility only; v2 retries in the dedicated AI stage. */
+export function shouldRetryAiBriefGeneration(status: string, attempt: number) {
+  return status === "retryable_failure" && attempt < 3;
 }
+
+type NewsItemInsert = Database["public"]["Tables"]["news_items"]["Insert"];
 
 type StorySnapshotRow = Database["public"]["Tables"]["story_snapshots"]["Row"];
 
@@ -149,7 +139,7 @@ async function cleanupExpiredReaderData() {
   return { deletedEventCount: deletedEventCount || 0, deletedNewsItemCount: deletableIds.length };
 }
 
-export const runReaderPublicationStage: StageRunner = async ({ digestRunId, stage }) => {
+export const runReaderPublicationStage: StageRunner = async ({ digestRunId }) => {
   const run = await getDigestRunById(digestRunId);
   const settings = await getDigestSettingsForRun(digestRunId);
 
@@ -279,190 +269,66 @@ export const runReaderPublicationStage: StageRunner = async ({ digestRunId, stag
     }));
   }
 
-  const briefingArticles = rows.map((row) => ({
+  const publishedItems = rows.length
+    ? await supabase.from("news_items").select("id, story_cluster_id").in("story_cluster_id", clusterIds)
+    : { data: [], error: null };
+  if (publishedItems.error) throw publishedItems.error;
+  const newsItemByCluster = new Map((publishedItems.data || []).map((item) => [item.story_cluster_id, item.id]));
+  const briefingArticles = rows.flatMap((row) => {
+    const storyClusterId = row.story_cluster_id;
+    const newsItemId = storyClusterId ? newsItemByCluster.get(storyClusterId) : null;
+    if (!storyClusterId || !newsItemId) return [];
+    const raw = row.raw_payload && typeof row.raw_payload === "object" && !Array.isArray(row.raw_payload)
+      ? row.raw_payload as Record<string, Json | undefined> : {};
+    return [{
     category: row.category,
+    evidence: raw.evidence ?? {},
+    index: 0,
     importanceScore: row.importance_score || 0,
+    newsItemId,
     publishedAt: row.published_at || null,
     source: row.source,
     sourceCount: row.source_count || 1,
+    storyClusterId,
     summary: row.summary,
     title: row.title,
-      whyInteresting: jsonString(row.raw_payload || {}, "whyInteresting") || null,
-      evidenceStatus: row.raw_payload && typeof row.raw_payload === "object" && !Array.isArray(row.raw_payload)
-        ? (() => {
-            const evidence = (row.raw_payload as Record<string, Json | undefined>).evidence;
-            return evidence && typeof evidence === "object" && !Array.isArray(evidence) && typeof evidence.status === "string"
-              ? evidence.status
-              : "limited";
-          })()
-        : "limited",
-      fullTextSourceCount: row.raw_payload && typeof row.raw_payload === "object" && !Array.isArray(row.raw_payload)
-        ? (() => {
-            const evidence = (row.raw_payload as Record<string, Json | undefined>).evidence;
-            return evidence && typeof evidence === "object" && !Array.isArray(evidence) && typeof evidence.fullTextSourceCount === "number"
-              ? evidence.fullTextSourceCount
-              : 0;
-          })()
-        : 0,
-    }));
-  const synthesisArticles = briefingArticles.flatMap((article, index) =>
-    article.evidenceStatus === "limited" ? [] : [{ article, index }],
-  );
-  const briefInput = synthesisArticles.length ? synthesisArticles.map(({ article }) => article) : briefingArticles;
-  const aiGeneration = settings.useAiSummaries && synthesisArticles.length
-    ? await generateDigestBriefWithNvidia({
-        attempt: stage.attempt_count,
-        interestProfile: {
-          feedTargets: settings.feedTargets,
-          preferredKeywords: settings.preferredKeywords,
-        },
-        articles: briefInput,
-      })
-    : null;
-
-  if (aiGeneration && shouldRetryAiBriefGeneration(aiGeneration.status, stage.attempt_count)) {
-    return {
-      complete: false,
-      message: `AI briefing attempt ${stage.attempt_count}/${MAX_AI_BRIEF_ATTEMPTS} failed; reader publication will retry.`,
-      metrics: {
-        aiBriefAttempt: stage.attempt_count,
-        aiBriefModel: aiGeneration.model,
-        aiBriefStatus: aiGeneration.status,
-        publishedCount: rows.length,
-        settings: {
-          publishTopN: settings.publishTopN,
-          summaryMaxChars: settings.summaryMaxChars,
-          useAiSummaries: settings.useAiSummaries,
-        },
-      },
-    };
-  }
-
-  const brief = aiGeneration?.brief ?? fallbackDigestBrief(briefInput);
-  const briefCoverageNote = synthesisArticles.length < briefingArticles.length
-    ? `${brief.coverageNote} ${briefingArticles.length - synthesisArticles.length} ${briefingArticles.length - synthesisArticles.length === 1 ? "materiał" : "materiały"} o ograniczonym pokryciu pominięto w syntezie.`
-    : brief.coverageNote;
-  const publishedItems = rows.length
-    ? await supabase
-        .from("news_items")
-        .select("id, story_cluster_id, source, title")
-        .in(
-          "story_cluster_id",
-          rows.flatMap((row) => (row.story_cluster_id ? [row.story_cluster_id] : [])),
-        )
-    : { data: [], error: null };
-
-  if (publishedItems.error) {
-    throw publishedItems.error;
-  }
-
-  const publishedItemsByClusterId = new Map((publishedItems.data || []).map((item) => [item.story_cluster_id, item]));
-  const referenceForArticleIndex = (articleIndex: number) => {
-    const originalIndex = synthesisArticles.length ? synthesisArticles[articleIndex]?.index ?? -1 : articleIndex;
-    const row = rows[originalIndex];
-    const item = row?.story_cluster_id ? publishedItemsByClusterId.get(row.story_cluster_id) : null;
-
-    return item
-      ? {
-          newsItemId: item.id,
-          source: item.source,
-          title: item.title,
-        }
-      : null;
-  };
-  const supportForArticleIndexes = (articleIndexes: number[]) => {
-    const articles = articleIndexes.flatMap((articleIndex) => {
-      const originalIndex = synthesisArticles.length ? synthesisArticles[articleIndex]?.index ?? -1 : articleIndex;
-      return originalIndex >= 0 && rows[originalIndex] ? [rows[originalIndex]] : [];
-    });
-    const evidences = articles.map((row) => {
-      const payload = row.raw_payload && typeof row.raw_payload === "object" && !Array.isArray(row.raw_payload)
-        ? row.raw_payload as Record<string, Json | undefined>
-        : {};
-      return payload.evidence && typeof payload.evidence === "object" && !Array.isArray(payload.evidence)
-        ? payload.evidence as Record<string, Json | undefined>
-        : {};
-    });
-    const hasFullText = evidences.some((evidence) => evidence.status === "full_text");
-    const hasCorroboration = evidences.some((evidence) => evidence.status === "corroborated_summary");
-    return {
-      fullTextSourceCount: evidences.reduce((count, evidence) => count + (typeof evidence.fullTextSourceCount === "number" ? evidence.fullTextSourceCount : 0), 0),
-      independentSourceCount: Math.max(1, ...articles.map((row) => row.source_count || 1)),
-      status: hasFullText ? "full_text" as const : hasCorroboration ? "corroborated_summary" as const : "limited" as const,
-    };
-  };
-  const highlights = brief.highlights.flatMap((highlight) => {
-    const reference = referenceForArticleIndex(highlight.articleIndex);
-
-    return reference
-      ? [
-          {
-            ...reference,
-            supportsSummary: brief.summaryArticleIndexes.includes(highlight.articleIndex),
-            whatHappened: highlight.whatHappened,
-            whyItMatters: highlight.whyItMatters,
-          },
-        ]
-      : [];
+    whyInteresting: jsonString(row.raw_payload || {}, "whyInteresting") || null,
+  }];
   });
-  const sections = brief.sections.flatMap((section) => {
-    const paragraphs = section.paragraphs.flatMap((paragraph) => {
-      const references = Array.from(new Set(paragraph.articleIndexes)).flatMap((articleIndex) => {
-        const reference = referenceForArticleIndex(articleIndex);
-        return reference ? [reference] : [];
-      });
-
-      return references.length
-        ? [{ references, support: supportForArticleIndexes(paragraph.articleIndexes), text: paragraph.text }]
-        : [];
+  const frozen = buildBriefInput({
+    articles: briefingArticles,
+    interestProfile: { feedTargets: settings.feedTargets, preferredKeywords: settings.preferredKeywords },
+    omitted: { insufficientEvidence: 0, overLimit: 0 },
+  });
+  const reason = !rows.length ? "no_articles" : !settings.useAiSummaries ? "disabled" : !frozen.payload.articles.length ? "insufficient_evidence" : "pending";
+  const fallback = materializeBrief(fallbackDigestBrief(frozen.payload.articles), frozen.payload);
+  const { data: existingJob, error: existingJobError } = await supabase.from("digest_brief_jobs").select("input_hash,status").eq("digest_run_id", digestRunId).maybeSingle();
+  if (existingJobError) throw existingJobError;
+  if (existingJob && existingJob.input_hash !== frozen.hash) throw new Error("Frozen briefing input hash conflict.");
+  if (!existingJob) {
+    const { error: jobError } = await supabase.from("digest_brief_jobs").insert({
+      digest_run_id: digestRunId, input_hash: frozen.hash, input_payload: frozen.payload,
+      prompt_version: frozen.payload.promptVersion,
+      reason: reason === "pending" ? null : reason,
+      status: reason === "pending" ? "pending" : "skipped",
+      completed_at: reason === "pending" ? null : new Date().toISOString(),
     });
-
-    return paragraphs.length ? [{ category: section.category, paragraphs, title: section.title }] : [];
-  });
-  const watchlist = brief.watchlist.map((item) => ({
-    references: item.articleIndexes.flatMap((articleIndex) => {
-      const reference = referenceForArticleIndex(articleIndex);
-      return reference ? [reference] : [];
-    }),
-    signal: item.signal,
-    why: item.why,
-  }));
-  const digestSummary: DigestSummaryInsert = {
-    coverage_note: briefCoverageNote,
-    digest_date: run.report_date,
-    digest_run_id: digestRunId,
-    highlights,
-    reading_time_minutes: readingTimeMinutesForDigestBrief({
-      coverageNote: briefCoverageNote,
-      sections,
-      summary: brief.summary,
-      watchlist,
-    }),
-    sections,
-    summary: brief.summary,
-    watchlist,
-  };
-  const { error: digestSummaryError } = await supabase.from("digest_summaries").upsert(digestSummary, {
-    onConflict: "digest_run_id",
-  });
-
-  if (digestSummaryError && !isDigestBriefSchemaError(digestSummaryError)) {
-    throw digestSummaryError;
+    if (jobError) throw jobError;
   }
-
-  const cleanup = rows.length
-    ? await cleanupExpiredReaderData()
-    : { deletedEventCount: 0, deletedNewsItemCount: 0 };
+  const { error: digestSummaryError } = await supabase.from("digest_summaries").upsert({
+    coverage_note: fallback.coverageNote, digest_date: run.report_date, digest_run_id: digestRunId,
+    generation_kind: "fallback", generation_reason: reason, highlights: fallback.highlights,
+    input_hash: frozen.hash, prompt_version: frozen.payload.promptVersion,
+    reading_time_minutes: fallback.readingTimeMinutes, sections: fallback.sections,
+    summary: fallback.summary, watchlist: fallback.watchlist,
+  }, { onConflict: "digest_run_id" });
+  if (digestSummaryError) throw digestSummaryError;
 
   return {
     metrics: {
-      deletedEventCount: cleanup.deletedEventCount,
-      deletedStaleCount: cleanup.deletedNewsItemCount,
-      digestBriefHighlightCount: highlights.length,
-      digestBriefSectionCount: sections.length,
-      aiBriefAttempt: aiGeneration ? stage.attempt_count : null,
-      aiBriefModel: aiGeneration?.model ?? null,
-      aiBriefStatus: aiGeneration?.status ?? "disabled_or_unsupported",
+      briefInputCount: frozen.payload.articles.length,
+      briefInputHash: frozen.hash,
+      briefStatus: reason,
       publishedCount: rows.length,
       settings: {
         publishTopN: settings.publishTopN,

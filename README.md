@@ -79,6 +79,7 @@ INGEST_SECRET=replace-with-long-random-secret
 CRON_SECRET=replace-with-long-random-cron-secret
 NEXT_PUBLIC_APP_URL=http://127.0.0.1:3000
 DIGEST_RUN_RETENTION_LIMIT=100
+DIGEST_PIPELINE_V2_ENABLED=false
 NVIDIA_API_KEY=
 NVIDIA_API_URL=https://integrate.api.nvidia.com/v1/chat/completions
 NVIDIA_MODEL=google/diffusiongemma-26b-a4b-it
@@ -92,6 +93,7 @@ Notes:
 - Set `NEXT_PUBLIC_APP_URL` to the production Vercel URL after deployment.
 - `DIGEST_RUN_RETENTION_LIMIT` is optional. Queued and running runs are never pruned.
 - `NVIDIA_API_KEY`, `NVIDIA_API_URL`, and `NVIDIA_MODEL` enable the optional AI summaries and daily briefing. `NVIDIA_FALLBACK_MODEL` is used on the second of up to three durable publication attempts. The values shown above are the defaults.
+- Keep `DIGEST_PIPELINE_V2_ENABLED=false` until the v2 migration and the single Supabase watchdog are installed. The flag affects new runs only.
 
 ## Supabase Setup
 
@@ -117,6 +119,7 @@ infra/supabase/migrations/017_source_discovery.sql
 infra/supabase/migrations/018_post_migration_advisor_fixes.sql
 infra/supabase/migrations/019_reader_notes.sql
 infra/supabase/migrations/20260820173904_enable_nemotron_summaries.sql
+infra/supabase/migrations/20260907093203_digest_reliability_v2.sql
 ```
 
 Apply all migrations before deploying the current reader code. Migration `018` contains the RLS and index optimizations required after migrations `013`–`017`.
@@ -202,3 +205,9 @@ pnpm --dir apps/reader cleanup:text
 ```
 
 Run cleanup commands only against the intended Supabase project.
+
+### Digest v2 recovery and rollback
+
+Enable `pg_cron`, `pg_net`, and Vault, store `CRON_SECRET` in Vault, then run `infra/supabase/install-digest-watchdog.sql` with the production application URL and Vault secret name. Verify the `digest-stage-watchdog-v2` row and its HTTP responses before enabling v2. Manual AI retry preserves the frozen input and requeues only `ai_brief` plus finalization.
+
+Rollback by disabling creation of new v2 runs. Keep the compatible worker and watchdog running until existing v2 runs are terminal; do not drop the additive schema. Cleanup can be disabled independently.

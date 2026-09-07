@@ -209,7 +209,7 @@ describe("fallbackDigestBriefFromNews", () => {
 });
 
 describe("validateDigestBriefQuality", () => {
-  it("requires a detailed lead, thematic sections, watch signals, and the 350-550 word range", () => {
+  it("reports editorial length and section guidance as warnings", () => {
     const brief = fallbackDigestBrief(
       Array.from({ length: 4 }, (_, index) => ({
         category: `category-${index}`,
@@ -225,11 +225,9 @@ describe("validateDigestBriefQuality", () => {
 
     const quality = validateDigestBriefQuality(brief);
 
-    expect(quality.valid).toBe(false);
-    expect(quality.reasons).toEqual(expect.arrayContaining([
-      "lead must contain 60-80 words",
-      "briefing must contain at least one concrete watchlist signal",
-    ]));
+    expect(quality.valid).toBe(true);
+    expect(quality.hardErrors).toEqual([]);
+    expect(quality.warnings.length).toBeGreaterThan(0);
   });
 
   it("accepts a focused 350-550 word briefing", () => {
@@ -286,7 +284,7 @@ describe("validateDigestBriefQuality", () => {
     }), 4);
 
     expect(brief).not.toBeNull();
-    expect(validateDigestBriefQuality(brief!).reasons).toContain("all reader-facing text must be written in Polish");
+    expect(validateDigestBriefQuality(brief!).hardErrors).toContain("reader-facing text is predominantly not Polish");
   });
 });
 
@@ -404,7 +402,7 @@ describe("digestBriefWithNvidia", () => {
     vi.unstubAllEnvs();
   });
 
-  it("expands a terse DiffusionGemma briefing with small parallel requests", async () => {
+  it("accepts a parseable terse briefing with warnings and one request", async () => {
     vi.stubEnv("NVIDIA_API_KEY", "test-key");
     vi.stubEnv("NVIDIA_MODEL", "google/diffusiongemma-26b-a4b-it");
     const words = (prefix: string, count: number) =>
@@ -453,13 +451,13 @@ describe("digestBriefWithNvidia", () => {
     });
 
     expect(result.status).toBe("generated");
-    expect(validateDigestBriefQuality(result.brief).actualTotalWords).toBeGreaterThanOrEqual(350);
-    expect(fetchMock).toHaveBeenCalledTimes(5);
+    expect(validateDigestBriefQuality(result.brief).warnings.length).toBeGreaterThan(0);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
     vi.unstubAllGlobals();
     vi.unstubAllEnvs();
   });
 
-  it("makes exactly one correction request after an incomplete first response", async () => {
+  it("does not make a correction request for a parseable response", async () => {
     vi.stubEnv("NVIDIA_API_KEY", "test-key");
     const responseContent = JSON.stringify({
       coverageNote: "Brak danych.",
@@ -494,7 +492,7 @@ describe("digestBriefWithNvidia", () => {
       model: "nvidia/nemotron-3.5-lightning-30b-a3b",
     });
 
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
     for (const [, init] of fetchMock.mock.calls) {
       const request = JSON.parse(String(init?.body));
       expect(request.response_format).toEqual({ type: "json_object" });
@@ -542,7 +540,7 @@ describe("digestBriefWithNvidia", () => {
     expect(firstRequest.messages[1].content).toContain("Techniczny ID źródła (tylko do pól articleIndex/articleIndexes): 9");
     expect(firstRequest.messages[1].content).not.toContain("Techniczny ID źródła (tylko do pól articleIndex/articleIndexes): 10");
     expect(firstRequest.messages[1].content).not.toContain("x".repeat(351));
-    expect(firstRequest.max_tokens).toBe(1_200);
+    expect(firstRequest.max_tokens).toBe(2_400);
     expect(firstRequest.messages[0].content).toContain("Nie podawaj w tekście łącznej liczby newsów");
     expect(result.highlights[0]?.articleIndex).toBe(9);
     vi.unstubAllGlobals();
@@ -587,7 +585,7 @@ describe("digestBriefWithNvidia", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it("allows 40 seconds to correct an invalid initial response", async () => {
+  it("does not correct invalid output in the same invocation", async () => {
     vi.useFakeTimers();
     vi.stubEnv("NVIDIA_API_KEY", "test-key");
     const fetchMock = vi
@@ -620,15 +618,14 @@ describe("digestBriefWithNvidia", () => {
       resolved = true;
     });
 
-    await vi.advanceTimersByTimeAsync(39_999);
-    const resolvedBeforeTimeout = resolved;
     await vi.advanceTimersByTimeAsync(1);
+    const resolvedBeforeTimeout = resolved;
     await digestPromise;
     vi.useRealTimers();
     vi.unstubAllGlobals();
     vi.unstubAllEnvs();
 
-    expect(resolvedBeforeTimeout).toBe(false);
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(resolvedBeforeTimeout).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
