@@ -311,6 +311,25 @@ describe("advanceDigestRun", () => {
     expect(state.runStageForRun).toHaveBeenCalledWith(claimedEditorialScoring, "run-1");
   });
 
+  it("schedules a fresh background invocation when yielding before reader publication", async () => {
+    const editorialScoring = stage({ stage_name: "editorial_scoring" });
+    const claimedEditorialScoring = stage({
+      ...editorialScoring,
+      attempt_count: 1,
+      started_at: "2026-06-19T10:00:00.000Z",
+      status: "running",
+    });
+    const scheduleContinuation = vi.fn().mockResolvedValue(undefined);
+
+    state.getDigestRunById.mockResolvedValueOnce(run({ stages: [editorialScoring], status: "running" }));
+    state.maybeSingleResults = [{ data: claimedEditorialScoring, error: null }];
+    const executor = await import("./digest-stage-executor");
+
+    await executor.advanceDigestRunUntilIdle("run-1", { scheduleContinuation });
+
+    expect(scheduleContinuation).toHaveBeenCalledOnce();
+  });
+
   it("yields after a retryable reader publication attempt", async () => {
     const readerPublication = stage({ stage_name: "reader_publication" });
     const claimedReaderPublication = stage({
@@ -325,13 +344,15 @@ describe("advanceDigestRun", () => {
       complete: false,
       message: "AI briefing will retry.",
     });
+    const scheduleContinuation = vi.fn().mockResolvedValue(undefined);
     const executor = await import("./digest-stage-executor");
 
-    await expect(executor.advanceDigestRunUntilIdle("run-1")).resolves.toMatchObject({
+    await expect(executor.advanceDigestRunUntilIdle("run-1", { scheduleContinuation })).resolves.toMatchObject({
       advancedStage: "reader_publication",
       message: "AI briefing will retry.",
       status: "running",
     });
     expect(state.runStageForRun).toHaveBeenCalledOnce();
+    expect(scheduleContinuation).toHaveBeenCalledOnce();
   });
 });

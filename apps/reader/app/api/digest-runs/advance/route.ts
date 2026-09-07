@@ -1,6 +1,7 @@
 import { after, NextResponse } from "next/server";
 
-import { advanceDigestRun, advanceDigestRunUntilIdle } from "@/lib/digest-stage-executor";
+import { scheduleDigestRunContinuation } from "@/lib/digest-run-continuation";
+import { advanceDigestRunUntilIdle } from "@/lib/digest-stage-executor";
 import { getActiveDigestRun } from "@/lib/digest-runs";
 import { getCurrentOperator } from "@/lib/operator";
 
@@ -16,7 +17,7 @@ function logBackgroundAdvanceError(error: unknown) {
   });
 }
 
-async function advanceActiveRun() {
+async function advanceActiveRunUntilIdle(requestUrl: string) {
   const run = await getActiveDigestRun();
 
   if (!run) {
@@ -27,21 +28,9 @@ async function advanceActiveRun() {
     };
   }
 
-  return advanceDigestRun(run.id);
-}
-
-async function advanceActiveRunUntilIdle() {
-  const run = await getActiveDigestRun();
-
-  if (!run) {
-    return {
-      advancedStage: null,
-      message: "No active digest run.",
-      status: "idle",
-    };
-  }
-
-  return advanceDigestRunUntilIdle(run.id);
+  return advanceDigestRunUntilIdle(run.id, {
+    scheduleContinuation: () => scheduleDigestRunContinuation(requestUrl),
+  });
 }
 
 export async function GET(request: Request) {
@@ -52,16 +41,28 @@ export async function GET(request: Request) {
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
   }
 
-  try {
-    const result = await advanceActiveRun();
+  after(async () => {
+    try {
+      await advanceActiveRunUntilIdle(request.url);
+    } catch (error) {
+      logBackgroundAdvanceError(error);
+    }
+  });
 
-    return NextResponse.json({ ok: true, result });
-  } catch (error) {
-    return NextResponse.json({ ok: false, error: errorMessage(error) }, { status: 500 });
-  }
+  return NextResponse.json(
+    {
+      ok: true,
+      result: {
+        advancedStage: null,
+        message: "Digest run advancement scheduled.",
+        status: "scheduled",
+      },
+    },
+    { status: 202 },
+  );
 }
 
-export async function POST() {
+export async function POST(request: Request) {
   const user = await getCurrentOperator();
 
   if (!user) {
@@ -70,7 +71,7 @@ export async function POST() {
 
   after(async () => {
     try {
-      await advanceActiveRunUntilIdle();
+      await advanceActiveRunUntilIdle(request.url);
     } catch (error) {
       logBackgroundAdvanceError(error);
     }

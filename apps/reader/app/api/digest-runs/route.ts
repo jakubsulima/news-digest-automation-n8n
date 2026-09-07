@@ -1,5 +1,6 @@
 import { after, NextResponse } from "next/server";
 
+import { scheduleDigestRunContinuation } from "@/lib/digest-run-continuation";
 import { advanceDigestRunUntilIdle } from "@/lib/digest-stage-executor";
 import { getDigestRunStatus, startOrGetActiveDigestRun } from "@/lib/digest-runs";
 import { getCurrentOperator } from "@/lib/operator";
@@ -28,7 +29,7 @@ export async function GET() {
   return NextResponse.json({ ok: true, run });
 }
 
-export async function POST() {
+export async function POST(request: Request) {
   const user = await getCurrentOperator();
 
   if (!user) {
@@ -39,7 +40,9 @@ export async function POST() {
 
   after(async () => {
     try {
-      await advanceDigestRunUntilIdle(run.id);
+      await advanceDigestRunUntilIdle(run.id, {
+        scheduleContinuation: () => scheduleDigestRunContinuation(request.url),
+      });
     } catch (error) {
       logBackgroundAdvanceError(error);
     }
