@@ -27,7 +27,9 @@ async function advanceV2(run: Awaited<ReturnType<typeof getDigestRunById>> & {})
   const rpc = supabase.rpc.bind(supabase) as unknown as (name: string, args: Record<string, unknown>) => Promise<{ data: PipelineStageRun | boolean | null; error: { message: string } | null }>;
   const claim = await rpc("claim_next_digest_stage", { p_lease_seconds: 150, p_run_id: run.id });
   if (claim.error) throw claim.error;
-  const stage = claim.data && typeof claim.data === "object" ? claim.data as PipelineStageRun : null;
+  const stage = claim.data && typeof claim.data === "object" && "id" in claim.data && claim.data.id
+    ? claim.data as PipelineStageRun
+    : null;
   if (!stage) return { runId: run.id, status: "running", advancedStage: null, message: "No v2 stage is ready." };
   const leaseToken = stage.lease_token;
   if (!leaseToken) throw new Error("Claim returned no lease token.");
