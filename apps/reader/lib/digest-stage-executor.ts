@@ -9,6 +9,11 @@ import { createSupabaseAdminClient } from "./supabase";
 const RUNNING_STAGE_STALE_MS = 150_000;
 const DEFAULT_ADVANCE_UNTIL_IDLE_BUDGET_MS = 90_000;
 
+type AdvanceDigestRunUntilIdleOptions = {
+  budgetMs?: number;
+  scheduleContinuation?: () => Promise<void>;
+};
+
 type AdvanceDigestRunResult = {
   runId: string;
   status: DigestRun["status"];
@@ -253,8 +258,9 @@ export async function advanceDigestRun(digestRunId: string): Promise<AdvanceDige
 
 export async function advanceDigestRunUntilIdle(
   digestRunId: string,
-  budgetMs = DEFAULT_ADVANCE_UNTIL_IDLE_BUDGET_MS,
+  options: AdvanceDigestRunUntilIdleOptions = {},
 ): Promise<AdvanceDigestRunResult> {
+  const { budgetMs = DEFAULT_ADVANCE_UNTIL_IDLE_BUDGET_MS, scheduleContinuation } = options;
   const startedAtMs = Date.now();
 
   while (Date.now() - startedAtMs < budgetMs) {
@@ -272,9 +278,12 @@ export async function advanceDigestRunUntilIdle(
     // a digest. Start it in a fresh invocation and yield after each attempt so a
     // queued retry never consumes the same serverless function budget.
     if (result.advancedStage === "editorial_scoring" || result.advancedStage === "reader_publication") {
+      await scheduleContinuation?.();
       return result;
     }
   }
+
+  await scheduleContinuation?.();
 
   return {
     runId: digestRunId,
