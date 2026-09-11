@@ -21,8 +21,9 @@
   },
   "pnpm": {
     "overrides": {
+      "baseline-browser-mapping": "2.11.21",
       "browserslist": "4.28.7",
-      "next>sharp": "0.35.3",
+      "next>sharp": "0.35.4",
       "postcss": ">=8.5.18",
       "postcss>nanoid": "3.3.18"
     }
