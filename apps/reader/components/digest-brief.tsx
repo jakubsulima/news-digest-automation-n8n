@@ -3,14 +3,20 @@
 import { ArrowRight, Clock3, ExternalLink, ListTree, Newspaper, ShieldCheck } from "lucide-react";
 import Link from "next/link";
 
+import { NewsItemFeedbackActions } from "@/components/news-item-feedback-actions";
 import { useLocalize, useReaderLocale } from "@/components/reader-locale-provider";
 import { buttonVariants } from "@/components/ui/button";
 import type { DigestBrief, DigestBriefSupport } from "@/lib/digest-brief";
+import type { FeedbackReason, FeedbackSentiment } from "@/lib/reader-feedback";
 import { localize, type ReaderLocale } from "@/lib/reader-locale";
 import { evidenceStatusDescription, evidenceStatusLabel } from "@/lib/evidence";
 
 type DigestBriefProps = {
   brief: DigestBrief;
+  feedbackByNewsItemId?: Record<string, {
+    feedback: FeedbackSentiment | null;
+    feedbackReason: FeedbackReason | null;
+  }>;
 };
 
 const TECHNICAL_REASON_COPY: Record<string, readonly [string, string]> = {
@@ -71,7 +77,7 @@ function BriefHighlights({ highlights }: { highlights: DigestBrief["highlights"]
   );
 }
 
-export function DigestBriefCard({ brief }: DigestBriefProps) {
+export function DigestBriefCard({ brief, feedbackByNewsItemId = {} }: DigestBriefProps) {
   const l = useLocalize();
   const summaryNewsItemIds = new Set(brief.summaryReferences.map((reference) => reference.newsItemId));
   const additionalHighlights = brief.highlights.filter((highlight) => !summaryNewsItemIds.has(highlight.newsItemId));
@@ -95,7 +101,7 @@ export function DigestBriefCard({ brief }: DigestBriefProps) {
         <p className="mt-5 max-w-3xl text-base leading-7 text-foreground/90 md:mt-6 md:text-[1.05rem] md:leading-8">
           {brief.summary}
         </p>
-        <SummaryReferenceLinks references={brief.summaryReferences} />
+        <SummaryReferenceLinks feedbackByNewsItemId={feedbackByNewsItemId} references={brief.summaryReferences} />
       </div>
 
       <div className="px-4 py-6 md:px-7 md:py-8">
@@ -187,7 +193,13 @@ function EvidenceSupport({ support }: { support: DigestBriefSupport }) {
   );
 }
 
-function SummaryReferenceLinks({ references }: { references: DigestBrief["summaryReferences"] }) {
+function SummaryReferenceLinks({
+  feedbackByNewsItemId,
+  references,
+}: {
+  feedbackByNewsItemId: NonNullable<DigestBriefProps["feedbackByNewsItemId"]>;
+  references: DigestBrief["summaryReferences"];
+}) {
   const l = useLocalize();
 
   if (!references.length) return null;
@@ -196,23 +208,46 @@ function SummaryReferenceLinks({ references }: { references: DigestBrief["summar
     <div className="mt-4" aria-label={l("Źródła podsumowania", "Summary sources")}>
       <p className="mb-2 text-xs font-semibold text-foreground/60">{l("Co potwierdzają źródła:", "What the sources confirm:")}</p>
       <ul className="grid gap-2 sm:grid-cols-2">
-        {references.map((reference) => (
-          <li key={reference.newsItemId}>
-            <a
-              href={reference.sourceUrl ?? `/news/${reference.newsItemId}`}
-              target={reference.sourceUrl ? "_blank" : undefined}
-              rel={reference.sourceUrl ? "noreferrer" : undefined}
-              title={reference.title}
-              className="group flex h-full items-start gap-2 rounded-lg border border-border/80 bg-background px-3 py-2 text-xs leading-5 transition-colors hover:border-primary/50 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-            >
-              <ExternalLink className="mt-0.5 size-3.5 shrink-0 text-primary" aria-hidden="true" />
-              <span className="min-w-0">
-                <span className="block font-semibold text-primary">{reference.source}</span>
-                <span className="line-clamp-2 block text-foreground/75 group-hover:text-primary">{reference.whatHappened}</span>
-              </span>
-            </a>
-          </li>
-        ))}
+        {references.map((reference) => {
+          const feedback = feedbackByNewsItemId[reference.newsItemId];
+
+          return (
+            <li key={reference.newsItemId} className="grid overflow-hidden rounded-lg border border-border/80 bg-background transition-colors hover:border-primary/40">
+              <div className="flex min-w-0 items-start gap-2 px-3 py-2 text-xs leading-5">
+                <Newspaper className="mt-0.5 size-3.5 shrink-0 text-primary" aria-hidden="true" />
+                <span className="min-w-0">
+                  <span className="block font-semibold text-primary">{reference.source}</span>
+                  <span className="line-clamp-2 block text-foreground/75">{reference.whatHappened}</span>
+                </span>
+              </div>
+              <div className="flex items-center justify-between gap-2 border-t border-border/70 px-2 py-1.5">
+                <a
+                  href={reference.sourceUrl ?? `/news/${reference.newsItemId}`}
+                  target={reference.sourceUrl ? "_blank" : undefined}
+                  rel={reference.sourceUrl ? "noreferrer" : undefined}
+                  title={reference.title}
+                  className={buttonVariants({
+                    variant: "ghost",
+                    size: "sm",
+                    className: "h-8 px-2 text-xs text-primary",
+                  })}
+                >
+                  <ExternalLink aria-hidden="true" />
+                  {reference.sourceUrl ? l("Czytaj źródło", "Read source") : l("Szczegóły newsa", "Story details")}
+                </a>
+                <NewsItemFeedbackActions
+                  buttonClassName="h-8 border-transparent bg-muted/55 px-2.5 hover:bg-muted focus-visible:border-transparent"
+                  buttonSize="sm"
+                  feedback={feedback?.feedback ?? null}
+                  feedbackReason={feedback?.feedbackReason ?? null}
+                  itemId={reference.newsItemId}
+                  likeOnly
+                  showLabels
+                />
+              </div>
+            </li>
+          );
+        })}
       </ul>
     </div>
   );

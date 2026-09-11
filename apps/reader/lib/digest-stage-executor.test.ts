@@ -11,6 +11,7 @@ const state = vi.hoisted(() => ({
     table: string;
   }>,
   pruneCompletedDigestRuns: vi.fn(),
+  rpc: vi.fn(),
   runStageForRun: vi.fn(),
 }));
 
@@ -27,6 +28,7 @@ vi.mock("./digest-builder/stage-registry", () => ({
 
 vi.mock("./supabase", () => ({
   createSupabaseAdminClient: () => ({
+    rpc: state.rpc,
     from: (table: string) => {
       let currentOperation: (typeof state.operations)[number] | null = null;
       const query = {
@@ -112,6 +114,7 @@ describe("advanceDigestRun", () => {
     state.operations = [];
     state.pruneCompletedDigestRuns.mockReset();
     state.pruneCompletedDigestRuns.mockResolvedValue({ deletedRunCount: 0, retentionLimit: 100 });
+    state.rpc.mockReset();
     state.runStageForRun.mockReset();
     state.runStageForRun.mockResolvedValue({});
   });
@@ -127,6 +130,26 @@ describe("advanceDigestRun", () => {
     });
     expect(state.runStageForRun).not.toHaveBeenCalled();
     expect(state.operations).toHaveLength(0);
+  });
+
+  it("treats an empty composite RPC result as no v2 stage ready", async () => {
+    state.getDigestRunById.mockResolvedValue(run({ metadata: { pipelineVersion: 2 }, status: "running" }));
+    state.rpc.mockResolvedValue({
+      data: {
+        id: null,
+        lease_token: null,
+        stage_name: null,
+      },
+      error: null,
+    });
+    const { advanceDigestRun } = await import("./digest-stage-executor");
+
+    await expect(advanceDigestRun("run-1")).resolves.toMatchObject({
+      advancedStage: null,
+      message: "No v2 stage is ready.",
+      status: "running",
+    });
+    expect(state.runStageForRun).not.toHaveBeenCalled();
   });
 
   it("does not claim a fresh running stage again", async () => {

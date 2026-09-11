@@ -36,6 +36,12 @@ export default async function HomePage() {
     getReaderLocale(),
   ]);
   const allInitialItems = Object.values(feedPage.grouped).flat();
+  const feedbackByNewsItemId = Object.fromEntries(
+    allInitialItems.map((item) => [item.id, {
+      feedback: item.feedback,
+      feedbackReason: item.feedbackReason,
+    }]),
+  );
   const brief = digestBrief || fallbackDigestBriefFromNews(
     allInitialItems,
   );
@@ -76,7 +82,7 @@ export default async function HomePage() {
             ) : null
           }
         />
-        {brief ? <DigestBriefCard brief={brief} /> : null}
+        {brief ? <DigestBriefCard brief={brief} feedbackByNewsItemId={feedbackByNewsItemId} /> : null}
       </main>
     </>
   );

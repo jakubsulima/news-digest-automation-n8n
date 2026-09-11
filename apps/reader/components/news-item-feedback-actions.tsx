@@ -15,6 +15,7 @@ type NewsItemFeedbackActionsProps = {
   itemId: string;
   feedback: FeedbackSentiment | null;
   feedbackReason?: FeedbackReason | null;
+  likeOnly?: boolean;
   showLabels?: boolean;
   onFeedbackChange?: (feedback: FeedbackSentiment | null, reason: FeedbackReason | null) => void;
 };
@@ -36,6 +37,7 @@ export function NewsItemFeedbackActions({
   itemId,
   feedback,
   feedbackReason = null,
+  likeOnly = false,
   showLabels = false,
   onFeedbackChange,
 }: NewsItemFeedbackActionsProps) {
@@ -101,32 +103,46 @@ export function NewsItemFeedbackActions({
         size={buttonSize}
         className={buttonClassName}
         type="button"
-        title={l("Więcej takich newsów", "More stories like this")}
-        aria-label={l("Więcej takich newsów", "More stories like this")}
+        title={likeOnly
+          ? activeFeedback === "more"
+            ? l("Usuń polubienie", "Remove like")
+            : l("Polub ten news", "Like this story")
+          : l("Więcej takich newsów", "More stories like this")}
+        aria-label={likeOnly
+          ? activeFeedback === "more"
+            ? l("Usuń polubienie", "Remove like")
+            : l("Polub ten news", "Like this story")
+          : l("Więcej takich newsów", "More stories like this")}
+        aria-pressed={activeFeedback === "more"}
         disabled={pendingFeedback !== null}
         onClick={() => void updateFeedback(activeFeedback === "more" ? null : "more", "topic")}
       >
         {pendingFeedback === "more" ? <Loader2 className="animate-spin" aria-hidden="true" /> : <ThumbsUp aria-hidden="true" />}
-        {showLabels ? <span>{l("Więcej", "More")}</span> : null}
+        {showLabels ? (
+          <span>{likeOnly ? activeFeedback === "more" ? l("Polubiono", "Liked") : l("Lubię", "Like") : l("Więcej", "More")}</span>
+        ) : null}
       </Button>
-      <Button
-        variant={activeFeedback === "less" ? "destructive" : "outline"}
-        size={buttonSize}
-        className={buttonClassName}
-        type="button"
-        title={l("Mniej takich newsów", "Fewer stories like this")}
-        aria-label={l("Mniej takich newsów", "Fewer stories like this")}
-        disabled={pendingFeedback !== null}
-        onClick={() => activeFeedback === "less" ? void updateFeedback(null, activeReason || "topic") : setReasonMenuOpen((value) => !value)}
-      >
-        {pendingFeedback === "less" ? (
-          <Loader2 className="animate-spin" aria-hidden="true" />
-        ) : (
-          <ThumbsDown aria-hidden="true" />
-        )}
-        {showLabels ? <span>{l("Mniej", "Less")}</span> : null}
-      </Button>
-      {activeFeedback === "more" ? (
+      {!likeOnly ? (
+        <Button
+          variant={activeFeedback === "less" ? "destructive" : "outline"}
+          size={buttonSize}
+          className={buttonClassName}
+          type="button"
+          title={l("Mniej takich newsów", "Fewer stories like this")}
+          aria-label={l("Mniej takich newsów", "Fewer stories like this")}
+          aria-pressed={activeFeedback === "less"}
+          disabled={pendingFeedback !== null}
+          onClick={() => activeFeedback === "less" ? void updateFeedback(null, activeReason || "topic") : setReasonMenuOpen((value) => !value)}
+        >
+          {pendingFeedback === "less" ? (
+            <Loader2 className="animate-spin" aria-hidden="true" />
+          ) : (
+            <ThumbsDown aria-hidden="true" />
+          )}
+          {showLabels ? <span>{l("Mniej", "Less")}</span> : null}
+        </Button>
+      ) : null}
+      {!likeOnly && activeFeedback === "more" ? (
         <div className="flex flex-wrap gap-1" role="group" aria-label={l("Co preferować?", "What should be preferred?")}>
           <Button
             variant={activeReason === "source" ? "secondary" : "ghost"}
@@ -148,7 +164,7 @@ export function NewsItemFeedbackActions({
           </Button>
         </div>
       ) : null}
-      {reasonMenuOpen ? (
+      {!likeOnly && reasonMenuOpen ? (
         <div className="flex flex-wrap gap-1" role="group" aria-label={l("Dlaczego pokazywać mniej takich newsów?", "Why show fewer stories like this?")}>
           {([
             ["topic", l("Temat", "Topic")],
