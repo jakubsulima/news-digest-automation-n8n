@@ -55,7 +55,7 @@ The domain language is defined in `CONTEXT.md`. Load-bearing decisions are recor
 
 ## Requirements
 
-- Node.js `>=20.9.0`
+- Node.js `22.x`
 - pnpm `>=10.30.1`
 - Supabase project with Auth enabled
 - Vercel project connected to this GitHub repository

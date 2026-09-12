@@ -7,7 +7,7 @@ const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const nextConfig: NextConfig = {
   allowedDevOrigins: ["127.0.0.1", "localhost"],
   devIndicators: false,
-  output: "standalone",
+  output: process.env.VERCEL ? undefined : "standalone",
   turbopack: {
     root: repoRoot,
   },
